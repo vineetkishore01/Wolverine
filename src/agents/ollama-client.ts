@@ -1,5 +1,16 @@
-import { Ollama } from 'ollama';
-import { getConfig } from '../config/config';
+/**
+ * ollama-client.ts
+ *
+ * COMPATIBILITY SHIM — all existing code (reactor.ts, manager.ts, etc.)
+ * continues to import this file unchanged. Internally it now delegates
+ * to whichever LLMProvider is active in the factory.
+ *
+ * To switch providers, change config.llm.provider and restart (or call
+ * resetProvider() from the settings API). No other files need touching.
+ */
+
+import { getProvider, getModelForRole, getPrimaryModel, resetProvider } from '../providers/factory';
+import type { LLMProvider } from '../providers/LLMProvider';
 import { AgentRole } from '../types';
 
 export interface GenerateOutput {
@@ -13,39 +24,12 @@ export interface ChatOutput {
 }
 
 export class OllamaClient {
-  private client: Ollama;
-  private _endpoint: string;
 
-  constructor() {
-    this._endpoint = getConfig().getConfig().ollama.endpoint;
-    this.client = new Ollama({ host: this._endpoint });
+  private get provider(): LLMProvider {
+    return getProvider();
   }
 
-  // Re-creates the Ollama client if the endpoint changed (e.g. after settings update)
-  private getClient(): Ollama {
-    const currentEndpoint = getConfig().getConfig().ollama.endpoint;
-    if (currentEndpoint !== this._endpoint) {
-      this._endpoint = currentEndpoint;
-      this.client = new Ollama({ host: this._endpoint });
-    }
-    return this.client;
-  }
-
-  async generate(
-    prompt: string,
-    role: AgentRole,
-    options?: {
-      temperature?: number;
-      format?: 'json';
-      system?: string;
-      num_ctx?: number;
-      num_predict?: number;
-      think?: boolean | 'high' | 'medium' | 'low';
-    }
-  ): Promise<string> {
-    const out = await this.generateWithThinking(prompt, role, options);
-    return out.response;
-  }
+  // ─── Chat ───────────────────────────────────────────────────────────────────
 
   async chatWithThinking(
     messages: Array<any>,
@@ -58,54 +42,18 @@ export class OllamaClient {
       tools?: any[];
     }
   ): Promise<ChatOutput> {
-    const liveConfig = getConfig().getConfig();
-    const model = liveConfig.models.roles[role] || liveConfig.models.primary;
-    const requestedThink = options?.think;
-    const thinkCandidates: Array<boolean | 'high' | 'medium' | 'low' | undefined> = [];
-    const pushUnique = (v: boolean | 'high' | 'medium' | 'low' | undefined) => {
-      if (!thinkCandidates.some(x => x === v)) thinkCandidates.push(v);
-    };
-    pushUnique(requestedThink);
-    // Prefer low/no-think for latency; keep think=true only as last resort compatibility.
-    if (requestedThink !== 'low') pushUnique('low');
-    pushUnique(undefined);
-    if (requestedThink !== true) pushUnique(true);
-    pushUnique('medium');
-
-    let lastError: any = null;
-    for (const think of thinkCandidates) {
-      try {
-        const response: any = await this.getClient().chat({
-          model,
-          messages,
-          tools: options?.tools,
-          ...(Array.isArray(options?.tools) && options!.tools!.length ? { tool_choice: 'auto' } : {}),
-          options: {
-            temperature: options?.temperature ?? 0.25,
-            top_p: 0.9,
-            num_ctx: options?.num_ctx ?? 4096,
-            num_predict: options?.num_predict ?? 256,
-          },
-          ...(think === undefined ? {} : { think }),
-          stream: false,
-        } as any);
-
-        const message = response?.message || {
-          role: 'assistant',
-          content: String(response?.response || ''),
-        };
-        return { message, thinking: response?.thinking };
-      } catch (error: any) {
-        lastError = error;
-        const msg = String(error?.message || error || '');
-        const thinkUnsupported = /think value .* not supported|invalid think|think .* not supported/i.test(msg);
-        if (!thinkUnsupported) {
-          throw new Error(`Ollama chat failed: ${msg}`);
-        }
-      }
-    }
-    throw new Error(`Ollama chat failed: ${lastError?.message || 'Unknown error'}`);
+    const model = getModelForRole(role);
+    const result = await this.provider.chat(messages, model, {
+      temperature: options?.temperature,
+      max_tokens:  options?.num_predict,
+      num_ctx:     options?.num_ctx,
+      tools:       options?.tools,
+      think:       options?.think,
+    });
+    return { message: result.message, thinking: result.thinking };
   }
+
+  // ─── Generate ───────────────────────────────────────────────────────────────
 
   async generateWithThinking(
     prompt: string,
@@ -119,62 +67,26 @@ export class OllamaClient {
       think?: boolean | 'high' | 'medium' | 'low';
     }
   ): Promise<GenerateOutput> {
-    const liveConfig = getConfig().getConfig();
-    const model = liveConfig.models.roles[role] || liveConfig.models.primary;
-    const requestedThink = options?.think;
-    const thinkCandidates: Array<boolean | 'high' | 'medium' | 'low' | undefined> = [];
-    const pushUnique = (v: boolean | 'high' | 'medium' | 'low' | undefined) => {
-      if (!thinkCandidates.some(x => x === v)) thinkCandidates.push(v);
-    };
-    pushUnique(requestedThink);
-    // Prefer low/no-think for latency; keep think=true only as last resort compatibility.
-    if (requestedThink !== 'low') pushUnique('low');
-    pushUnique(undefined);
-    if (requestedThink !== true) pushUnique(true);
-    pushUnique('medium');
+    const model = getModelForRole(role);
+    return this.provider.generate(prompt, model, {
+      temperature: options?.temperature,
+      format:      options?.format,
+      system:      options?.system,
+      num_ctx:     options?.num_ctx,
+      max_tokens:  options?.num_predict,
+      think:       options?.think,
+    });
+  }
 
-    let lastError: any = null;
-    for (const think of thinkCandidates) {
-      try {
-        const response = await this.getClient().generate({
-          model,
-          prompt,
-          system: options?.system,
-          format: options?.format,
-          options: {
-            temperature: options?.temperature ?? 0.3,
-            top_p: 0.9,
-            num_ctx: options?.num_ctx ?? 2048,
-            num_predict: options?.num_predict ?? 256,
-          },
-          ...(think === undefined ? {} : { think }),
-          stream: false
-        });
-
-        return { response: response.response, thinking: response.thinking };
-      } catch (error: any) {
-        lastError = error;
-        const msg = String(error?.message || error || '');
-        const thinkUnsupported = /think value .* not supported|invalid think|think .* not supported/i.test(msg);
-        if (!thinkUnsupported) {
-          throw new Error(`Ollama generation failed: ${msg}`);
-        }
-      }
-    }
-    throw new Error(`Ollama generation failed: ${lastError?.message || 'Unknown error'}`);
+  async generate(prompt: string, role: AgentRole, options?: Parameters<OllamaClient['generateWithThinking']>[2]): Promise<string> {
+    const out = await this.generateWithThinking(prompt, role, options);
+    return out.response;
   }
 
   async generateWithRetry(
     prompt: string,
     role: AgentRole,
-    options?: {
-      temperature?: number;
-      format?: 'json';
-      system?: string;
-      num_ctx?: number;
-      num_predict?: number;
-      think?: boolean | 'high' | 'medium' | 'low';
-    },
+    options?: Parameters<OllamaClient['generateWithThinking']>[2],
     maxRetries: number = 3
   ): Promise<string> {
     const out = await this.generateWithRetryThinking(prompt, role, options, maxRetries);
@@ -184,18 +96,10 @@ export class OllamaClient {
   async generateWithRetryThinking(
     prompt: string,
     role: AgentRole,
-    options?: {
-      temperature?: number;
-      format?: 'json';
-      system?: string;
-      num_ctx?: number;
-      num_predict?: number;
-      think?: boolean | 'high' | 'medium' | 'low';
-    },
+    options?: Parameters<OllamaClient['generateWithThinking']>[2],
     maxRetries: number = 3
   ): Promise<GenerateOutput> {
     let lastError: Error | null = null;
-
     for (let i = 0; i < maxRetries; i++) {
       try {
         return await this.generateWithThinking(prompt, role, options);
@@ -203,15 +107,15 @@ export class OllamaClient {
         lastError = error;
         console.warn(`Attempt ${i + 1}/${maxRetries} failed:`, error.message);
         if (i < maxRetries - 1) {
-          await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
+          await new Promise(r => setTimeout(r, Math.pow(2, i) * 1000));
         }
       }
     }
-
     throw lastError || new Error('Generation failed after retries');
   }
 
-  // Dedicated synthesis call — higher context, no tool loop, just combine facts into prose
+  // ─── Synthesis ──────────────────────────────────────────────────────────────
+
   async synthesize(facts: string[], originalQuestion: string, systemPrompt: string): Promise<string> {
     const out = await this.synthesizeWithThinking(facts, originalQuestion, systemPrompt);
     return out.response;
@@ -224,7 +128,6 @@ export class OllamaClient {
     think: boolean | 'high' | 'medium' | 'low' = 'high'
   ): Promise<GenerateOutput> {
     const factsText = facts.map((f, i) => `[${i + 1}] ${f}`).join('\n\n');
-
     const prompt =
       `You found the following information to answer the user's question.\n\n` +
       `User asked: ${originalQuestion}\n\n` +
@@ -236,114 +139,95 @@ export class OllamaClient {
     const raw = await this.generateWithRetryThinking(prompt, 'executor', {
       temperature: 0.4,
       system: systemPrompt,
-      num_ctx: 3072,  // more room since there's no tool loop overhead
+      num_ctx: 3072,
       think,
     });
 
     return {
       response: raw.response
-      .replace(/<think>[\s\S]*?<\/think>/gi, '')
-      .replace(/<think>[\s\S]*/gi, '')
-      .trim(),
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/<think>[\s\S]*/gi, '')
+        .trim(),
       thinking: raw.thinking,
     };
   }
 
+  // ─── Model Management (Ollama-only, graceful no-op for others) ──────────────
+
   async listModels(): Promise<string[]> {
     try {
-      const response = await this.getClient().list();
-      return response.models.map((m: any) => m.name);
-    } catch (error: any) {
-      throw new Error(`Failed to list models: ${error.message}`);
-    }
+      const models = await this.provider.listModels();
+      return models.map(m => m.name);
+    } catch { return []; }
   }
 
   async checkModelExists(modelName: string): Promise<boolean> {
-    try {
-      const models = await this.listModels();
-      return models.includes(modelName);
-    } catch {
-      return false;
-    }
+    const models = await this.listModels();
+    return models.includes(modelName);
   }
 
   async pullModel(modelName: string): Promise<void> {
-    console.log(`Pulling model: ${modelName}...`);
-    try {
-      await this.client.pull({ model: modelName, stream: false });
-      console.log(`Model ${modelName} pulled successfully`);
-    } catch (error: any) {
-      throw new Error(`Failed to pull model: ${error.message}`);
+    const p = this.provider as any;
+    if (typeof p.pullModel === 'function') {
+      await p.pullModel(modelName);
+    } else {
+      throw new Error(`pullModel is not supported for provider "${this.provider.id}". Download models via your provider's own tool.`);
     }
   }
 
   async testConnection(): Promise<boolean> {
-    try {
-      await this.listModels();
-      return true;
-    } catch {
-      return false;
-    }
+    return this.provider.testConnection();
   }
+
+  // ─── JSON Parser (unchanged) ─────────────────────────────────────────────────
 
   parseJSON<T>(response: string): T {
     let cleaned = response.trim();
-
     if (cleaned.startsWith('```')) {
       cleaned = cleaned.replace(/^```(?:json)?\n?/m, '').replace(/\n?```\s*$/m, '');
     }
-
     cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
     cleaned = cleaned.replace(/<think>[\s\S]*/gi, '').trim();
 
     const start = cleaned.indexOf('{');
-    const end = cleaned.lastIndexOf('}');
+    const end   = cleaned.lastIndexOf('}');
 
     if (start === -1) {
-      console.error('Failed to parse JSON response. Raw output was:\n', response.slice(0, 300));
       throw new Error(`Invalid JSON response from model: SyntaxError: Unexpected end of JSON input`);
     }
 
     if (end !== -1 && end > start) {
       cleaned = cleaned.slice(start, end + 1);
     } else {
-      console.warn('JSON appears truncated, attempting repair...');
       cleaned = cleaned.slice(start);
       cleaned = cleaned.replace(/,\s*$/, '');
-
-      let openBraces = 0;
-      let openBrackets = 0;
-      let inString = false;
-      let escaped = false;
+      let openBraces = 0, openBrackets = 0, inString = false, escaped = false;
       for (const ch of cleaned) {
-        if (escaped) { escaped = false; continue; }
+        if (escaped)         { escaped = false; continue; }
         if (ch === '\\' && inString) { escaped = true; continue; }
-        if (ch === '"') { inString = !inString; continue; }
-        if (inString) continue;
-        if (ch === '{') openBraces++;
-        else if (ch === '}') openBraces = Math.max(0, openBraces - 1);
-        else if (ch === '[') openBrackets++;
-        else if (ch === ']') openBrackets = Math.max(0, openBrackets - 1);
+        if (ch === '"')      { inString = !inString; continue; }
+        if (inString)        continue;
+        if (ch === '{')       openBraces++;
+        else if (ch === '}')  openBraces  = Math.max(0, openBraces - 1);
+        else if (ch === '[')  openBrackets++;
+        else if (ch === ']')  openBrackets = Math.max(0, openBrackets - 1);
       }
       if (inString) cleaned += '"';
       cleaned += ']'.repeat(Math.max(0, openBrackets));
       cleaned += '}'.repeat(Math.max(0, openBraces));
     }
 
-    try {
-      return JSON.parse(cleaned) as T;
-    } catch (error) {
-      console.error('Failed to parse JSON response. Raw output was:\n', response.slice(0, 300));
-      throw new Error(`Invalid JSON response from model: ${error}`);
-    }
+    return JSON.parse(cleaned) as T;
   }
 }
+
+// ─── Singleton ───────────────────────────────────────────────────────────────
 
 let ollamaInstance: OllamaClient | null = null;
 
 export function getOllamaClient(): OllamaClient {
-  if (!ollamaInstance) {
-    ollamaInstance = new OllamaClient();
-  }
+  if (!ollamaInstance) ollamaInstance = new OllamaClient();
   return ollamaInstance;
 }
+
+export { resetProvider };

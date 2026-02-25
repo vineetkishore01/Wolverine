@@ -211,12 +211,59 @@ export interface LocalClawConfig {
     brave_api_key?: string;
     search_rigor?: string;
   };
+  llm?: LLMConfig;
+  orchestration?: {
+    enabled: boolean;
+    secondary: {
+      provider: ProviderID | '';
+      model: string;
+    };
+    triggers: {
+      consecutive_failures: number;
+      stagnation_rounds: number;
+      loop_detection: boolean;
+      risky_files_threshold: number;
+      risky_tool_ops_threshold: number;
+      no_progress_seconds: number;
+    };
+    preflight: {
+      mode: 'off' | 'complex_only' | 'always';
+      allow_secondary_chat: boolean;
+    };
+    limits: {
+      assist_cooldown_rounds: number;
+      max_assists_per_turn: number;
+      max_assists_per_session: number;
+      telemetry_history_limit: number;
+    };
+  };
   agent_policy?: {
     force_web_for_fresh?: boolean;
     memory_fallback_on_search_failure?: boolean;
     auto_store_web_facts?: boolean;
     natural_language_tool_router?: boolean;
     retrieval_mode?: string;
+  };
+}
+
+// ─── Multi-Provider LLM Config ──────────────────────────────────────────────
+
+export type ProviderID = 'ollama' | 'llama_cpp' | 'lm_studio' | 'openai' | 'openai_codex';
+
+export interface OllamaProviderConfig    { endpoint: string; model: string; }
+export interface LlamaCppProviderConfig  { endpoint: string; model: string; api_key?: string; }
+export interface LMStudioProviderConfig  { endpoint: string; model: string; api_key?: string; }
+export interface OpenAIProviderConfig    { api_key: string;  model: string; }
+export interface OpenAICodexProviderConfig { model: string; } // token managed by auth/openai-oauth.ts
+
+export interface LLMConfig {
+  provider: ProviderID;
+  providers: {
+    ollama?:       OllamaProviderConfig;
+    llama_cpp?:    LlamaCppProviderConfig;
+    lm_studio?:    LMStudioProviderConfig;
+    openai?:       OpenAIProviderConfig;
+    openai_codex?: OpenAICodexProviderConfig;
   };
 }
 

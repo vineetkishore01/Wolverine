@@ -8,10 +8,10 @@ const PROJECT_CONFIG = path.join(__dirname, '..', '..', '.localclaw');
 const HOME_CONFIG = path.join(os.homedir(), '.localclaw');
 const CONFIG_DIR = fs.existsSync(PROJECT_CONFIG) ? PROJECT_CONFIG : HOME_CONFIG;
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
-const WORKSPACE_DIR = path.join(os.homedir(), 'localclaw', 'workspace');
+const WORKSPACE_DIR = path.join('d:', 'localclaw', 'workspace');
 
 export const DEFAULT_CONFIG: LocalClawConfig = {
-  version: '0.1.0',
+  version: '1.0.1',
   gateway: {
     port: 18789,
     host: '127.0.0.1',
@@ -76,6 +76,31 @@ export const DEFAULT_CONFIG: LocalClawConfig = {
   },
   workspace: {
     path: WORKSPACE_DIR
+  },
+  orchestration: {
+    enabled: false,
+    secondary: {
+      provider: '',
+      model: '',
+    },
+    triggers: {
+      consecutive_failures: 2,
+      stagnation_rounds: 3,
+      loop_detection: true,
+      risky_files_threshold: 6,
+      risky_tool_ops_threshold: 220,
+      no_progress_seconds: 90,
+    },
+    preflight: {
+      mode: 'complex_only',
+      allow_secondary_chat: false,
+    },
+    limits: {
+      assist_cooldown_rounds: 3,
+      max_assists_per_turn: 3,
+      max_assists_per_session: 18,
+      telemetry_history_limit: 100,
+    },
   }
 };
 

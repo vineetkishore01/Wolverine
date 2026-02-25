@@ -15,12 +15,22 @@ import fs from 'fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import { getConfig } from '../config/config';
 import { getOllamaClient } from '../agents/ollama-client';
-import { getSession, addMessage, getHistory, getWorkspace, clearHistory } from './session';
+import { getSession, addMessage, getHistory, getWorkspace, setWorkspace, clearHistory } from './session';
 import { TaskRunner, runTask, TaskTool, TaskState } from './task-runner';
 import { SkillsManager } from './skills-manager';
 import { browserOpen, browserSnapshot, browserClick, browserFill, browserPressKey, browserWait, browserClose, getBrowserToolDefinitions, getBrowserSessionInfo } from './browser-tools';
 import { CronScheduler } from './cron-scheduler';
 import { TelegramChannel } from './telegram-channel';
+import {
+  OrchestrationTriggerState,
+  callSecondaryPreflight,
+  callSecondaryAdvisor,
+  formatPreflightHint,
+  formatAdvisoryHint,
+  getOrchestrationConfig,
+  checkOrchestrationEligibility,
+  shouldRunPreflight,
+} from '../orchestration/multi-agent';
 
 // ─── Config ────────────────────────────────────────────────────────────────────
 
@@ -34,6 +44,45 @@ const MAX_TOOL_ROUNDS = 12;
 
 // Active tasks (keyed by session)
 const activeTasks: Map<string, TaskState> = new Map();
+
+type OrchestrationEvent = {
+  ts: number;
+  trigger: 'preflight' | 'explicit' | 'auto';
+  mode: 'planner' | 'rescue';
+  reason: string;
+  route?: string;
+};
+
+type OrchestrationSessionStats = {
+  assistCount: number;
+  events: OrchestrationEvent[];
+};
+
+const orchestrationSessionStats: Map<string, OrchestrationSessionStats> = new Map();
+
+function getOrchestrationSessionStats(sessionId: string): OrchestrationSessionStats {
+  const id = String(sessionId || 'default');
+  const existing = orchestrationSessionStats.get(id);
+  if (existing) return existing;
+  const created: OrchestrationSessionStats = { assistCount: 0, events: [] };
+  orchestrationSessionStats.set(id, created);
+  return created;
+}
+
+function recordOrchestrationEvent(
+  sessionId: string,
+  event: Omit<OrchestrationEvent, 'ts'>,
+  cfg: ReturnType<typeof getOrchestrationConfig>,
+): OrchestrationSessionStats {
+  const stats = getOrchestrationSessionStats(sessionId);
+  stats.assistCount += 1;
+  stats.events.push({ ts: Date.now(), ...event });
+  const limit = cfg?.limits?.telemetry_history_limit ?? 100;
+  if (stats.events.length > limit) {
+    stats.events = stats.events.slice(-limit);
+  }
+  return stats;
+}
 
 // Safe commands allowlist for run_command
 const SAFE_COMMANDS: Record<string, string> = {
@@ -56,9 +105,162 @@ const BLOCKED_PATTERNS = ['del ', 'rm ', 'format', 'shutdown', 'restart', 'rmdir
 const lastFilenameUsed: Map<string, string> = new Map();
 
 // Skills system
-const skillsDir = (config as any).skills?.directory || path.join(process.cwd(), '.localclaw', 'skills');
+const configuredSkillsDir = (config as any).skills?.directory || path.join(process.cwd(), '.localclaw', 'skills');
+const fallbackSkillsDir = path.join(process.cwd(), '.localclaw', 'skills');
+
+function samePath(a: string, b: string): boolean {
+  return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+}
+
+function syncMissingSkills(sourceDir: string, targetDir: string): void {
+  if (!fs.existsSync(sourceDir)) return;
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  const entries = fs.readdirSync(sourceDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const sourceSkillDir = path.join(sourceDir, entry.name);
+    const sourceSkillMd = path.join(sourceSkillDir, 'SKILL.md');
+    if (!fs.existsSync(sourceSkillMd)) continue;
+
+    const targetSkillDir = path.join(targetDir, entry.name);
+    if (fs.existsSync(path.join(targetSkillDir, 'SKILL.md'))) continue;
+    fs.cpSync(sourceSkillDir, targetSkillDir, { recursive: true });
+  }
+}
+
+function ensureMultiAgentSkill(targetDir: string): void {
+  const targetSkillDir = path.join(targetDir, 'multi-agent-orchestrator');
+  const targetSkillMd = path.join(targetSkillDir, 'SKILL.md');
+  if (fs.existsSync(targetSkillMd)) return;
+
+  const templateCandidates = [
+    path.join(fallbackSkillsDir, 'multi-agent-orchestrator', 'SKILL.md'),
+    path.join(process.cwd(), 'src', 'orchestration', 'SKILL.md'),
+  ];
+
+  const templatePath = templateCandidates.find(p => fs.existsSync(p));
+  if (!templatePath) return;
+
+  fs.mkdirSync(targetSkillDir, { recursive: true });
+  fs.writeFileSync(targetSkillMd, fs.readFileSync(templatePath, 'utf-8'), 'utf-8');
+}
+
+function migrateSkillsStateIfMissing(targetDir: string): void {
+  const targetStatePath = path.join(path.dirname(targetDir), 'skills_state.json');
+  if (fs.existsSync(targetStatePath)) return;
+
+  const sourceStatePath = path.join(path.dirname(fallbackSkillsDir), 'skills_state.json');
+  if (!fs.existsSync(sourceStatePath)) return;
+
+  fs.mkdirSync(path.dirname(targetStatePath), { recursive: true });
+  fs.copyFileSync(sourceStatePath, targetStatePath);
+}
+
+function resolveSkillsDir(configuredDir: string): string {
+  const fallbackDir = fallbackSkillsDir;
+  const targetDir = configuredDir || fallbackDir;
+
+  try {
+    fs.mkdirSync(targetDir, { recursive: true });
+    if (!samePath(targetDir, fallbackDir)) {
+      syncMissingSkills(fallbackDir, targetDir);
+      migrateSkillsStateIfMissing(targetDir);
+    }
+    ensureMultiAgentSkill(targetDir);
+    return targetDir;
+  } catch (err: any) {
+    console.warn(`[Skills] Failed to prepare configured skills directory "${targetDir}": ${err.message}`);
+    fs.mkdirSync(fallbackDir, { recursive: true });
+    ensureMultiAgentSkill(fallbackDir);
+    return fallbackDir;
+  }
+}
+
+const skillsDir = resolveSkillsDir(configuredSkillsDir);
 const skillsManager = new SkillsManager(skillsDir, '');
 console.log(`[Skills] Directory: ${skillsDir}`);
+
+function isOrchestrationSkillEnabled(): boolean {
+  return skillsManager.get('multi-agent-orchestrator')?.enabled === true;
+}
+
+function recoverSkillsIfEmpty(): void {
+  // Refresh from disk first (handles files added while server is running).
+  skillsManager.scanSkills();
+  if (skillsManager.getAll().length > 0) return;
+  if (samePath(skillsDir, fallbackSkillsDir)) return;
+
+  try {
+    syncMissingSkills(fallbackSkillsDir, skillsDir);
+    migrateSkillsStateIfMissing(skillsDir);
+    ensureMultiAgentSkill(skillsDir);
+    skillsManager.scanSkills();
+  } catch (err: any) {
+    console.warn(`[Skills] Recovery failed: ${err.message}`);
+  }
+}
+
+function setOrchestrationEnabled(enabled: boolean): void {
+  const raw = getConfig().getConfig() as any;
+  const current = raw.orchestration || {};
+  const merged = {
+    enabled,
+    secondary: {
+      provider: String(current.secondary?.provider || '').trim(),
+      model: String(current.secondary?.model || '').trim(),
+    },
+    triggers: {
+      consecutive_failures: Number.isFinite(Number(current.triggers?.consecutive_failures))
+        ? Math.max(1, Math.floor(Number(current.triggers.consecutive_failures)))
+        : 2,
+      stagnation_rounds: Number.isFinite(Number(current.triggers?.stagnation_rounds))
+        ? Math.max(1, Math.floor(Number(current.triggers.stagnation_rounds)))
+        : 3,
+      loop_detection: current.triggers?.loop_detection !== false,
+      risky_files_threshold: Number.isFinite(Number(current.triggers?.risky_files_threshold))
+        ? Math.max(1, Math.floor(Number(current.triggers.risky_files_threshold)))
+        : 6,
+      risky_tool_ops_threshold: Number.isFinite(Number(current.triggers?.risky_tool_ops_threshold))
+        ? Math.max(10, Math.floor(Number(current.triggers.risky_tool_ops_threshold)))
+        : 220,
+      no_progress_seconds: Number.isFinite(Number(current.triggers?.no_progress_seconds))
+        ? Math.max(15, Math.floor(Number(current.triggers.no_progress_seconds)))
+        : 90,
+    },
+    preflight: {
+      mode: ['off', 'complex_only', 'always'].includes(String(current.preflight?.mode || ''))
+        ? String(current.preflight.mode)
+        : 'complex_only',
+      allow_secondary_chat: current.preflight?.allow_secondary_chat === true,
+    },
+    limits: {
+      assist_cooldown_rounds: Number.isFinite(Number(current.limits?.assist_cooldown_rounds))
+        ? Math.max(1, Math.floor(Number(current.limits.assist_cooldown_rounds)))
+        : 3,
+      max_assists_per_turn: Number.isFinite(Number(current.limits?.max_assists_per_turn))
+        ? Math.max(1, Math.floor(Number(current.limits.max_assists_per_turn)))
+        : 3,
+      max_assists_per_session: Number.isFinite(Number(current.limits?.max_assists_per_session))
+        ? Math.max(1, Math.floor(Number(current.limits.max_assists_per_session)))
+        : 18,
+      telemetry_history_limit: Number.isFinite(Number(current.limits?.telemetry_history_limit))
+        ? Math.max(10, Math.floor(Number(current.limits.telemetry_history_limit)))
+        : 100,
+    },
+  };
+  getConfig().updateConfig({ orchestration: merged } as any);
+}
+
+// Keep config flag aligned with persisted skill state on startup.
+(() => {
+  const orchestratorSkill = skillsManager.get('multi-agent-orchestrator');
+  if (!orchestratorSkill) return;
+  const configEnabled = (getConfig().getConfig() as any).orchestration?.enabled === true;
+  if (configEnabled !== orchestratorSkill.enabled) {
+    setOrchestrationEnabled(orchestratorSkill.enabled);
+  }
+})();
 
 // ─── Model-Busy Guard ──────────────────────────────────────────────────────────
 // Prevents cron scheduler from firing while user chat is in-flight.
@@ -319,6 +521,26 @@ function buildTools() {
     },
     // Browser automation tools
     ...getBrowserToolDefinitions(),
+    // Orchestration tool — only exposed when orchestration is enabled
+    ...(() => {
+      const oc = getOrchestrationConfig();
+      if (!oc?.enabled || !isOrchestrationSkillEnabled()) return [];
+      return [{
+        type: 'function' as const,
+        function: {
+          name: 'request_secondary_assist',
+          description: 'Request guidance from the secondary AI advisor when you are stuck, need a plan, or have failed multiple times. The advisor returns a structured action plan. Use proactively for complex tasks.',
+          parameters: {
+            type: 'object',
+            required: ['reason'],
+            properties: {
+              reason: { type: 'string', description: 'Why you need help: planning, stuck, repeated failures, risky edit, etc.' },
+              mode:   { type: 'string', enum: ['planner', 'rescue'], description: 'planner = need upfront strategy; rescue = stuck or failing' },
+            },
+          },
+        },
+      }];
+    })(),
   ];
 }
 
@@ -360,7 +582,6 @@ async function googleSearch(query: string): Promise<string> {
   const searchCfg = (getConfig().getConfig() as any).search || {};
   const GOOGLE_API_KEY = (searchCfg.google_api_key || '').trim();
   const GOOGLE_CX = (searchCfg.google_cx || '').trim();
-  console.log(`[v2] Google key: ...${GOOGLE_API_KEY.slice(-6)} | CX: ${GOOGLE_CX.slice(0,8)}... | lengths: key=${GOOGLE_API_KEY.length} cx=${GOOGLE_CX.length}`);
   if (!GOOGLE_API_KEY || !GOOGLE_CX) {
     return 'Google search not configured. Add google_api_key and google_cx in Settings → Search.';
   }
@@ -809,6 +1030,29 @@ function separateThinkingFromContent(text: string): { reply: string; thinking: s
 
 // ─── Main Chat Handler ─────────────────────────────────────────────────────────
 
+function isExecutionLikeRequest(message: string): boolean {
+  const m = String(message || '');
+  return /\b(create|build|implement|develop|scaffold|generate|fix|debug|edit|update|refactor|rewrite|patch|setup|configure|calendar|app|component|project|file|folder|directory|workspace|code)\b/i.test(m);
+}
+
+function looksLikeIntentOnlyReply(text: string): boolean {
+  const s = String(text || '').trim();
+  if (!s) return true;
+
+  const intentPattern = /\b(first[, ]|next[, ]|then[, ]|let me|i(?:'| a)?ll|i will|i'm going to|i can|i should|i need to|before i|to start|we should)\b/i;
+  const completionPattern = /\b(done|completed|created|updated|fixed|implemented|finished|here(?:'s| is)|built|saved|wrote|ran|executed)\b/i;
+  const questionPattern = /\?$/.test(s) || /\bshould i|want me to|do you want\b/i.test(s);
+
+  if (completionPattern.test(s) || questionPattern) return false;
+  return intentPattern.test(s);
+}
+
+function hasConcreteCompletion(text: string): boolean {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  return /\b(done|completed|created|updated|fixed|implemented|finished|saved|wrote|executed|here(?:'s| is) (?:the|your)|success(?:fully)?)\b/i.test(s);
+}
+
 interface HandleChatResult {
   type: 'chat' | 'execute';
   text: string;
@@ -825,12 +1069,26 @@ async function handleChat(
   callerContext?: string
 ): Promise<HandleChatResult> {
   const ollama = getOllamaClient();
-  const workspacePath = getWorkspace(sessionId);
+  const configuredWorkspace = getConfig().getWorkspacePath();
+  const sessionWorkspace = getWorkspace(sessionId);
+  const workspacePath = configuredWorkspace || sessionWorkspace;
+  if (workspacePath && sessionWorkspace !== workspacePath) {
+    setWorkspace(sessionId, workspacePath);
+  }
+  console.log(`[v2] SESSION: ${sessionId} | Workspace: ${workspacePath}`);
+  sendSSE('info', { message: `Workspace: ${workspacePath}` });
   const history = getHistory(sessionId, 5);
   const tools = buildTools();
   const allToolResults: ToolResult[] = [];
   let allThinking = '';
+  let preflightRoute: 'primary_direct' | 'primary_with_plan' | 'secondary_chat' | null = null;
+  let continuationNudges = 0;
+  const MAX_CONTINUATION_NUDGES = 2;
   const seenToolCalls = new Set<string>();
+  const orchestrationState = new OrchestrationTriggerState();
+  const orchestrationLog: string[] = [];
+  const orchestrationStats = getOrchestrationSessionStats(sessionId);
+  const orchestrationSkillEnabled = isOrchestrationSkillEnabled();
 
   const personalityCtx = buildPersonalityContext(workspacePath);
 
@@ -912,6 +1170,95 @@ RESPONSE RULES:
   }
   messages.push({ role: 'user', content: message });
 
+  const rawOrchCfg = ((getConfig().getConfig() as any).orchestration || {}) as any;
+
+  // Optional preflight advisor pass: secondary model can route and provide
+  // a compact execution plan before primary starts tool calling.
+  const preflightCfg = orchestrationSkillEnabled ? getOrchestrationConfig() : null;
+  if (!preflightCfg?.enabled && String(rawOrchCfg?.preflight?.mode || '') === 'always') {
+    sendSSE('info', {
+      message: 'Preflight advisor is set to Always, but Multi-Agent Orchestrator skill is disabled.',
+    });
+  }
+  if (
+    preflightCfg?.enabled &&
+    shouldRunPreflight(message, preflightCfg.preflight.mode) &&
+    orchestrationStats.assistCount < preflightCfg.limits.max_assists_per_session
+  ) {
+    sendSSE('info', {
+      message: `Running advisor preflight via ${preflightCfg.secondary.provider}:${preflightCfg.secondary.model}...`,
+    });
+    console.log(
+      `[Orchestrator] Preflight start (${preflightCfg.secondary.provider}:${preflightCfg.secondary.model})`,
+    );
+    const preflight = await callSecondaryPreflight({
+      userMessage: message,
+      recentHistory: history.slice(-4).map(h => ({ role: h.role, content: h.content })),
+    });
+
+    if (preflight) {
+      preflightRoute = preflight.route;
+      orchestrationLog.push(`[preflight:${preflight.route}] ${preflight.reason || 'no reason'}`);
+      console.log(
+        `[Orchestrator] Preflight route=${preflight.route} reason=${(preflight.reason || 'n/a').slice(0, 120)}`,
+      );
+      const stats = recordOrchestrationEvent(
+        sessionId,
+        {
+          trigger: 'preflight',
+          mode: 'planner',
+          reason: preflight.reason || 'preflight routing',
+          route: preflight.route,
+        },
+        preflightCfg,
+      );
+      sendSSE('orchestration', {
+        trigger: 'preflight',
+        mode: 'planner',
+        route: preflight.route,
+        reason: preflight.reason,
+        preflight,
+        assist_count: stats.assistCount,
+        assist_cap: preflightCfg.limits.max_assists_per_session,
+      });
+
+      if (
+        preflight.route === 'secondary_chat' &&
+        preflightCfg.preflight.allow_secondary_chat &&
+        preflight.secondary_response?.trim()
+      ) {
+        sendSSE('info', {
+          message: 'Advisor route selected secondary_chat. Returning secondary response directly.',
+        });
+        const text = preflight.secondary_response.trim();
+        logToDaily(workspacePath, 'LocalClaw', text);
+        return { type: 'chat', text };
+      }
+
+      if (preflight.route === 'secondary_chat' && !preflightCfg.preflight.allow_secondary_chat) {
+        sendSSE('info', {
+          message: 'Advisor suggested secondary_chat, but direct secondary chat is disabled. Continuing with primary.',
+        });
+      } else if (preflight.route === 'primary_direct') {
+        sendSSE('info', { message: 'Advisor route selected primary_direct. Continuing with primary.' });
+      } else if (preflight.route === 'primary_with_plan') {
+        sendSSE('info', { message: 'Advisor route selected primary_with_plan. Injecting plan guidance.' });
+      }
+
+      if (preflight.route === 'primary_with_plan') {
+        const hint = formatPreflightHint(preflight);
+        messages.push({ role: 'user', content: hint });
+        messages.push({ role: 'assistant', content: 'Understood. I will follow this preflight guidance.' });
+      }
+    }
+  } else if (
+    preflightCfg?.enabled &&
+    shouldRunPreflight(message, preflightCfg.preflight.mode) &&
+    orchestrationStats.assistCount >= preflightCfg.limits.max_assists_per_session
+  ) {
+    sendSSE('info', { message: 'Advisor preflight skipped: session assist cap reached.' });
+  }
+
   logToDaily(workspacePath, 'User', message);
 
   sendSSE('info', { message: 'Thinking...' });
@@ -985,6 +1332,44 @@ RESPONSE RULES:
         allThinking += (allThinking ? '\n\n' : '') + inlineThinking;
         sendSSE('thinking', { thinking: inlineThinking });
       }
+
+      const rawAssistantText = String(response.content || '').trim();
+      const candidateText = String(reply || rawAssistantText || '').trim();
+      const isExecutionTurn =
+        preflightRoute === 'primary_with_plan'
+        || allToolResults.length > 0
+        || isExecutionLikeRequest(message);
+      const lastToolFailed = allToolResults.length > 0 && allToolResults[allToolResults.length - 1].error;
+      const shouldContinueInsteadOfFinalizing =
+        orchestrationSkillEnabled
+        && isExecutionTurn
+        && continuationNudges < MAX_CONTINUATION_NUDGES
+        && (
+          looksLikeIntentOnlyReply(candidateText)
+          || (lastToolFailed && !hasConcreteCompletion(candidateText))
+        );
+
+      if (shouldContinueInsteadOfFinalizing) {
+        continuationNudges++;
+        const nudgeReason = lastToolFailed
+          ? 'last tool failed'
+          : 'intent-only response with no tool execution';
+        console.log(`[v2] ORCH POST-CHECK: forcing continuation (${continuationNudges}/${MAX_CONTINUATION_NUDGES}) — ${nudgeReason}`);
+        sendSSE('info', {
+          message: `Orchestration post-check: continuing execution (${continuationNudges}/${MAX_CONTINUATION_NUDGES}) — ${nudgeReason}.`,
+        });
+
+        if (candidateText) {
+          messages.push({ role: 'assistant', content: candidateText });
+        }
+        messages.push({
+          role: 'user',
+          content:
+            'Do not stop at an intention statement. Continue now by calling the next SmallClaw tool. Use only available tools (for filesystem use list_files/read_file/create_file/replace_lines/insert_after/delete_lines/find_replace). If a path failed, inspect workspace first and then proceed.',
+        });
+        continue;
+      }
+
       // If model dumped massive reasoning with no usable reply, generate a fallback
       let finalText = reply;
       if (!finalText || finalText.length < 5) {
@@ -1011,6 +1396,7 @@ RESPONSE RULES:
     messages.push(response);
 
     const batchCreatedFiles = new Set<string>();
+    let roundHadProgress = false;
 
     for (const call of toolCalls) {
       const toolName = call.function?.name || 'unknown';
@@ -1079,15 +1465,110 @@ RESPONSE RULES:
         };
       }
 
+      // ── Orchestration: explicit request from primary
+      if (toolName === 'request_secondary_assist') {
+        const orchCfg = getOrchestrationConfig();
+        if (orchestrationSkillEnabled && orchCfg?.enabled) {
+          if (orchestrationStats.assistCount >= orchCfg.limits.max_assists_per_session) {
+            messages.push({
+              role: 'tool',
+              tool_name: toolName,
+              content: `Secondary advisor session cap reached (${orchCfg.limits.max_assists_per_session}). Continue without escalation.`,
+            });
+            continue;
+          }
+
+          const mode   = (toolArgs.mode || 'rescue') as 'planner' | 'rescue';
+          const reason = toolArgs.reason || 'Explicitly requested by executor';
+          sendSSE('info', { message: `Consulting secondary advisor (${mode} mode)...` });
+          console.log(`[Orchestrator] Explicit trigger: ${reason}`);
+          const advice = await callSecondaryAdvisor(message, orchestrationLog, reason, mode);
+          if (advice) {
+            const hint = formatAdvisoryHint(advice);
+            orchestrationState.markFired(round);
+            const stats = recordOrchestrationEvent(
+              sessionId,
+              { trigger: 'explicit', reason, mode },
+              orchCfg,
+            );
+            sendSSE('orchestration', {
+              trigger: 'explicit',
+              reason,
+              mode,
+              advice,
+              assist_count: stats.assistCount,
+              assist_cap: orchCfg.limits.max_assists_per_session,
+            });
+            console.log(
+              `[Orchestrator] Explicit assist complete (${stats.assistCount}/${orchCfg.limits.max_assists_per_session})`,
+            );
+            messages.push({ role: 'tool', tool_name: toolName, content: hint });
+          } else {
+            messages.push({ role: 'tool', tool_name: toolName, content: 'Secondary advisor unavailable. Continue with your best judgment.' });
+          }
+          continue;
+        }
+        messages.push({ role: 'tool', tool_name: toolName, content: 'Multi-agent orchestration is not enabled.' });
+        continue;
+      }
+
       const toolResult = await executeTool(toolName, toolArgs, workspacePath, sessionId);
       allToolResults.push(toolResult);
       logToolCall(workspacePath, toolName, toolArgs, toolResult.result, toolResult.error);
+      if (!toolResult.error) roundHadProgress = true;
+
+      // ── Orchestration: track trigger state
+      orchestrationState.recordToolResult(round, toolName, toolArgs, toolResult.error);
+      orchestrationLog.push(
+        toolResult.error
+          ? `✗ ${toolName}(${JSON.stringify(toolArgs).slice(0, 60)}): ${toolResult.result.slice(0, 100)}`
+          : `✓ ${toolName}(${JSON.stringify(toolArgs).slice(0, 60)}): ${toolResult.result.slice(0, 80)}`
+      );
 
       console.log(toolResult.error ? `[v2] TOOL FAIL: ${toolResult.result.slice(0, 100)}` : `[v2] TOOL OK: ${toolResult.result.slice(0, 100)}`);
       sendSSE('tool_result', { action: toolName, result: toolResult.result.slice(0, 500), error: toolResult.error, stepNum: allToolResults.length });
 
       const goalReminder = `\n\n[GOAL REMINDER: Your task is still: "${message.slice(0, 120)}". Stay focused on this goal only.]`;
       messages.push({ role: 'tool', tool_name: toolName, content: toolResult.result + goalReminder });
+    }
+
+    // ── Orchestration: auto-trigger check after each round
+    const orchCfg = getOrchestrationConfig();
+    if (orchestrationSkillEnabled && orchCfg?.enabled) {
+      if (!roundHadProgress) orchestrationState.recordRoundNoProgress(round);
+      const { fire, reason } = orchestrationState.shouldTrigger(
+        orchCfg,
+        round,
+        Date.now(),
+        orchestrationStats.assistCount,
+      );
+      if (fire && orchestrationStats.assistCount < orchCfg.limits.max_assists_per_session) {
+        sendSSE('info', { message: `Auto-consulting advisor: ${reason}` });
+        console.log(`[Orchestrator] Auto-trigger (${reason})`);
+        const advice = await callSecondaryAdvisor(message, orchestrationLog, reason, 'rescue');
+        if (advice) {
+          const hint = formatAdvisoryHint(advice);
+          orchestrationState.markFired(round);
+          const stats = recordOrchestrationEvent(
+            sessionId,
+            { trigger: 'auto', reason, mode: 'rescue' },
+            orchCfg,
+          );
+          sendSSE('orchestration', {
+            trigger: 'auto',
+            reason,
+            mode: 'rescue',
+            advice,
+            assist_count: stats.assistCount,
+            assist_cap: orchCfg.limits.max_assists_per_session,
+          });
+          console.log(
+            `[Orchestrator] Auto assist complete (${stats.assistCount}/${orchCfg.limits.max_assists_per_session})`,
+          );
+          messages.push({ role: 'user', content: hint });
+          messages.push({ role: 'assistant', content: 'Understood. Following the advisor guidance now.' });
+        }
+      }
     }
 
     sendSSE('info', { message: `Processing... (step ${round + 1})` });
@@ -1112,10 +1593,21 @@ app.use(express.static(webUiPath));
 app.get('/api/status', async (_req, res) => {
   const ollama = getOllamaClient();
   const connected = await ollama.testConnection();
+  const rawCfg = getConfig().getConfig() as any;
+  const provider: string = rawCfg.llm?.provider || 'ollama';
+  const providerCfg = rawCfg.llm?.providers?.[provider] || {};
+  const activeModel: string = providerCfg.model || rawCfg.models?.primary || 'unknown';
+  const orchCfg = getOrchestrationConfig();
   res.json({
     status: 'ok', version: 'v2-tools', ollama: connected,
-    currentModel: config.models.primary, workspace: config.workspace.path,
-    search: getConfig().getConfig().search?.google_api_key ? 'google' : (getConfig().getConfig().search?.tavily_api_key ? 'tavily' : 'none'),
+    provider,
+    currentModel: activeModel,
+    workspace: (config as any).workspace?.path || '',
+    search: rawCfg.search?.google_api_key ? 'google' : (rawCfg.search?.tavily_api_key ? 'tavily' : 'none'),
+    orchestration: orchCfg ? {
+      enabled: orchCfg.enabled,
+      secondary: orchCfg.secondary,
+    } : null,
   });
 });
 
@@ -1184,11 +1676,30 @@ app.post('/api/clear-history', (req, res) => { clearHistory(req.body.sessionId |
 
 // ─── Skills API ────────────────────────────────────────────────────────────────
 
-app.get('/api/skills', (_req, res) => {
-  const skills = skillsManager.getAll().map(s => ({
-    id: s.id, name: s.name, description: s.description, emoji: s.emoji,
-    version: s.version, enabled: s.enabled, createdAt: s.createdAt,
-  }));
+app.get('/api/skills', async (_req, res) => {
+  recoverSkillsIfEmpty();
+
+  let orchestrationEligibility: { eligible: boolean; reason?: string } = { eligible: true };
+  try {
+    orchestrationEligibility = await checkOrchestrationEligibility();
+  } catch {}
+
+  const skills = skillsManager.getAll().map(s => {
+    const isOrchestrator = s.id === 'multi-agent-orchestrator';
+    return {
+      id: s.id,
+      name: s.name,
+      description: s.description,
+      emoji: s.emoji,
+      version: s.version,
+      enabled: s.enabled,
+      createdAt: s.createdAt,
+      eligible: isOrchestrator ? orchestrationEligibility.eligible : true,
+      eligibleReason: isOrchestrator
+        ? (orchestrationEligibility.eligible ? undefined : orchestrationEligibility.reason)
+        : undefined,
+    };
+  });
   res.json({ success: true, skills });
 });
 
@@ -1198,9 +1709,30 @@ app.get('/api/skills/:id', (req, res) => {
   res.json({ success: true, skill });
 });
 
-app.post('/api/skills/:id/toggle', (req, res) => {
-  const skill = skillsManager.toggle(req.params.id);
+app.post('/api/skills/:id/toggle', async (req, res) => {
+  const skillId = req.params.id;
+  const current = skillsManager.get(skillId);
+  if (!current) { res.status(404).json({ success: false, error: 'Skill not found' }); return; }
+
+  // Guard enabling orchestration skill until config is eligible.
+  if (skillId === 'multi-agent-orchestrator' && !current.enabled) {
+    const eligibility = await checkOrchestrationEligibility();
+    if (!eligibility.eligible) {
+      res.status(409).json({
+        success: false,
+        error: eligibility.reason || 'Configure a valid secondary model first.',
+      });
+      return;
+    }
+  }
+
+  const skill = skillsManager.toggle(skillId);
   if (!skill) { res.status(404).json({ success: false, error: 'Skill not found' }); return; }
+
+  if (skillId === 'multi-agent-orchestrator') {
+    setOrchestrationEnabled(skill.enabled);
+  }
+
   res.json({ success: true, skill: { id: skill.id, name: skill.name, enabled: skill.enabled } });
 });
 
@@ -1227,6 +1759,152 @@ app.delete('/api/skills/:id', (req, res) => {
   const ok = skillsManager.delete(req.params.id);
   if (!ok) { res.status(404).json({ success: false, error: 'Skill not found' }); return; }
   res.json({ success: true });
+});
+
+// ——— Orchestration Settings API ————————————————————————————————
+
+function clampInt(value: any, min: number, max: number, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(n)));
+}
+
+function getOrchestrationConfigForApi() {
+  const raw = (getConfig().getConfig() as any).orchestration || {};
+  const modeRaw = String(raw.preflight?.mode || '').trim();
+  const preflightMode = ['off', 'complex_only', 'always'].includes(modeRaw) ? modeRaw : 'complex_only';
+  return {
+    enabled: raw.enabled === true,
+    secondary: {
+      provider: String(raw.secondary?.provider || '').trim(),
+      model: String(raw.secondary?.model || '').trim(),
+    },
+    triggers: {
+      consecutive_failures: clampInt(raw.triggers?.consecutive_failures, 1, 8, 2),
+      stagnation_rounds: clampInt(raw.triggers?.stagnation_rounds, 1, 12, 3),
+      loop_detection: raw.triggers?.loop_detection !== false,
+      risky_files_threshold: clampInt(raw.triggers?.risky_files_threshold, 1, 30, 6),
+      risky_tool_ops_threshold: clampInt(raw.triggers?.risky_tool_ops_threshold, 10, 2000, 220),
+      no_progress_seconds: clampInt(raw.triggers?.no_progress_seconds, 15, 600, 90),
+    },
+    preflight: {
+      mode: preflightMode,
+      allow_secondary_chat: raw.preflight?.allow_secondary_chat === true,
+    },
+    limits: {
+      assist_cooldown_rounds: clampInt(raw.limits?.assist_cooldown_rounds, 1, 12, 3),
+      max_assists_per_turn: clampInt(raw.limits?.max_assists_per_turn, 1, 12, 3),
+      max_assists_per_session: clampInt(raw.limits?.max_assists_per_session, 1, 100, 18),
+      telemetry_history_limit: clampInt(raw.limits?.telemetry_history_limit, 10, 500, 100),
+    },
+  };
+}
+
+app.get('/api/orchestration/config', (_req, res) => {
+  res.json(getOrchestrationConfigForApi());
+});
+
+app.post('/api/orchestration/config', (req, res) => {
+  const current = getOrchestrationConfigForApi();
+  const incoming = req.body || {};
+
+  const merged = {
+    enabled: typeof incoming.enabled === 'boolean' ? incoming.enabled : current.enabled,
+    secondary: {
+      provider: String(incoming.secondary?.provider ?? current.secondary.provider).trim(),
+      model: String(incoming.secondary?.model ?? current.secondary.model).trim(),
+    },
+    triggers: {
+      consecutive_failures: clampInt(
+        incoming.triggers?.consecutive_failures,
+        1,
+        8,
+        current.triggers.consecutive_failures
+      ),
+      stagnation_rounds: clampInt(
+        incoming.triggers?.stagnation_rounds,
+        1,
+        12,
+        current.triggers.stagnation_rounds
+      ),
+      loop_detection: typeof incoming.triggers?.loop_detection === 'boolean'
+        ? incoming.triggers.loop_detection
+        : current.triggers.loop_detection,
+      risky_files_threshold: clampInt(
+        incoming.triggers?.risky_files_threshold,
+        1,
+        30,
+        current.triggers.risky_files_threshold
+      ),
+      risky_tool_ops_threshold: clampInt(
+        incoming.triggers?.risky_tool_ops_threshold,
+        10,
+        2000,
+        current.triggers.risky_tool_ops_threshold
+      ),
+      no_progress_seconds: clampInt(
+        incoming.triggers?.no_progress_seconds,
+        15,
+        600,
+        current.triggers.no_progress_seconds
+      ),
+    },
+    preflight: {
+      mode: ['off', 'complex_only', 'always'].includes(String(incoming.preflight?.mode || '').trim())
+        ? String(incoming.preflight.mode).trim()
+        : current.preflight.mode,
+      allow_secondary_chat: typeof incoming.preflight?.allow_secondary_chat === 'boolean'
+        ? incoming.preflight.allow_secondary_chat
+        : current.preflight.allow_secondary_chat,
+    },
+    limits: {
+      assist_cooldown_rounds: clampInt(
+        incoming.limits?.assist_cooldown_rounds,
+        1,
+        12,
+        current.limits.assist_cooldown_rounds
+      ),
+      max_assists_per_turn: clampInt(
+        incoming.limits?.max_assists_per_turn,
+        1,
+        12,
+        current.limits.max_assists_per_turn
+      ),
+      max_assists_per_session: clampInt(
+        incoming.limits?.max_assists_per_session,
+        1,
+        100,
+        current.limits.max_assists_per_session
+      ),
+      telemetry_history_limit: clampInt(
+        incoming.limits?.telemetry_history_limit,
+        10,
+        500,
+        current.limits.telemetry_history_limit
+      ),
+    },
+  };
+
+  getConfig().updateConfig({ orchestration: merged } as any);
+  res.json({ success: true, config: merged });
+});
+
+app.get('/api/orchestration/eligible', async (_req, res) => {
+  const eligibility = await checkOrchestrationEligibility();
+  res.json(eligibility);
+});
+
+app.get('/api/orchestration/telemetry', (req, res) => {
+  const sessionId = String(req.query.sessionId || 'default');
+  const stats = getOrchestrationSessionStats(sessionId);
+  const cfg = getOrchestrationConfig();
+  const limit = cfg?.limits?.telemetry_history_limit || 100;
+  res.json({
+    sessionId,
+    assistCount: stats.assistCount,
+    assistCap: cfg?.limits?.max_assists_per_session || 0,
+    events: stats.events.slice(-limit),
+  });
 });
 
 app.get('/api/task-status', (req, res) => {
@@ -1545,6 +2223,8 @@ app.get('/api/system-stats', async (_req, res) => {
     gpu: gpuStats,
     ollama_process: { running: ollamaRunning, process_count: ollamaCount, total_memory_mb: ollamaMemMb },
     gateway_process: { rss_mb: rss / (1024 * 1024) },
+    active_provider: (getConfig().getConfig() as any).llm?.provider || 'ollama',
+    active_model: (() => { const c = getConfig().getConfig() as any; const p = c.llm?.provider || 'ollama'; return c.llm?.providers?.[p]?.model || c.models?.primary || 'unknown'; })(),
     timestamp: new Date().toISOString(),
   });
 });
@@ -1613,16 +2293,140 @@ app.post('/api/open-path', async (req, res) => {
   } catch (err: any) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
+// ─── Provider / Model Settings API ───────────────────────────────────────────
+// Used by the Settings → Models tab to read/write provider config and
+// trigger the OpenAI OAuth flow.
+
+import { getProvider, resetProvider, buildProviderForLLM } from '../providers/factory';
+import { startOAuthFlow, isConnected, clearTokens, loadTokens, exchangeManualCodeFromPending } from '../auth/openai-oauth';
+
+function sanitizeLLMConfig(llm: any): any {
+  if (!llm || typeof llm !== 'object') return llm;
+  const copy = JSON.parse(JSON.stringify(llm));
+  const codexModel = copy?.providers?.openai_codex?.model;
+  if (typeof codexModel === 'string' && codexModel.trim() === 'codex-davinci-002') {
+    copy.providers.openai_codex.model = 'gpt-4o';
+  }
+  return copy;
+}
+
+// GET /api/settings/provider  — return active provider config
+app.get('/api/settings/provider', (_req, res) => {
+  const raw = getConfig().getConfig() as any;
+  const llmRaw = raw.llm || {
+    provider: 'ollama',
+    providers: { ollama: { endpoint: raw.ollama?.endpoint || 'http://localhost:11434', model: raw.models?.primary || 'qwen3:4b' } },
+  };
+  const llm = sanitizeLLMConfig(llmRaw);
+  res.json({ success: true, llm });
+});
+
+// POST /api/settings/provider  — update provider config
+app.post('/api/settings/provider', (req, res) => {
+  try {
+    const llm = sanitizeLLMConfig(req.body?.llm);
+    if (!llm?.provider) { res.status(400).json({ success: false, error: 'Missing llm.provider' }); return; }
+    const configManager = getConfig();
+    configManager.updateConfig({ llm } as any);
+    resetProvider();
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/models/test  — test connectivity for the active (or a given) provider
+app.post('/api/models/test', async (req, res) => {
+  try {
+    const llmOverride = req.body?.llm ? sanitizeLLMConfig(req.body.llm) : null;
+    const provider = llmOverride ? buildProviderForLLM(llmOverride) : getProvider();
+    const ok = await provider.testConnection();
+    const models = ok ? await provider.listModels() : [];
+    res.json({ success: ok, models, error: ok ? undefined : 'Could not connect' });
+  } catch (err: any) {
+    res.json({ success: false, models: [], error: err.message });
+  }
+});
+
+// GET /api/auth/openai/status  — is the user connected via OAuth?
+app.get('/api/auth/openai/status', (_req, res) => {
+  const configDir = path.join(process.cwd(), '.localclaw');
+  const connected = isConnected(configDir);
+  const tokens    = connected ? loadTokens(configDir) : null;
+  res.json({ connected, account_id: tokens?.account_id || null, expires_at: tokens?.expires_at || null });
+});
+
+// POST /api/auth/openai/start  — kick off OAuth flow (opens browser)
+app.post('/api/auth/openai/start', async (_req, res) => {
+  const configDir = path.join(process.cwd(), '.localclaw');
+  try {
+    const result = await startOAuthFlow(configDir);
+    if (result.needsManualPaste) {
+      res.json({ success: false, needsManualPaste: true, authUrl: result.authUrl });
+    } else {
+      res.json(result);
+    }
+  } catch (err: any) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/auth/openai/manual  — manual paste fallback token exchange
+app.post('/api/auth/openai/manual', async (req, res) => {
+  const configDir = path.join(process.cwd(), '.localclaw');
+  const redirectedUrl = String(req.body?.url || '').trim();
+  if (!redirectedUrl) {
+    res.status(400).json({ success: false, error: 'Missing redirect URL' });
+    return;
+  }
+  try {
+    const result = await exchangeManualCodeFromPending(configDir, redirectedUrl);
+    res.json(result);
+  } catch (err: any) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/auth/openai/disconnect  — revoke stored tokens
+app.post('/api/auth/openai/disconnect', (_req, res) => {
+  const configDir = path.join(process.cwd(), '.localclaw');
+  clearTokens(configDir);
+  res.json({ success: true });
+});
+
 app.get('*', (_req, res) => { res.sendFile(path.join(webUiPath, 'index.html')); });
 
 // ─── Server ────────────────────────────────────────────────────────────────────
 
 const server = http.createServer(app);
 wss = new WebSocketServer({ server, path: '/ws' });
+wss.on('error', (err: any) => {
+  if (err?.code === 'EADDRINUSE') {
+    console.error(`[Gateway] Port ${HOST}:${PORT} is already in use.`);
+    console.error('[Gateway] Another gateway instance is likely already running.');
+    console.error('[Gateway] Use one instance only, then open http://127.0.0.1:18789');
+    process.exit(1);
+    return;
+  }
+  console.error('[Gateway] WebSocket error:', err?.message || err);
+  process.exit(1);
+});
 wss.on('connection', (ws: WebSocket) => {
   console.log('[v2] WS connected');
   ws.on('message', (d) => { try { JSON.parse(d.toString()); } catch {} });
   ws.on('close', () => console.log('[v2] WS disconnected'));
+});
+
+server.on('error', (err: any) => {
+  if (err?.code === 'EADDRINUSE') {
+    console.error(`[Gateway] Port ${HOST}:${PORT} is already in use.`);
+    console.error('[Gateway] Another gateway instance is likely already running.');
+    console.error('[Gateway] Use one instance only, then open http://127.0.0.1:18789');
+    process.exit(1);
+    return;
+  }
+  console.error('[Gateway] HTTP server error:', err?.message || err);
+  process.exit(1);
 });
 
 server.listen(PORT, HOST, () => {

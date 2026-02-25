@@ -688,6 +688,43 @@
   .btn-green { background: var(--ok); }
   .btn-red { background: var(--err); }
 
+  .settings-input {
+    width: 100%;
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    background: #fff;
+    color: var(--text);
+    padding: 8px 10px;
+    font-size: 12px;
+    font-family: 'Manrope', sans-serif;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    outline: none;
+  }
+
+  .settings-input:focus {
+    border-color: #9fc1f7;
+    box-shadow: 0 0 0 4px rgba(22, 104, 227, 0.11);
+  }
+
+  .settings-input[type="number"] {
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  select.settings-input {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    padding-right: 32px;
+    background-image:
+      linear-gradient(45deg, transparent 50%, #6d7f97 50%),
+      linear-gradient(135deg, #6d7f97 50%, transparent 50%);
+    background-position:
+      calc(100% - 16px) calc(50% + 1px),
+      calc(100% - 11px) calc(50% + 1px);
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+  }
+
   .send-btn { width: 44px; height: 44px; font-size: 16px; }
   .send-btn:disabled,
   .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
@@ -1332,8 +1369,8 @@
       <div class="dot" id="ollama-dot"></div>
       <span id="ollama-status">Checking...</span>
     </div>
-    <div class="status-pill" id="model-pill">
-      <span id="current-model">-</span>
+    <div class="status-pill" id="model-pill" onclick="openSettings('models')" title="Click to change model" style="cursor:pointer">
+      <span id="current-provider-badge" style="font-size:10px;font-weight:700;color:var(--muted);margin-right:4px"></span><span id="current-model">-</span>
     </div>
     <div class="status-pill stat-compact" id="system-pill">
       <span id="quick-system-stats">CPU --% • RAM --% • GPU --%</span>
@@ -1454,7 +1491,7 @@
         </button>
       </div>
       <div class="chat-hint">
-        Chatting with <span id="chat-model-name">your model</span> locally via Ollama.
+        Chatting with <span id="chat-model-name">your model</span> via <span id="chat-provider-name">SmallClaw</span>.
         <span id="queued-prompts-indicator" style="display:none;margin-left:8px;color:var(--brand);font-weight:700"></span>
       </div>
     </div>
@@ -1570,8 +1607,8 @@
         <div class="sys-v" id="sys-vram">--%</div>
         <div class="sys-meter"><i id="sys-vram-meter"></i></div>
       </div>
-      <div class="sys-card full">
-        <div class="sys-k">LLM Runtime</div>
+      <div class="sys-card full" onclick="openSettings('models')" title="Click to change provider / model" style="cursor:pointer">
+        <div class="sys-k">Active LLM</div>
         <div class="sys-v" id="sys-ollama">Checking...</div>
         <div class="sys-sub" id="sys-runtime-sub">Gateway RSS -- MB • Updated --</div>
       </div>
@@ -1808,38 +1845,212 @@
     </div>
 
     <div id="settings-panel-models" style="display:none;padding:14px 16px">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-        <div style="border:1px solid var(--line);border-radius:12px;padding:12px">
-          <div class="right-section-title" style="margin-bottom:8px">Ollama Connection</div>
-          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Ollama Endpoint</label>
-          <input id="settings-ollama-endpoint" type="text" placeholder="http://localhost:11434" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;font-family:'IBM Plex Mono',monospace" />
-          <button class="btn btn-sm" onclick="refreshOllamaModels()" style="margin-top:8px;background:#fff;border:1px solid var(--line);color:var(--text)">Refresh Models</button>
-          <div id="ollama-model-load-msg" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
 
-          <div class="right-section-title" style="margin:14px 0 8px">Primary Model</div>
-          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Active Model</label>
-          <select id="settings-primary-model" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:13px">
-            <option value="">— refresh to load —</option>
-          </select>
-        </div>
+      <!-- Provider selector -->
+      <div style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:14px">
+        <div class="right-section-title" style="margin-bottom:8px">LLM Provider</div>
+        <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Backend</label>
+        <select id="settings-llm-provider" class="settings-input" onchange="onProviderChange()" style="font-size:13px">
+          <option value="ollama">Ollama (local)</option>
+          <option value="llama_cpp">llama.cpp (local)</option>
+          <option value="lm_studio">LM Studio (local)</option>
+          <option value="openai">OpenAI — API Key</option>
+          <option value="openai_codex">OpenAI — GPT Plus / Codex (OAuth)</option>
+        </select>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+
+        <!-- Left col: provider-specific connection fields -->
         <div style="border:1px solid var(--line);border-radius:12px;padding:12px">
-          <div class="right-section-title" style="margin-bottom:8px">Role Overrides <span style="font-weight:400;color:var(--muted);font-size:11px">(optional)</span></div>
-          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Manager model</label>
-          <select id="settings-model-manager" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;margin-bottom:8px">
-            <option value="">(same as primary)</option>
-          </select>
-          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Executor model</label>
-          <select id="settings-model-executor" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;margin-bottom:8px">
-            <option value="">(same as primary)</option>
-          </select>
-          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Verifier model</label>
-          <select id="settings-model-verifier" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px">
-            <option value="">(same as primary)</option>
-          </select>
-          <div style="font-size:11px;color:var(--muted);margin-top:12px;line-height:1.6">
-            Role overrides let you use a faster model for simple tasks and a smarter model for planning/verification.
+
+          <!-- Ollama -->
+          <div id="prov-fields-ollama">
+            <div class="right-section-title" style="margin-bottom:8px">Ollama Connection</div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Endpoint</label>
+            <input id="settings-ollama-endpoint" type="text" placeholder="http://localhost:11434" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;font-family:'IBM Plex Mono',monospace" />
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button class="btn btn-sm" onclick="refreshProviderModels()" style="background:#fff;border:1px solid var(--line);color:var(--text)">Refresh Models</button>
+              <button class="btn btn-sm" onclick="testProviderConnection()" style="background:#fff;border:1px solid var(--line);color:var(--text)">Test</button>
+            </div>
+            <div id="provider-status-msg" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
+            <div class="right-section-title" style="margin:14px 0 8px">Primary Model</div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Active Model</label>
+            <select id="settings-primary-model" class="settings-input" style="font-size:13px">
+              <option value="">— refresh to load —</option>
+            </select>
           </div>
+
+          <!-- llama.cpp -->
+          <div id="prov-fields-llama_cpp" style="display:none">
+            <div class="right-section-title" style="margin-bottom:8px">llama.cpp Server</div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Endpoint</label>
+            <input id="settings-llamacpp-endpoint" type="text" placeholder="http://localhost:8080" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;font-family:'IBM Plex Mono',monospace" />
+            <label style="display:block;font-size:12px;color:var(--muted);margin:10px 0 6px">Model name <span style="color:var(--muted);font-weight:400">(type manually)</span></label>
+            <input id="settings-llamacpp-model" type="text" placeholder="e.g. qwen2.5-7b" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;font-family:'IBM Plex Mono',monospace" />
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button class="btn btn-sm" onclick="testProviderConnection()" style="background:#fff;border:1px solid var(--line);color:var(--text)">Test Connection</button>
+            </div>
+            <div id="provider-status-msg-llamacpp" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
+            <div style="font-size:11px;color:var(--muted);margin-top:12px;line-height:1.6">Start with: <code style="background:var(--bg-soft);padding:1px 5px;border-radius:4px">llama-server -m model.gguf --port 8080</code></div>
+          </div>
+
+          <!-- LM Studio -->
+          <div id="prov-fields-lm_studio" style="display:none">
+            <div class="right-section-title" style="margin-bottom:8px">LM Studio</div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Endpoint</label>
+            <input id="settings-lmstudio-endpoint" type="text" placeholder="http://localhost:1234" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;font-family:'IBM Plex Mono',monospace" />
+            <label style="display:block;font-size:12px;color:var(--muted);margin:10px 0 6px">Model name</label>
+            <input id="settings-lmstudio-model" type="text" placeholder="e.g. qwen2.5-7b-instruct" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;font-family:'IBM Plex Mono',monospace" />
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button class="btn btn-sm" onclick="refreshProviderModels()" style="background:#fff;border:1px solid var(--line);color:var(--text)">Detect Model</button>
+              <button class="btn btn-sm" onclick="testProviderConnection()" style="background:#fff;border:1px solid var(--line);color:var(--text)">Test</button>
+            </div>
+            <div id="provider-status-msg-lmstudio" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
+            <div style="font-size:11px;color:var(--muted);margin-top:12px;line-height:1.6">Enable the Local Server in LM Studio before connecting.</div>
+          </div>
+
+          <!-- OpenAI API Key -->
+          <div id="prov-fields-openai" style="display:none">
+            <div class="right-section-title" style="margin-bottom:8px">OpenAI API Key</div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">API Key</label>
+            <input id="settings-openai-key" type="password" placeholder="sk-..." style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;font-family:'IBM Plex Mono',monospace" />
+            <label style="display:block;font-size:12px;color:var(--muted);margin:10px 0 6px">Model</label>
+            <select id="settings-openai-model" class="settings-input" style="font-size:13px">
+              <option value="gpt-4o">gpt-4o</option>
+              <option value="gpt-4o-mini">gpt-4o-mini</option>
+              <option value="o4-mini">o4-mini</option>
+              <option value="o3">o3</option>
+            </select>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button class="btn btn-sm" onclick="refreshOpenAIModels()" style="background:#fff;border:1px solid var(--line);color:var(--text)">Refresh Models</button>
+              <button class="btn btn-sm" onclick="testProviderConnection()" style="background:#fff;border:1px solid var(--line);color:var(--text)">Test Connection</button>
+            </div>
+            <div id="provider-status-msg-openai" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
+          </div>
+
+          <!-- OpenAI Codex OAuth -->
+          <div id="prov-fields-openai_codex" style="display:none">
+            <div class="right-section-title" style="margin-bottom:8px">OpenAI — GPT Plus / Codex</div>
+            <div id="codex-disconnected-state">
+              <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6">Connect your ChatGPT Plus or Pro account via OAuth. Your browser will open to authorize SmallClaw.</div>
+              <button class="btn" onclick="startCodexOAuth()" style="width:100%;background:var(--brand);color:#fff;border:none;padding:10px;border-radius:10px;font-size:13px;cursor:pointer">🔗 Connect ChatGPT Account</button>
+              <div id="codex-oauth-status" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center"></div>
+            </div>
+            <div id="codex-connected-state" style="display:none">
+              <div style="background:#f0faf4;border:1px solid #86d4a8;border-radius:10px;padding:10px;margin-bottom:12px">
+                <div style="font-size:12px;font-weight:600;color:#0a6b3d">✅ Connected</div>
+                <div id="codex-account-id" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
+              </div>
+              <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Model</label>
+              <select id="settings-codex-model" class="settings-input" style="font-size:13px">
+                <option value="gpt-5.3-codex">gpt-5.3-codex (recommended)</option>
+                <option value="gpt-5.3-codex-spark">gpt-5.3-codex-spark</option>
+                <option value="gpt-5.2-codex">gpt-5.2-codex</option>
+                <option value="gpt-5.1-codex-max">gpt-5.1-codex-max</option>
+                <option value="gpt-5.1-codex-mini">gpt-5.1-codex-mini (faster)</option>
+                <option value="gpt-5.2">gpt-5.2</option>
+                <option value="gpt-5.1">gpt-5.1</option>
+              </select>
+              <button class="btn btn-sm" onclick="disconnectCodex()" style="margin-top:10px;background:#fff;border:1px solid var(--err);color:var(--err)">Disconnect Account</button>
+            </div>
+          </div>
+
         </div>
+
+        <!-- Right col: orchestration -->
+        <div id="orch-settings-col" style="border:1px solid var(--line);border-radius:12px;padding:12px;background:linear-gradient(180deg,#fff 0%,#f9fbff 100%)">
+          <!-- ── Multi-Agent Orchestration ── -->
+          <div class="right-section-title" style="margin:16px 0 8px">Multi-Agent Orchestration <span style="font-weight:400;color:var(--muted);font-size:11px">optional</span></div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+            A secondary AI advisor helps the primary model when it gets stuck or needs planning.
+            Enable the <strong>Multi-Agent Orchestrator</strong> skill after setting this up.
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Secondary Provider</div>
+              <select id="orch-secondary-provider" class="settings-input" onchange="updateOrchSecondaryModels()">
+                <option value="">— none —</option>
+                <option value="openai_codex">ChatGPT (OAuth)</option>
+                <option value="openai">OpenAI API</option>
+                <option value="ollama">Ollama (local)</option>
+                <option value="llama_cpp">llama.cpp</option>
+                <option value="lm_studio">LM Studio</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Secondary Model</div>
+              <select id="orch-secondary-model" class="settings-input">
+                <option value="">— select provider first —</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Fail threshold</div>
+              <input id="orch-fail-threshold" class="settings-input" type="number" min="1" max="5" value="2" />
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Stagnation rounds</div>
+              <input id="orch-stagnation" class="settings-input" type="number" min="1" max="8" value="3" />
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Loop detect</div>
+              <select id="orch-loop-detect" class="settings-input">
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Risk files</div>
+              <input id="orch-risk-files" class="settings-input" type="number" min="1" max="30" value="6" />
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Risk line-ops</div>
+              <input id="orch-risk-ops" class="settings-input" type="number" min="10" max="2000" value="220" />
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px">No progress (sec)</div>
+              <input id="orch-no-progress-sec" class="settings-input" type="number" min="15" max="600" value="90" />
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Preflight advisor</div>
+              <select id="orch-preflight-mode" class="settings-input">
+                <option value="off">Off</option>
+                <option value="complex_only">Complex only</option>
+                <option value="always">Always</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Secondary direct chat</div>
+              <select id="orch-allow-secondary-chat" class="settings-input">
+                <option value="false">No (recommended)</option>
+                <option value="true">Yes</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Cooldown rounds</div>
+              <input id="orch-cooldown-rounds" class="settings-input" type="number" min="1" max="12" value="3" />
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Max assists / turn</div>
+              <input id="orch-max-assists-turn" class="settings-input" type="number" min="1" max="12" value="3" />
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Max assists / session</div>
+              <input id="orch-max-assists-session" class="settings-input" type="number" min="1" max="100" value="18" />
+            </div>
+          </div>
+          <div id="orch-eligibility-msg" style="font-size:11px;color:var(--muted);margin-bottom:8px;padding:8px 10px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;display:none"></div>
+          <button onclick="saveOrchestrationConfig()" class="btn" style="width:100%;margin-bottom:8px">Save Orchestration Settings</button>
+        </div>
+
       </div>
     </div>
 
@@ -2959,6 +3170,10 @@ async function sendChat(queuedMessage = null) {
             }
             break;
 
+          case 'info':
+            if (event.message) addProcessEntry('info', String(event.message));
+            break;
+
           case 'heartbeat': {
             lastHeartbeat = {
               ...lastHeartbeat,
@@ -3006,6 +3221,28 @@ async function sendChat(queuedMessage = null) {
             if (action) pushProgressLine(`${stepNum ? `Step ${stepNum}: ` : ''}${action} ${ok ? 'complete' : 'failed'}`);
             upsertLiveStep(action || 'tool', stepNum || (liveTaskSteps.length + 1), ok ? 'done' : 'failed', ok ? 'completed' : text.slice(0, 120));
             loadAgentSessionContext();
+            break;
+          }
+
+          case 'orchestration': {
+            try {
+              if (typeof window !== 'undefined' && typeof window._orchEventHandler === 'function') {
+                window._orchEventHandler(event);
+              }
+            } catch {}
+            const trigger = String(event.trigger || 'unknown');
+            const mode = String(event.mode || 'rescue');
+            const route = event.route ? ` | route=${event.route}` : '';
+            const reason = event.reason ? ` | ${event.reason}` : '';
+            const cap = (Number.isFinite(Number(event.assist_count)) && Number.isFinite(Number(event.assist_cap)))
+              ? ` | assists ${event.assist_count}/${event.assist_cap}`
+              : '';
+            addProcessEntry('info', `Orchestrator: trigger=${trigger} mode=${mode}${route}${reason}${cap}`);
+            if (event.preflight?.quick_plan?.length) {
+              addProcessEntry('info', `Orchestrator plan: ${event.preflight.quick_plan[0]}`);
+            } else if (event.advice?.next_actions?.length) {
+              addProcessEntry('info', `Orchestrator next: ${event.advice.next_actions[0]}`);
+            }
             break;
           }
 
@@ -3369,52 +3606,217 @@ function setSettingsTab(tab) {
   });
 }
 
-async function loadModelSettings() {
-  try {
-    // Load current model config
-    const cfg = await api('/api/settings/model');
-    if (cfg) {
-      const ep = document.getElementById('settings-ollama-endpoint');
-      if (ep) ep.value = cfg.ollama_endpoint || 'http://localhost:11434';
-    }
-    // Load available models
-    await refreshOllamaModels(cfg);
-  } catch (e) {
-    const msg = document.getElementById('ollama-model-load-msg');
-    if (msg) msg.textContent = 'Could not load model config.';
+// ─── Provider-aware Model Settings ──────────────────────────────────────────
+
+const PROVIDER_IDS = ['ollama', 'llama_cpp', 'lm_studio', 'openai', 'openai_codex'];
+
+function onProviderChange() {
+  const provider = document.getElementById('settings-llm-provider').value;
+  // Show only the matching fields panel
+  PROVIDER_IDS.forEach(id => {
+    const el = document.getElementById('prov-fields-' + id);
+    if (el) el.style.display = id === provider ? 'block' : 'none';
+  });
+  if (provider === 'openai') {
+    refreshOpenAIModels(true).catch(() => {});
+    return;
+  }
+  if (['ollama', 'lm_studio', 'llama_cpp'].includes(provider)) {
+    refreshProviderModels().catch(() => {});
   }
 }
 
-async function refreshOllamaModels(existingCfg) {
-  const msg = document.getElementById('ollama-model-load-msg');
+async function loadModelSettings() {
+  try {
+    const data = await api('/api/settings/provider');
+    const llm = data?.llm || { provider: 'ollama', providers: {} };
+    const prov = llm.provider || 'ollama';
+    const provSel = document.getElementById('settings-llm-provider');
+    if (provSel) provSel.value = prov;
+    onProviderChange();
+
+    const pc = llm.providers || {};
+
+    // Populate each provider's fields from saved config
+    const v = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+    v('settings-ollama-endpoint',  pc.ollama?.endpoint);
+    v('settings-llamacpp-endpoint', pc.llama_cpp?.endpoint);
+    v('settings-llamacpp-model',    pc.llama_cpp?.model);
+    v('settings-lmstudio-endpoint', pc.lm_studio?.endpoint);
+    v('settings-lmstudio-model',    pc.lm_studio?.model);
+    v('settings-openai-key',        pc.openai?.api_key);
+    if (pc.openai?.model) { const s = document.getElementById('settings-openai-model'); if (s) s.value = pc.openai.model; }
+    if (pc.openai_codex?.model) { const s = document.getElementById('settings-codex-model'); if (s) s.value = pc.openai_codex.model; }
+
+    // Check Codex OAuth status
+    await refreshCodexStatus();
+
+    // Refresh OpenAI model dropdown from current key when applicable
+    if (prov === 'openai') await refreshOpenAIModels(true);
+
+    // Auto-load model list for list-capable providers
+    if (['ollama', 'lm_studio', 'llama_cpp'].includes(prov)) await refreshProviderModels();
+  } catch (e) {
+    console.warn('loadModelSettings error:', e);
+  }
+}
+
+async function refreshProviderModels() {
+  const provider = document.getElementById('settings-llm-provider')?.value || 'ollama';
+  const msg = document.getElementById('provider-status-msg');
   if (msg) msg.textContent = 'Loading models…';
   try {
-    const endpoint = (document.getElementById('settings-ollama-endpoint') || {}).value || 'http://localhost:11434';
-    const data = await api('/api/ollama/models');
-    const models = (data && data.models) ? data.models.map(m => typeof m === 'string' ? m : (m.name || String(m))) : [];
-    const selects = ['settings-primary-model', 'settings-model-manager', 'settings-model-executor', 'settings-model-verifier'];
-    const cfg = existingCfg || (await api('/api/settings/model').catch(() => ({})));
+    const llm = buildProviderPayload();
+    if (llm.provider !== provider) llm.provider = provider;
+    const data = await api('/api/models/test', { method: 'POST', body: JSON.stringify({ llm }) });
+    const models = (data?.models || []).map(m => typeof m === 'string' ? m : (m.name || String(m)));
+    const selects = ['settings-primary-model'];
     selects.forEach((selId, i) => {
       const sel = document.getElementById(selId);
       if (!sel) return;
-      const prevVal = sel.value;
       if (i === 0) {
         sel.innerHTML = models.map(m => `<option value="${escHtml(m)}">${escHtml(m)}</option>`).join('');
-        if (cfg && cfg.primary_model) sel.value = cfg.primary_model;
-        else if (models.length) sel.value = models[0];
-      } else {
-        const roleKeys = ['', 'manager', 'executor', 'verifier'];
-        const roleKey = roleKeys[i];
-        sel.innerHTML = '<option value="">(same as primary)</option>' + models.map(m => `<option value="${escHtml(m)}">${escHtml(m)}</option>`).join('');
-        const roleVal = cfg && cfg.role_models && cfg.role_models[roleKey];
-        if (roleVal) sel.value = roleVal;
+        if (models.length) sel.value = models[0];
       }
     });
-    if (msg) msg.textContent = models.length ? `${models.length} model(s) found.` : 'No models found — is Ollama running?';
+    if (msg) msg.textContent = models.length ? `${models.length} model(s) found.` : 'No models found — is the server running?';
   } catch (e) {
-    if (msg) msg.textContent = 'Failed to fetch models. Check Ollama endpoint.';
+    if (msg) msg.textContent = 'Failed to fetch models.';
   }
 }
+
+async function testProviderConnection() {
+  const provider = document.getElementById('settings-llm-provider').value;
+  const statusIds = { ollama: 'provider-status-msg', llama_cpp: 'provider-status-msg-llamacpp', lm_studio: 'provider-status-msg-lmstudio', openai: 'provider-status-msg-openai', openai_codex: 'codex-oauth-status' };
+  const msgId = statusIds[provider] || 'provider-status-msg';
+  const msg = document.getElementById(msgId);
+  if (msg) msg.textContent = 'Testing…';
+
+  if (provider === 'openai') {
+    const ok = await refreshOpenAIModels(false);
+    if (msg) msg.textContent = ok ? '✅ Connected' : (msg.textContent || '❌ Connection failed');
+    return;
+  }
+
+  try {
+    const llm = buildProviderPayload();
+    if (llm.provider !== provider) llm.provider = provider;
+    const data = await api('/api/models/test', { method: 'POST', body: JSON.stringify({ llm }) });
+    if (msg) msg.textContent = data?.success ? '✅ Connected' : '❌ ' + (data?.error || 'Connection failed');
+  } catch (e) {
+    if (msg) msg.textContent = '❌ ' + e.message;
+  }
+}
+
+function updateOpenAIModelDropdown(models) {
+  const sel = document.getElementById('settings-openai-model');
+  if (!sel) return;
+  const current = String(sel.value || '').trim();
+  const unique = Array.from(new Set((models || []).filter(Boolean).map(m => String(m).trim()).filter(Boolean)));
+  if (!unique.length) return;
+  if (current && !unique.includes(current)) unique.unshift(current);
+  sel.innerHTML = unique.slice(0, 500).map(m => `<option value="${escHtml(m)}">${escHtml(m)}</option>`).join('');
+  if (current) sel.value = current;
+}
+
+async function refreshOpenAIModels(silent = false) {
+  const statusEl = document.getElementById('provider-status-msg-openai');
+  const apiKey = document.getElementById('settings-openai-key')?.value?.trim() || '';
+  if (!apiKey) {
+    if (!silent && statusEl) statusEl.textContent = 'Enter API key first.';
+    return false;
+  }
+  if (!silent && statusEl) statusEl.textContent = 'Fetching model list…';
+  try {
+    const data = await api('/api/openai/models', { method: 'POST', body: JSON.stringify({ api_key: apiKey }) });
+    if (!data?.success) {
+      if (statusEl) statusEl.textContent = '❌ ' + (data?.error || 'Failed to fetch models');
+      return false;
+    }
+    const models = (data?.models || []).map(m => typeof m === 'string' ? m : (m.name || String(m)));
+    updateOpenAIModelDropdown(models);
+    if (statusEl) statusEl.textContent = models.length ? `✅ ${models.length} model(s) available` : '✅ Connected';
+    return true;
+  } catch (e) {
+    if (statusEl) statusEl.textContent = '❌ ' + e.message;
+    return false;
+  }
+}
+
+// Build the llm config object from current UI state
+function buildProviderPayload() {
+  const provider = document.getElementById('settings-llm-provider')?.value || 'ollama';
+  const providers = {};
+  providers.ollama    = { endpoint: document.getElementById('settings-ollama-endpoint')?.value  || 'http://localhost:11434', model: document.getElementById('settings-primary-model')?.value || 'qwen3:4b' };
+  providers.llama_cpp = { endpoint: document.getElementById('settings-llamacpp-endpoint')?.value || 'http://localhost:8080',  model: document.getElementById('settings-llamacpp-model')?.value  || '' };
+  providers.lm_studio = { endpoint: document.getElementById('settings-lmstudio-endpoint')?.value || 'http://localhost:1234',  model: document.getElementById('settings-lmstudio-model')?.value   || '' };
+  providers.openai    = { api_key:  document.getElementById('settings-openai-key')?.value         || '',                       model: document.getElementById('settings-openai-model')?.value      || 'gpt-4o' };
+  providers.openai_codex = { model: document.getElementById('settings-codex-model')?.value         || 'gpt-5.3-codex' };
+  return { provider, providers };
+}
+
+// ─── Codex OAuth UI ────────────────────────────────────────────────
+
+async function refreshCodexStatus() {
+  try {
+    const data = await api('/api/auth/openai/status');
+    const disc = document.getElementById('codex-disconnected-state');
+    const conn = document.getElementById('codex-connected-state');
+    const acct = document.getElementById('codex-account-id');
+    if (data?.connected) {
+      if (disc) disc.style.display = 'none';
+      if (conn) conn.style.display = 'block';
+      if (acct) acct.textContent = data.account_id ? `Account: ${data.account_id}` : 'Account connected';
+    } else {
+      if (disc) disc.style.display = 'block';
+      if (conn) conn.style.display = 'none';
+    }
+  } catch {}
+}
+
+async function startCodexOAuth() {
+  const statusEl = document.getElementById('codex-oauth-status');
+  if (statusEl) statusEl.textContent = 'Opening browser…';
+  try {
+    const data = await api('/api/auth/openai/start', { method: 'POST', body: '{}' });
+    if (data?.needsManualPaste) {
+      if (statusEl) statusEl.innerHTML = 'Browser did not open. <a href="' + data.authUrl + '" target="_blank">Click here to authorize</a>, then paste the redirect URL below.<br><input id="codex-manual-url" type="text" placeholder="Paste redirect URL here…" style="width:100%;margin-top:6px;padding:6px;border:1px solid var(--line);border-radius:8px;font-size:11px"><button onclick="submitManualCodexUrl()" style="margin-top:4px;font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid var(--line);cursor:pointer">Submit</button>';
+    } else if (data?.success) {
+      if (statusEl) statusEl.textContent = '';
+      await refreshCodexStatus();
+    } else {
+      if (statusEl) statusEl.textContent = '❌ ' + (data?.error || 'OAuth failed');
+    }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = '❌ ' + e.message;
+  }
+}
+
+async function submitManualCodexUrl() {
+  const url = document.getElementById('codex-manual-url')?.value?.trim();
+  if (!url) return;
+  const statusEl = document.getElementById('codex-oauth-status');
+  if (statusEl) statusEl.textContent = 'Exchanging token…';
+  try {
+    const data = await api('/api/auth/openai/manual', { method: 'POST', body: JSON.stringify({ url }) });
+    if (data?.success) {
+      if (statusEl) statusEl.textContent = '';
+      await refreshCodexStatus();
+    } else {
+      if (statusEl) statusEl.textContent = '❌ ' + (data?.error || 'Failed');
+    }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = '❌ ' + e.message;
+  }
+}
+
+async function disconnectCodex() {
+  await api('/api/auth/openai/disconnect', { method: 'POST', body: '{}' });
+  await refreshCodexStatus();
+}
+
+// Legacy alias so any old references still work
+async function refreshOllamaModels() { await refreshProviderModels(); }
 
 async function loadAgentSessionContext() {
   try {
@@ -3623,6 +4025,7 @@ async function openSettings() {
   try {
     const status = await api('/api/status');
     document.getElementById('settings-runtime-model').textContent = status.currentModel || '-';
+    loadOrchestrationConfig();
     document.getElementById('settings-runtime-gateway').textContent = status.gateway || '-';
     document.getElementById('settings-runtime-ollama').textContent = status.ollama ? 'Online' : 'Offline';
   } catch {}
@@ -3761,20 +4164,23 @@ async function saveSettings() {
     natural_language_tool_router: document.getElementById('settings-nl-tool-router').checked,
     retrieval_mode: document.getElementById('settings-retrieval-mode').value,
   };
+  const primaryModel = (document.getElementById('settings-primary-model') || {}).value || '';
   const modelPayload = {
     ollama_endpoint: (document.getElementById('settings-ollama-endpoint') || {}).value || 'http://localhost:11434',
-    primary_model: (document.getElementById('settings-primary-model') || {}).value || '',
+    primary_model: primaryModel,
     role_models: {
-      manager: (document.getElementById('settings-model-manager') || {}).value || '',
-      executor: (document.getElementById('settings-model-executor') || {}).value || '',
-      verifier: (document.getElementById('settings-model-verifier') || {}).value || '',
+      manager: primaryModel,
+      executor: primaryModel,
+      verifier: primaryModel,
     }
   };
+  const providerPayload = buildProviderPayload();
   try {
     await api('/api/settings/paths', { method: 'POST', body: JSON.stringify({ allowed_paths, blocked_paths }) });
     await api('/api/settings/search', { method: 'POST', body: JSON.stringify(payload) });
     await api('/api/settings/agent', { method: 'POST', body: JSON.stringify(policyPayload) });
     await api('/api/settings/model', { method: 'POST', body: JSON.stringify(modelPayload) });
+    await api('/api/settings/provider', { method: 'POST', body: JSON.stringify({ llm: providerPayload }) });
     await loadSearchSettingsSummary();
     quickSearchRigor = payload.search_rigor || quickSearchRigor;
     updateQuickModeUI();
@@ -4045,14 +4451,23 @@ async function loadSystemStats() {
     const gpuName = String(stats?.gpu?.name || '').trim();
     const memUsage = fmtMemoryGb(stats?.system?.memory_used_gb, stats?.system?.memory_total_gb);
     const updated = new Date(stats?.timestamp || Date.now()).toLocaleTimeString();
+    const activeProvider = stats?.active_provider || 'ollama';
+    const activeModel = stats?.active_model || document.getElementById('current-model')?.textContent || '-';
+    const isLocalProvider = activeProvider === 'ollama' || activeProvider === 'llama_cpp' || activeProvider === 'lm_studio';
 
-    const ollamaLabel = ollamaRunning
-      ? `Ollama running (${ollamaCount})`
-      : 'Ollama idle/offline';
-    setText('sys-ollama', ollamaLabel);
+    // Show provider + model in the runtime card
+    const providerDisp = (PROVIDER_LABELS[activeProvider] || activeProvider);
+    let runtimeLabel;
+    if (activeProvider === 'ollama') {
+      runtimeLabel = ollamaRunning ? `Ollama • ${activeModel}` : `Ollama offline • ${activeModel}`;
+    } else {
+      runtimeLabel = `${providerDisp} • ${activeModel}`;
+    }
+    setText('sys-ollama', runtimeLabel);
+    const memPart = isLocalProvider && ollamaMemMb > 0 ? ` • LLM ${ollamaMemMb.toFixed(0)} MB` : '';
     setText(
       'sys-runtime-sub',
-      `${memUsage} • Ollama ${ollamaMemMb.toFixed(0)} MB • Gateway ${gatewayRss.toFixed(0)} MB${gpuName ? ` • ${gpuName}` : ''} • ${updated}`
+      `${memUsage}${memPart} • Gateway ${gatewayRss.toFixed(0)} MB${gpuName ? ` • ${gpuName}` : ''} • ${updated}`
     );
   } catch {
     setText('quick-system-stats', 'CPU --% • RAM --% • GPU --%');
@@ -4072,35 +4487,289 @@ async function loadSystemStats() {
 }
 
 // ---- Status ----
+const PROVIDER_LABELS = {
+  ollama: 'Ollama', llama_cpp: 'llama.cpp', lm_studio: 'LM Studio',
+  openai: 'OpenAI', openai_codex: 'ChatGPT'
+};
 async function checkStatus() {
   try {
     const status = await api('/api/status');
+    const provider = status.provider || 'ollama';
+    const providerLabel = PROVIDER_LABELS[provider] || provider;
+    const isCloud = provider === 'openai' || provider === 'openai_codex';
     const dot = document.getElementById('ollama-dot');
-    if (status.ollama) {
-      dot.className = 'dot online';
-      document.getElementById('ollama-status').textContent = 'Ollama Online';
-      const ro = document.getElementById('r-ollama');
-      if (ro) {
-        ro.textContent = 'Online';
-        ro.className = 'info-val green';
-      }
-    } else {
-      dot.className = 'dot offline';
-      document.getElementById('ollama-status').textContent = 'Ollama Offline';
-      const ro = document.getElementById('r-ollama');
-      if (ro) {
-        ro.textContent = 'Offline';
-        ro.className = 'info-val red';
-      }
+
+    // For cloud providers, always show as online if gateway is up
+    const backendOnline = isCloud ? true : !!status.ollama;
+    dot.className = 'dot ' + (backendOnline ? 'online' : 'offline');
+    document.getElementById('ollama-status').textContent = backendOnline
+      ? `${providerLabel} Online` : `${providerLabel} Offline`;
+    const ro = document.getElementById('r-ollama');
+    if (ro) {
+      ro.textContent = backendOnline ? 'Online' : 'Offline';
+      ro.className = 'info-val ' + (backendOnline ? 'green' : 'red');
     }
+
     const modelName = status.currentModel || '-';
     const rm = document.getElementById('r-model');
     if (rm) rm.textContent = modelName;
     document.getElementById('current-model').textContent = modelName;
     document.getElementById('chat-model-name').textContent = modelName;
+    const badge = document.getElementById('current-provider-badge');
+    if (badge) badge.textContent = isCloud ? providerLabel.toUpperCase() : '';
+    const cpn = document.getElementById('chat-provider-name');
+    if (cpn) cpn.textContent = providerLabel;
   } catch {
     document.getElementById('ollama-dot').className = 'dot offline';
   }
+}
+
+// ─── Orchestration Settings ─────────────────────────────────────────────────
+
+const SECONDARY_MODEL_DEFAULTS = {
+  openai_codex: 'gpt-5.3-codex',
+  openai:       'gpt-4o',
+  ollama:       '',
+  llama_cpp:    '',
+  lm_studio:    '',
+};
+
+const ORCH_STATIC_MODEL_OPTIONS = {
+  openai_codex: ['gpt-5.3-codex', 'gpt-5.3-codex-spark', 'gpt-5.2-codex', 'gpt-5.1-codex-mini'],
+  openai: ['gpt-4o', 'gpt-4o-mini', 'o4-mini', 'o3'],
+};
+
+function getSelectOptionValues(selectId) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return [];
+  return Array.from(sel.options || []).map(o => String(o.value || '').trim()).filter(Boolean);
+}
+
+function getDraftModelForProvider(provider) {
+  if (provider === 'ollama') {
+    return String(document.getElementById('settings-primary-model')?.value || '').trim();
+  }
+  if (provider === 'llama_cpp') {
+    return String(document.getElementById('settings-llamacpp-model')?.value || '').trim();
+  }
+  if (provider === 'lm_studio') {
+    return String(document.getElementById('settings-lmstudio-model')?.value || '').trim();
+  }
+  if (provider === 'openai') {
+    return String(document.getElementById('settings-openai-model')?.value || '').trim();
+  }
+  if (provider === 'openai_codex') {
+    return String(document.getElementById('settings-codex-model')?.value || '').trim();
+  }
+  return '';
+}
+
+function uniqueStrings(values) {
+  const seen = new Set();
+  const out = [];
+  for (const v of values || []) {
+    const s = String(v || '').trim();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+async function updateOrchSecondaryModels(preferredModel = '') {
+  const provider = document.getElementById('orch-secondary-provider')?.value || '';
+  const modelSelect = document.getElementById('orch-secondary-model');
+  if (!modelSelect) return;
+
+  if (!provider) {
+    modelSelect.innerHTML = '<option value="">— select provider first —</option>';
+    modelSelect.value = '';
+    return;
+  }
+
+  let models = [];
+  const draftModel = getDraftModelForProvider(provider);
+  if (draftModel) models.push(draftModel);
+
+  if (provider === 'openai') {
+    try { await refreshOpenAIModels(true); } catch {}
+    models.push(...getSelectOptionValues('settings-openai-model'));
+  } else if (provider === 'openai_codex') {
+    models.push(...getSelectOptionValues('settings-codex-model'));
+  } else if (['ollama', 'llama_cpp', 'lm_studio'].includes(provider)) {
+    try {
+      const llm = buildProviderPayload();
+      llm.provider = provider;
+      const data = await api('/api/models/test', { method: 'POST', body: JSON.stringify({ llm }) });
+      const detected = (data?.models || []).map(m => typeof m === 'string' ? m : (m.name || String(m)));
+      models.push(...detected);
+    } catch {}
+  }
+
+  models = uniqueStrings([...(ORCH_STATIC_MODEL_OPTIONS[provider] || []), ...models]);
+  if (preferredModel && !models.includes(preferredModel)) {
+    models.unshift(preferredModel);
+  }
+  if (!models.length && SECONDARY_MODEL_DEFAULTS[provider]) {
+    models.push(SECONDARY_MODEL_DEFAULTS[provider]);
+  }
+
+  if (!models.length) {
+    modelSelect.innerHTML = '<option value="">— no models detected —</option>';
+    modelSelect.value = '';
+    return;
+  }
+
+  modelSelect.innerHTML = models.map(m => `<option value="${escHtml(m)}">${escHtml(m)}</option>`).join('');
+  const selected = preferredModel || modelSelect.value || draftModel || SECONDARY_MODEL_DEFAULTS[provider] || models[0];
+  modelSelect.value = models.includes(selected) ? selected : models[0];
+}
+
+async function loadOrchestrationConfig() {
+  try {
+    const cfg = await api('/api/orchestration/config');
+    const provEl    = document.getElementById('orch-secondary-provider');
+    const failEl    = document.getElementById('orch-fail-threshold');
+    const stagEl    = document.getElementById('orch-stagnation');
+    const loopEl    = document.getElementById('orch-loop-detect');
+    const riskFilesEl = document.getElementById('orch-risk-files');
+    const riskOpsEl = document.getElementById('orch-risk-ops');
+    const noProgressEl = document.getElementById('orch-no-progress-sec');
+    const preflightModeEl = document.getElementById('orch-preflight-mode');
+    const allowSecondaryChatEl = document.getElementById('orch-allow-secondary-chat');
+    const cooldownEl = document.getElementById('orch-cooldown-rounds');
+    const maxAssistTurnEl = document.getElementById('orch-max-assists-turn');
+    const maxAssistSessionEl = document.getElementById('orch-max-assists-session');
+    if (provEl)  provEl.value  = cfg.secondary?.provider || '';
+    await updateOrchSecondaryModels(cfg.secondary?.model || '');
+    if (failEl)  failEl.value  = String(cfg.triggers?.consecutive_failures ?? 2);
+    if (stagEl)  stagEl.value  = String(cfg.triggers?.stagnation_rounds    ?? 3);
+    if (loopEl)  loopEl.value  = String(cfg.triggers?.loop_detection       ?? true);
+    if (riskFilesEl) riskFilesEl.value = String(cfg.triggers?.risky_files_threshold ?? 6);
+    if (riskOpsEl) riskOpsEl.value = String(cfg.triggers?.risky_tool_ops_threshold ?? 220);
+    if (noProgressEl) noProgressEl.value = String(cfg.triggers?.no_progress_seconds ?? 90);
+    if (preflightModeEl) preflightModeEl.value = String(cfg.preflight?.mode || 'complex_only');
+    if (allowSecondaryChatEl) allowSecondaryChatEl.value = String(cfg.preflight?.allow_secondary_chat === true);
+    if (cooldownEl) cooldownEl.value = String(cfg.limits?.assist_cooldown_rounds ?? 3);
+    if (maxAssistTurnEl) maxAssistTurnEl.value = String(cfg.limits?.max_assists_per_turn ?? 3);
+    if (maxAssistSessionEl) maxAssistSessionEl.value = String(cfg.limits?.max_assists_per_session ?? 18);
+    // Check eligibility
+    const elig = await api('/api/orchestration/eligible');
+    const msg  = document.getElementById('orch-eligibility-msg');
+    if (msg) {
+      if (elig.eligible) {
+        msg.textContent = '✅ Orchestration eligible — enable the skill in the Skills tab.';
+        msg.style.color = 'var(--green, #4ade80)';
+      } else {
+        msg.textContent = elig.reason || 'Not eligible.';
+        msg.style.color = 'var(--muted)';
+      }
+      msg.style.display = 'block';
+    }
+  } catch {}
+}
+
+async function saveOrchestrationConfig() {
+  const provider = document.getElementById('orch-secondary-provider')?.value || '';
+  const model    = document.getElementById('orch-secondary-model')?.value    || '';
+  const failT    = Number(document.getElementById('orch-fail-threshold')?.value  || 2);
+  const stagT    = Number(document.getElementById('orch-stagnation')?.value      || 3);
+  const loopD    = document.getElementById('orch-loop-detect')?.value !== 'false';
+  const riskFiles = Number(document.getElementById('orch-risk-files')?.value || 6);
+  const riskOps = Number(document.getElementById('orch-risk-ops')?.value || 220);
+  const noProgressSeconds = Number(document.getElementById('orch-no-progress-sec')?.value || 90);
+  const preflightMode = document.getElementById('orch-preflight-mode')?.value || 'complex_only';
+  const allowSecondaryChat = document.getElementById('orch-allow-secondary-chat')?.value === 'true';
+  const cooldownRounds = Number(document.getElementById('orch-cooldown-rounds')?.value || 3);
+  const maxAssistsTurn = Number(document.getElementById('orch-max-assists-turn')?.value || 3);
+  const maxAssistsSession = Number(document.getElementById('orch-max-assists-session')?.value || 18);
+  try {
+    await api('/api/orchestration/config', {
+      method: 'POST',
+      body: JSON.stringify({
+        secondary: { provider, model },
+        triggers:  {
+          consecutive_failures: failT,
+          stagnation_rounds: stagT,
+          loop_detection: loopD,
+          risky_files_threshold: riskFiles,
+          risky_tool_ops_threshold: riskOps,
+          no_progress_seconds: noProgressSeconds,
+        },
+        preflight: { mode: preflightMode, allow_secondary_chat: allowSecondaryChat },
+        limits: {
+          assist_cooldown_rounds: cooldownRounds,
+          max_assists_per_turn: maxAssistsTurn,
+          max_assists_per_session: maxAssistsSession,
+        },
+      }),
+    });
+    const msg = document.getElementById('orch-eligibility-msg');
+    if (msg) {
+      msg.textContent = '✅ Saved. Now enable the Multi-Agent Orchestrator skill in the Skills tab.';
+      msg.style.color = 'var(--green, #4ade80)';
+      msg.style.display = 'block';
+    }
+    loadOrchestrationConfig(); // refresh eligibility
+    loadInstalledSkills(); // refresh skill gating state
+  } catch (err) {
+    alert('Failed to save: ' + (err.message || err));
+  }
+}
+
+// ─── Skill card eligibility rendering ───────────────────────────────────────
+
+function renderSkillEligibility(skills) {
+  // Called after skills render — grey out ineligible skill cards
+  setTimeout(() => {
+    document.querySelectorAll('.skill-card').forEach(card => {
+      const skillId = card.dataset.skillId;
+      const skill   = skills.find(s => s.id === skillId);
+      if (!skill) return;
+      if (skill.eligible === false) {
+        card.style.opacity = '0.5';
+        // Keep card clickable when already enabled so user can still disable it.
+        card.style.pointerEvents = skill.enabled ? 'auto' : 'none';
+        card.title = skill.eligibleReason || 'Not available';
+        const badge = document.createElement('div');
+        badge.textContent = skill.eligibleReason || 'Configure secondary model first';
+        badge.style = 'font-size:10px;color:var(--muted);margin-top:4px;';
+        if (!card.querySelector('.elig-badge')) {
+          badge.className = 'elig-badge';
+          card.appendChild(badge);
+        }
+      }
+    });
+  }, 50);
+}
+
+// ─── Handle orchestration SSE events ────────────────────────────────────────
+
+function handleOrchestrationEvent(data) {
+  const panel = document.getElementById('tool-calls-panel') || document.getElementById('steps-panel');
+  if (!panel) return;
+  const el = document.createElement('div');
+  el.style = 'padding:6px 10px;margin:4px 0;background:linear-gradient(135deg,#1a1a2e,#16213e);border-left:3px solid #7c3aed;border-radius:4px;font-size:12px;color:#a78bfa;';
+  const modeLabel = data.mode === 'planner' ? 'Planner' : 'Rescue';
+  const routeText = data.route ? ` | route=${data.route}` : '';
+  const countText = (typeof data.assist_count === 'number' && typeof data.assist_cap === 'number')
+    ? ` | assists ${data.assist_count}/${data.assist_cap}`
+    : '';
+  el.innerHTML = `<strong>Advisor (${modeLabel})</strong><br><span style="color:var(--muted)">Trigger: ${data.reason || data.trigger}${routeText}${countText}</span>`;
+  if (data.advice?.next_actions?.length) {
+    el.innerHTML += '<br><span style="color:#e2e8f0">→ ' + data.advice.next_actions[0] + '</span>';
+  }
+  if (data.preflight?.quick_plan?.length) {
+    el.innerHTML += '<br><span style="color:#e2e8f0">→ ' + data.preflight.quick_plan[0] + '</span>';
+  }
+  panel.appendChild(el);
+  panel.scrollTop = panel.scrollHeight;
+}
+
+// ─── Expose to SSE handler ───────────────────────────────────────────────────
+
+if (typeof window !== 'undefined') {
+  window._orchEventHandler = handleOrchestrationEvent;
 }
 
 // ---- Refresh all ----
@@ -4158,7 +4827,7 @@ async function loadInstalledSkills() {
       el.innerHTML = '<div class="empty-state" style="padding:16px">No skills yet.<br>Click "+ Create" to make one!</div>';
     } else {
       el.innerHTML = skills.map(s => `
-        <div class="skill-card ${s.enabled ? 'enabled' : ''}" onclick="toggleSkill('${escHtml(s.id)}')">
+        <div class="skill-card ${s.enabled ? 'enabled' : ''}" data-skill-id="${escHtml(s.id)}" onclick="toggleSkill('${escHtml(s.id)}')">
           <div class="skill-card-top">
             <div class="skill-card-emoji">${escHtml(s.emoji || '🧩')}</div>
             <div class="skill-card-info">
@@ -4173,6 +4842,7 @@ async function loadInstalledSkills() {
           </div>
         </div>
       `).join('');
+      renderSkillEligibility(skills);
     }
   } catch (err) {
     el.innerHTML = `<div style="padding:12px;color:var(--err);font-size:11px">Error: ${err.message}</div>`;
@@ -4180,12 +4850,20 @@ async function loadInstalledSkills() {
 }
 
 async function toggleSkill(id) {
+  const skillMeta = (skillsCache || []).find(s => s.id === id);
+  // Block only when trying to enable an ineligible skill.
+  if (skillMeta && skillMeta.eligible === false && !skillMeta.enabled) {
+    addProcessEntry('error', skillMeta.eligibleReason || 'This skill is currently unavailable.');
+    return;
+  }
   try {
     const res = await api(`/api/skills/${encodeURIComponent(id)}/toggle`, { method: 'POST' });
-    if (res.success) {
-      addProcessEntry('info', `Skill "${res.skill.name}": ${res.skill.enabled ? 'ENABLED' : 'DISABLED'}`);
-      loadInstalledSkills();
+    if (!res.success) {
+      addProcessEntry('error', res.error || 'Failed to toggle skill.');
+      return;
     }
+    addProcessEntry('info', `Skill "${res.skill.name}": ${res.skill.enabled ? 'ENABLED' : 'DISABLED'}`);
+    loadInstalledSkills();
   } catch (err) {
     addProcessEntry('error', `Failed to toggle skill: ${err.message}`);
   }

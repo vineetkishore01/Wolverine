@@ -4,6 +4,7 @@
 
 # --- SECRETS & CONFIG (NEVER COMMIT) ---
 .localclaw/config.json
+.localclaw/credentials/
 
 # --- RUNTIME DATA ---
 .localclaw/sessions/
@@ -12,6 +13,7 @@
 .localclaw/facts.json
 .localclaw/self_learning.json
 .localclaw/jobs.db
+.localclaw/update_state.json
 
 # --- WORKSPACE RUNTIME FILES ---
 workspace/memory/
@@ -30,6 +32,8 @@ gateway.err.log
 # --- TEMP FILES ---
 tmp_payload.json
 mnt/
+.tmp_*
+.tmp_*/
 
 # --- NODE ---
 node_modules/

@@ -1,10 +1,56 @@
-# SmallClaw 🦞
+<p align="center">
+  <img src="assets/SmallClaw.png" alt="SmallClaw logo" width="220" />
+</p>
 
-**Local AI agent framework powered by Ollama** — An open-source alternative to cloud AI assistants that runs entirely on your machine with free local models.
+<h1 align="center">SmallClaw 🦞</h1>
+
+<p align="center">
+  Local-first AI agent framework built for small models, with optional hybrid cloud support.
+</p>
+
+<p align="center">
+  <a href="https://github.com/XposeMarket/SmallClaw/stargazers">
+    <img src="https://img.shields.io/github/stars/XposeMarket/SmallClaw?style=for-the-badge" alt="Stars" />
+  </a>
+  <a href="https://github.com/XposeMarket/SmallClaw/network/members">
+    <img src="https://img.shields.io/github/forks/XposeMarket/SmallClaw?style=for-the-badge" alt="Forks" />
+  </a>
+  <a href="https://github.com/XposeMarket/SmallClaw/issues">
+    <img src="https://img.shields.io/github/issues/XposeMarket/SmallClaw?style=for-the-badge" alt="Issues" />
+  </a>
+  <a href="https://github.com/XposeMarket/SmallClaw/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/XposeMarket/SmallClaw?style=for-the-badge" alt="License" />
+  </a>
+</p>
+
+<p align="center">
+  <a href="#installation">Install</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#provider-support">Providers</a> ·
+  <a href="#multi-agent-orchestration-optional-skill">Multi Agent</a> ·
+  <a href="#skills">Skills</a> ·
+  <a href="#troubleshooting">Troubleshooting</a>
+</p>
+
+<p align="center">
+  <img src="assets/SmallClawDashboard.png" alt="SmallClaw UI" width="900" />
+</p>
+
+# SmallClaw v1.0.1
+
+**Local AI agent framework with local + cloud provider support** — an open source alternative to cloud AI assistants that runs on your machine with free local models.
+
+**Current release:** `v1.0.1`
+
+---
+
+> Image setup: put the two images in `assets/`:
+> - `assets/SmallClaw.png`
+> - `assets/SmallClawDashboard.png`
 
 ## What is SmallClaw?
 
-SmallClaw is a chat-first AI agent that runs completely locally using Ollama models (like qwen3:4b, qwen2.5-coder, llama3.3). It gives your local model real tools — files, web search, browser automation, terminal commands — delivered through a clean web UI with no API costs, no data leaving your machine.
+SmallClaw is a chat-first AI agent that supports multiple providers for local-only or hybrid setups (Ollama, llama.cpp, LM Studio, OpenAI API, and OpenAI Codex OAuth). It gives your local model real tools — files, web search, browser automation, terminal commands — delivered through a clean web UI with no API costs, no data leaving your machine.
 
 - ✅ **File operations** — Read, write, and surgically edit files with line-level precision
 - ✅ **Web search** — Multi-provider search (Tavily, Google, Brave, DuckDuckGo) with fallback
@@ -19,32 +65,33 @@ SmallClaw is a chat-first AI agent that runs completely locally using Ollama mod
 SmallClaw v2 is built around a single-pass chat handler. When you send a message, one LLM call decides whether to respond conversationally or call tools — no separate planning, execution, and verification agents. This dramatically reduces latency and works much better with small models that struggle to coordinate across multiple roles.
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   Web UI (index.html)               │
-│  Sessions · Chat · Process Log · Settings           │
-└──────────────────────┬──────────────────────────────┘
-                       │ SSE stream + REST
-┌──────────────────────▼──────────────────────────────┐
-│           Express Gateway (server-v2.ts)            │
-│  Session state · Tool registry · SSE streaming      │
-└──────────────────────┬──────────────────────────────┘
-                       │ Ollama native tool-calling API
-┌──────────────────────▼──────────────────────────────┐
-│              handleChat() — the core loop           │
-│                                                     │
-│  1. Build system prompt + short history             │
-│  2. Single LLM call with tools exposed              │
-│  3. Model decides: respond OR call tool(s)          │
-│  4. Execute tool → stream result back to model      │
-│  5. Repeat until model writes a final response      │
-│  6. Stream final text to UI via SSE                 │
-└──────────────────────┬──────────────────────────────┘
-                       │
-        ┌──────────────┼──────────────┐
-        ▼              ▼              ▼
-  File Tools      Web Tools     Browser Tools
-  (read/write/   (search/fetch)  (Playwright)
-   edit/delete)
++-----------------------------------------------+
+|               Web UI (index.html)             |
+|   Sessions · Chat · Process Log · Settings    |
++------------------------+----------------------+
+                         |
+                   SSE stream + REST
+                         |
++-----------------------------------------------+
+|          Express Gateway (server-v2.ts)       |
+|   Session state · Tool registry · SSE stream  |
++------------------------+----------------------+
+                         |
+            Native tool-calling + provider API
+                         |
++-----------------------------------------------+
+|        handleChat() — the core loop           |
+|  1) Build system prompt + short history       |
+|  2) Single LLM call with tools exposed        |
+|  3) Model decides: respond OR call tool(s)    |
+|  4) Execute tool → stream result back         |
+|  5) Repeat until final response               |
+|  6) Stream final text to UI via SSE           |
++------------------------+----------------------+
+        |                 |                 |
+        v                 v                 v
+   File Tools         Web Tools        Browser Tools
+(read/write/edit)   (search/fetch)     (Playwright)
 ```
 
 ### How a turn works
@@ -109,7 +156,12 @@ SmallClaw controls a real browser via Playwright — not just opening a URL for 
 ## Prerequisites
 
 1. **Node.js** 18+ ([Download](https://nodejs.org/))
-2. **Ollama** ([Download](https://ollama.ai/))
+2. **At least one model provider**:
+   - Ollama ([Download](https://ollama.ai/))
+   - llama.cpp server
+   - LM Studio local server
+   - OpenAI API key
+   - OpenAI Codex OAuth (ChatGPT account)
 3. **At least 8GB RAM** (16GB recommended for coding tasks)
 
 ## Installation
@@ -129,6 +181,28 @@ npm run build
 npm link
 ```
 
+## CLI Rename (Stage 1)
+
+SmallClaw now uses the `smallclaw` command in docs and examples.
+
+- Preferred command: `smallclaw`
+- Legacy alias still works for now: `localclaw` (deprecated)
+
+### Migration from older installs
+
+```bash
+git pull --ff-only
+npm install
+npm run build
+npm link
+```
+
+Then use:
+
+```bash
+smallclaw gateway start
+```
+
 ## Quick Start
 
 ### 1. Pull a model
@@ -144,16 +218,18 @@ ollama pull qwen2.5-coder:32b
 ### 2. Start the gateway
 
 ```bash
-localclaw gateway start
+smallclaw gateway start
 ```
 
 Open `http://localhost:18789` in your browser. That's it.
+
+Legacy alias note: `localclaw gateway start` still works during the transition.
 
 ### 3. Configure models and search
 
 In the web UI, open Settings (⚙️ in the top bar):
 
-- **Models tab** — select your Ollama model, optionally set role overrides
+- **Models tab** — choose provider + model (Ollama, llama.cpp, LM Studio, OpenAI API, or OpenAI Codex OAuth)
 - **Search tab** — add API keys for Tavily, Google, or Brave if you want better web search results
 
 ## Configuration
@@ -194,28 +270,34 @@ Most settings can be changed live from the Settings panel without restarting the
 ### Gateway
 ```bash
 # Start the web UI gateway
-localclaw gateway start
+smallclaw gateway start
 
 # Check gateway status
-localclaw gateway status
+smallclaw gateway status
 ```
 
 ### Model Management
 ```bash
 # List available local models
-localclaw model list
+smallclaw model list
 
 # Set primary model
-localclaw model set qwen2.5-coder:32b
+smallclaw model set qwen2.5-coder:32b
 
 # Pull a new model via Ollama
-localclaw model pull llama-3.3:70b
+smallclaw model pull llama-3.3:70b
 ```
 
 ### System
 ```bash
 # Health check
-localclaw doctor
+smallclaw doctor
+
+# Check for updates
+smallclaw update check
+
+# Apply updates
+smallclaw update
 ```
 
 ## Skills
@@ -223,6 +305,39 @@ localclaw doctor
 SmallClaw supports drop-in SKILL.md files that give the model extra context and capabilities for specific domains. Place skill files in `.localclaw/skills/<skill-name>/SKILL.md`. The model loads and applies them automatically when relevant.
 
 Skills are plain markdown — write instructions, examples, and constraints in natural language. No code required.
+
+## Provider Support
+
+SmallClaw supports these providers in Settings -> Models:
+
+- `ollama` (local)
+- `llama_cpp` (local OpenAI-compatible server)
+- `lm_studio` (local OpenAI-compatible server)
+- `openai` (API key)
+- `openai_codex` (ChatGPT OAuth/Codex endpoint)
+
+Provider selection is live through the web settings API and used by the unified provider factory.
+
+## Multi-Agent Orchestration (Optional Skill)
+
+SmallClaw includes an optional `multi-agent-orchestrator` skill for dual-model advisor/executor behavior:
+
+- Primary model remains executor (tools + edits).
+- Secondary model gives structured planner/rescue guidance.
+- Secondary preflight can run first (`off`, `complex_only`, `always`).
+- Rescue can auto-trigger on failures, loops, risky edits, or no progress.
+
+Important behavior:
+
+- This feature is **not default**.
+- It only runs when the `multi-agent-orchestrator` skill is enabled and eligible.
+- If the skill is disabled, preflight/rescue/post-check continuation logic is disabled.
+
+Current safety/quality controls:
+
+- Assist cooldown and per-turn/session caps
+- Telemetry endpoint: `GET /api/orchestration/telemetry?sessionId=<id>`
+- Post-check continuation: prevents intent-only replies from ending execution early (skill-gated)
 
 ## Model Recommendations
 
@@ -305,4 +420,5 @@ Inspired by [OpenClaw](https://openclaw.ai) and the Anthropic team. Built for th
 
 ---
 
-**Note:** SmallClaw is in early development (v0.1). Expect rough edges. Use at your own risk for production workloads.
+**Note:** This README reflects SmallClaw `v1.0.1`.
+
