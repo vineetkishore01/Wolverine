@@ -36,7 +36,7 @@
   <img src="assets/SmallClawDashboard.png" alt="SmallClaw UI" width="900" />
 </p>
 
-# SmallClaw v1.0.3
+# SmallClaw v1.0.4
 
 **Local AI agent framework with local + cloud provider support** — an open source alternative to cloud AI assistants that runs on your machine with free local models.
 
