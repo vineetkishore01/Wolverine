@@ -36,11 +36,9 @@
   <img src="screenshots/SmallClawDashboard.png" alt="SmallClaw UI" width="900" />
 </p>
 
-# SmallClaw v1.0.4
-
-**Local AI agent framework with local + cloud provider support** — an open source alternative to cloud AI assistants that runs on your machine with free local models.
-
-**Current release:** `v1.0.4`
+# SmallClaw v1.0.5
+...
+**Current release:** `v1.0.5`
 
 ---
 
@@ -155,7 +153,7 @@ SmallClaw controls a real browser via Playwright — not just opening a URL for 
 
 ## Prerequisites
 
-1. **Node.js** 18+ ([Download](https://nodejs.org/))
+1. **Node.js** 22 (LTS) ([Download](https://nodejs.org/)) - *Required for Apple Silicon/macOS to avoid compilation errors.*
 2. **At least one model provider**:
    - Ollama ([Download](https://ollama.ai/))
    - llama.cpp server
@@ -179,6 +177,9 @@ npm run build
 
 # Make CLI available globally
 npm link
+
+# Initialize the project (Run Once)
+smallclaw onboard
 ```
 
 ## CLI Rename (Stage 1)
@@ -476,6 +477,12 @@ ollama list
 - Close other memory-intensive apps
 - Set `llm_workers: 1` in config if you have multiple concurrent users
 
+### "EPERM: operation not permitted" on macOS
+If you see `EPERM` errors when creating files or `node_modules`:
+1. **Move out of iCloud**: Ensure the project is NOT in `Documents`, `Desktop`, or any folder synced with iCloud Drive. Move it to `/Users/$(whoami)/Source/SmallClaw`.
+2. **Clear Metadata**: Run `sudo xattr -rc .` in the project root to clear macOS quarantine/provenance flags.
+3. **Fix Node Version**: Use **Node 22 (LTS)**. Newer "odd" versions like Node 25 may fail to compile native modules (`better-sqlite3`) due to C++20 requirements.
+
 ### Tool calls not working / model just chatting
 - Check Settings → Models and confirm a model is selected and saved
 - Some models handle tool-calling better than others — qwen3 and qwen2.5-coder series are most reliable
@@ -510,5 +517,5 @@ Inspired by [OpenClaw](https://openclaw.ai) and the Anthropic team. Built for th
 
 ---
 
-**Note:** This README reflects SmallClaw `v1.0.3`.
+**Note:** This README reflects SmallClaw `v1.0.5`.
 
