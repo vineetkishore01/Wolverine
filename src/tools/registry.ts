@@ -9,6 +9,7 @@ import { selfUpdateTool } from './self-update.js';
 import { readSourceTool, listSourceTool } from './source-access.js';
 import { proposeRepairTool } from './self-repair.js';
 import { personaReadTool, personaUpdateTool } from './persona.js';
+import { readDocumentTool } from './documents.js';
 
 export interface Tool {
   name: string;
@@ -41,6 +42,7 @@ const TOOL_PROFILE_TOOL_NAMES: Record<Exclude<ToolProfile, 'full'>, ReadonlySet<
     'stat',
     'append',
     'apply_patch',
+    'read_document',
     'memory_search',
     'memory_write',
   ]),
@@ -145,6 +147,8 @@ class ToolRegistry {
     // Persona / memory growth tools
     this.registerSafe(personaReadTool);
     this.registerSafe(personaUpdateTool);
+    // Document intelligence
+    this.registerSafe(readDocumentTool);
     // Multi-agent spawn tool
     this.registerSafe(spawnAgentTool);
   }
@@ -174,7 +178,7 @@ class ToolRegistry {
 
   async execute(toolName: string, args: any): Promise<ToolResult> {
     const tool = this.tools.get(toolName);
-    
+
     if (!tool) {
       return {
         success: false,
@@ -198,7 +202,7 @@ class ToolRegistry {
       const schemaStr = Object.entries(tool.schema)
         .map(([key, desc]) => `  - ${key}: ${desc}`)
         .join('\n');
-      
+
       return `${tool.name}: ${tool.description}\n${schemaStr}`;
     }).join('\n\n');
   }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SmallClaw</title>
+<title>Wolverine</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
@@ -1562,7 +1562,7 @@
 <!-- HEADER -->
 <header>
   <div class="logo">
-    <span>🦞</span> SmallClaw
+    <span>🦞</span> Wolverine
   </div>
 
   <div class="mode-toggle">
@@ -1644,7 +1644,7 @@
     <div id="chat-messages">
       <div class="chat-welcome" id="chat-welcome">
         <div class="chat-welcome-icon">🦞</div>
-        <h2>SmallClaw</h2>
+        <h2>Wolverine</h2>
         <p>Chat directly with your local model. No API keys, no cloud — just you and the model.</p>
         <div class="hint">Switch to Agent mode for multi-step agentic tasks with tools.</div>
       </div>
@@ -1717,7 +1717,7 @@
         </button>
       </div>
       <div class="chat-hint">
-        Chatting with <span id="chat-model-name">your model</span> via <span id="chat-provider-name">SmallClaw</span>.
+        Chatting with <span id="chat-model-name">your model</span> via <span id="chat-provider-name">Wolverine</span>.
         <span id="queued-prompts-indicator" style="display:none;margin-left:8px;color:var(--brand);font-weight:700"></span>
       </div>
     </div>
@@ -2094,7 +2094,7 @@
       <div style="border:1px solid var(--line);border-radius:12px;padding:12px">
         <div class="right-section-title" style="margin-bottom:8px">File Access</div>
         <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Workspace Path</label>
-        <input id="settings-workspace-path" type="text" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;margin-bottom:10px" placeholder="e.g. D:\SmallClaw\workspace" />
+        <input id="settings-workspace-path" type="text" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;margin-bottom:10px" placeholder="e.g. D:\Wolverine\workspace" />
         <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Allowed Paths (one per line)</label>
         <textarea id="settings-allowed-paths" style="width:100%;min-height:120px;border:1px solid var(--line);border-radius:10px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px"></textarea>
         <label style="display:block;font-size:12px;color:var(--muted);margin:10px 0 6px">Blocked Paths (one per line)</label>
@@ -2191,7 +2191,7 @@
           <div id="prov-fields-openai_codex" style="display:none">
             <div class="right-section-title" style="margin-bottom:8px">OpenAI — GPT Plus / Codex</div>
             <div id="codex-disconnected-state">
-              <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6">Connect your ChatGPT Plus or Pro account via OAuth. Your browser will open to authorize SmallClaw.</div>
+              <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6">Connect your ChatGPT Plus or Pro account via OAuth. Your browser will open to authorize Wolverine.</div>
               <button class="btn" onclick="startCodexOAuth()" style="width:100%;background:var(--brand);color:#fff;border:none;padding:10px;border-radius:10px;font-size:13px;cursor:pointer">Connect ChatGPT Account</button>
               <div id="codex-oauth-status" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center"></div>
             </div>
@@ -2572,7 +2572,7 @@
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
               <div>
                 <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">Workspace</label>
-                <input id="agent-edit-workspace" type="text" placeholder="D:/SmallClaw/agents/researcher/workspace" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:12px;font-family:'IBM Plex Mono',monospace;box-sizing:border-box" />
+                <input id="agent-edit-workspace" type="text" placeholder="D:/Wolverine/agents/researcher/workspace" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:12px;font-family:'IBM Plex Mono',monospace;box-sizing:border-box" />
               </div>
               <div>
                 <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">Model</label>
@@ -2682,7 +2682,7 @@
               <code style="background:#f4f4f4;padding:2px 5px;border-radius:4px">GET /hooks/status</code> — health check<br><br>
               <b>Auth:</b> Send token as<br>
               <code style="background:#f4f4f4;padding:2px 5px;border-radius:4px">Authorization: Bearer &lt;token&gt;</code><br>
-              or <code style="background:#f4f4f4;padding:2px 5px;border-radius:4px">x-smallclaw-token: &lt;token&gt;</code><br><br>
+              or <code style="background:#f4f4f4;padding:2px 5px;border-radius:4px">x-wolverine-token: &lt;token&gt;</code><br><br>
               Works with: GitHub Actions, Stripe, Vercel, n8n, IFTTT, Home Assistant, or any script.
             </div>
           </div>
@@ -2717,6 +2717,37 @@
                 <option value="stdio">stdio (local process)</option>
                 <option value="sse">HTTP/SSE (remote)</option>
               </select>
+
+              <!-- Auth Type -->
+              <div id="mcp-auth-fields" style="margin-bottom:8px">
+                <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">Authentication</label>
+                <select id="mcp-f-auth" onchange="onMCPAuthChange()" style="width:100%;border:1px solid var(--line);border-radius:7px;padding:6px 9px;font-size:12px;box-sizing:border-box">
+                  <option value="none">None</option>
+                  <option value="bearer">Bearer Token</option>
+                  <option value="oauth">OAuth (Remote MCP)</option>
+                </select>
+              </div>
+
+              <!-- OAuth fields -->
+              <div id="mcp-oauth-fields" style="display:none;margin-bottom:8px">
+                <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">OAuth Client ID</label>
+                <input id="mcp-f-oauth-client-id" type="text" placeholder="your-client-id" style="width:100%;border:1px solid var(--line);border-radius:7px;padding:6px 9px;font-size:12px;box-sizing:border-box;margin-bottom:6px" />
+                
+                <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">OAuth Client Secret</label>
+                <input id="mcp-f-oauth-client-secret" type="password" placeholder="your-client-secret" style="width:100%;border:1px solid var(--line);border-radius:7px;padding:6px 9px;font-size:12px;box-sizing:border-box;margin-bottom:6px" />
+                
+                <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">Auth URL</label>
+                <input id="mcp-f-oauth-auth-url" type="text" placeholder="https://api.notion.com/v1/oauth/authorize" style="width:100%;border:1px solid var(--line);border-radius:7px;padding:6px 9px;font-size:12px;box-sizing:border-box;margin-bottom:6px" />
+                
+                <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">Token URL</label>
+                <input id="mcp-f-oauth-token-url" type="text" placeholder="https://api.notion.com/v1/oauth/token" style="width:100%;border:1px solid var(--line);border-radius:7px;padding:6px 9px;font-size:12px;box-sizing:border-box;margin-bottom:6px" />
+                
+                <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">Scopes <span style="color:#888">(space separated)</span></label>
+                <input id="mcp-f-oauth-scopes" type="text" placeholder="read_content write_content" style="width:100%;border:1px solid var(--line);border-radius:7px;padding:6px 9px;font-size:12px;box-sizing:border-box;margin-bottom:8px" />
+                
+                <button id="mcp-authorize-btn" onclick="startMCPOAuth()" style="padding:6px 14px;background:#10b981;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:8px">Authorize with OAuth</button>
+                <div id="mcp-oauth-status" style="font-size:11px;color:var(--muted);margin-bottom:8px"></div>
+              </div>
 
               <!-- stdio fields -->
               <div id="mcp-stdio-fields">
@@ -2758,7 +2789,7 @@
               <div class="right-section-title" style="margin-bottom:8px">What is MCP?</div>
               <div style="font-size:12px;color:var(--muted);line-height:1.85">
                 <b>Model Context Protocol</b> (by Anthropic) is a standard that lets AI connect to external tools and data sources.<br><br>
-                Each MCP server exposes a set of <b>tools</b> — SmallClaw discovers them automatically when you connect.
+                Each MCP server exposes a set of <b>tools</b> — Wolverine discovers them automatically when you connect.
                 The AI can then call them during tasks, just like its built-in tools.<br><br>
                 Servers run <b>locally as child processes</b> (stdio) or connect to <b>remote HTTP endpoints</b> (SSE).
                 No data leaves your machine unless the tool itself calls an external API.
@@ -2793,6 +2824,10 @@
                     <div style="font-weight:600;color:var(--text)">Memory</div>
                     <div style="color:var(--muted)">Persistent knowledge store</div>
                   </button>
+                  <button onclick="prefillMCPServer('notion_oauth')" style="text-align:left;padding:7px 9px;border:1px solid #10b981;border-radius:7px;background:#ecfdf5;cursor:pointer;font-size:11px">
+                    <div style="font-weight:600;color:#10b981">Notion (OAuth)</div>
+                    <div style="color:var(--muted)">Pages & databases via OAuth</div>
+                  </button>
                 </div>
                 <div style="margin-top:8px;font-size:11px">
                   <a href="https://github.com/modelcontextprotocol/servers" target="_blank" style="color:var(--brand)">Browse all official servers →</a>
@@ -2821,9 +2856,9 @@ let pollInterval = null;
 let currentMode = 'chat';
 let sidebarTab = 'jobs';
 let useAgentMode = false;
-const CHAT_SESSIONS_KEY = 'smallclaw_chat_sessions_v1';
-const AGENT_SESSION_KEY = 'smallclaw_agent_session_id';
-const THEME_KEY = 'smallclaw_theme';
+const CHAT_SESSIONS_KEY = 'wolverine_chat_sessions_v1';
+const AGENT_SESSION_KEY = 'wolverine_agent_session_id';
+const THEME_KEY = 'wolverine_theme';
 function generateSessionId() {
   return (crypto?.randomUUID?.() || ('sess_' + Math.random().toString(36).slice(2)));
 }
@@ -2850,7 +2885,7 @@ let lastTurnKind = '-';
 let settingsTab = 'system';
 let liveTaskSteps = [];
 let quickSearchRigor = 'verified';
-let quickThinkingEffort = localStorage.getItem('smallclaw_quick_thinking_effort') || 'standard';
+let quickThinkingEffort = localStorage.getItem('wolverine_quick_thinking_effort') || 'standard';
 let queuedPrompts = [];
 const MAX_QUEUED_PROMPTS = 8;
 let currentPreflightStatus = '';
@@ -3457,7 +3492,7 @@ function renderChatMessages() {
     container.innerHTML = `
       <div class="chat-welcome" id="chat-welcome">
         <div class="chat-welcome-icon">🦞</div>
-        <h2>SmallClaw</h2>
+        <h2>Wolverine</h2>
         <p>Chat directly with your local model. No API keys, no cloud — just you and the model.</p>
         <div class="hint">Enable Agent mode when you want planning + tool execution in this chat.</div>
       </div>`;
@@ -3474,7 +3509,7 @@ function renderChatMessages() {
     <div class="msg ${msg.role}${pinClass}${selectedClass}${confirmedClass}"${clickHandler}>
       <div class="msg-avatar">${msg.role === 'user' ? 'U' : '🦞'}</div>
       <div class="msg-body">
-        <div class="msg-role">${msg.role === 'user' ? 'You' : (msg.mode === 'agentic' ? 'SmallClaw (Agent)' : 'SmallClaw')}</div>
+        <div class="msg-role">${msg.role === 'user' ? 'You' : (msg.mode === 'agentic' ? 'Wolverine (Agent)' : 'Wolverine')}</div>
         ${msg.role === 'ai' ? renderAssistantContent(msg.content) : `<div class="msg-content">${escHtml(msg.content)}</div>`}
         ${msg.role === 'ai' ? renderArtifacts(msg.artifacts) : ''}
         ${msg.role === 'ai' && msg.processEntries && msg.processEntries.length ? renderProcessPill(msg.processEntries) : ''}
@@ -3494,7 +3529,7 @@ function renderChatMessages() {
       <div class="msg ai" id="thinking-msg">
         <div class="msg-avatar">🦞</div>
         <div class="msg-body">
-          <div class="msg-role">SmallClaw${useAgentMode ? ' (Agent)' : ''}</div>
+          <div class="msg-role">Wolverine${useAgentMode ? ' (Agent)' : ''}</div>
           ${currentPreflightStatus ? `<div class="msg-content" style="margin-bottom:6px;color:#26487e">${escHtml(currentPreflightStatus)}</div>` : ''}
           ${progressHtml}
           <div class="thinking">
@@ -4460,7 +4495,7 @@ async function setQuickSearchRigor(level) {
 
 function setQuickThinkingEffort(level) {
   quickThinkingEffort = level === 'extended' ? 'extended' : 'standard';
-  localStorage.setItem('smallclaw_quick_thinking_effort', quickThinkingEffort);
+  localStorage.setItem('wolverine_quick_thinking_effort', quickThinkingEffort);
   updateQuickModeUI();
   addProcessEntry('info', `Thinking effort set to ${quickThinkingEffort} (UI preference).`);
 }
@@ -6931,7 +6966,7 @@ function renderBgTasks() {
     board.innerHTML = `<div style="text-align:center;padding:60px 24px;color:var(--muted);font-size:13px;flex:1">
       <div style="font-size:36px;margin-bottom:12px">Tasks</div>
       <div style="font-weight:700;margin-bottom:4px">No background tasks yet</div>
-      <div style="font-size:12px">Ask SmallClaw to do something in the background and it'll appear here.</div>
+      <div style="font-size:12px">Ask Wolverine to do something in the background and it'll appear here.</div>
     </div>`;
   }
 }
@@ -7326,7 +7361,7 @@ function copyWebhookCurl() {
   const origin = window.location.origin || 'http://localhost:18789';
   const hookPath = document.getElementById('wh-path')?.value?.trim() || '/hooks';
   const curl = `curl -X POST ${origin}${hookPath}/agent \\
-  -H "x-smallclaw-token: YOUR_TOKEN" \\
+  -H "x-wolverine-token: YOUR_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{"message": "Hello from webhook", "name": "MyApp", "deliver": true}'`;
   navigator.clipboard?.writeText(curl).then(() => {
@@ -7347,6 +7382,7 @@ const MCP_PRESETS = {
   sqlite:     { name: 'SQLite', transport: 'stdio', command: 'npx', args: '-y\n@modelcontextprotocol/server-sqlite\n--db-path\nC:\\path\\to\\db.sqlite', env: '', description: 'Local database' },
   brave:      { name: 'Brave Search', transport: 'stdio', command: 'npx', args: '-y\n@modelcontextprotocol/server-brave-search', env: 'BRAVE_API_KEY=', description: 'Web search' },
   memory:     { name: 'Memory', transport: 'stdio', command: 'npx', args: '-y\n@modelcontextprotocol/server-memory', env: '', description: 'Persistent knowledge store' },
+  notion_oauth: { name: 'Notion (OAuth)', transport: 'sse', url: 'https://mcp.notion.com/mcp', authType: 'oauth', oauth: { clientId: '', clientSecret: '', authUrl: 'https://api.notion.com/v1/oauth/authorize', tokenUrl: 'https://api.notion.com/v1/oauth/token', scopes: ['read_content', 'write_content', 'insert_content'] }, description: 'Notion pages & databases via OAuth' },
 };
 
 async function loadMCPServers() {
@@ -7403,6 +7439,18 @@ function showMCPAddForm(editData) {
     v('mcp-f-env', Object.entries(editData.env || {}).map(([k,v]) => `${k}=${v}`).join('\n'));
     v('mcp-f-url', editData.url || '');
     v('mcp-f-headers', Object.entries(editData.headers || {}).map(([k,v]) => `${k}: ${v}`).join('\n'));
+    
+    // Load OAuth config
+    document.getElementById('mcp-f-auth').value = editData.authType || 'none';
+    onMCPAuthChange();
+    if (editData.oauth) {
+      v('mcp-f-oauth-client-id', editData.oauth.clientId || '');
+      v('mcp-f-oauth-client-secret', editData.oauth.clientSecret || '');
+      v('mcp-f-oauth-auth-url', editData.oauth.authUrl || '');
+      v('mcp-f-oauth-token-url', editData.oauth.tokenUrl || '');
+      v('mcp-f-oauth-scopes', (editData.oauth.scopes || []).join(' '));
+    }
+    
     const cb = document.getElementById('mcp-f-enabled');
     if (cb) cb.checked = editData.enabled !== false;
   } else {
@@ -7411,6 +7459,8 @@ function showMCPAddForm(editData) {
     });
     document.getElementById('mcp-f-transport').value = 'stdio';
     onMCPTransportChange();
+    document.getElementById('mcp-f-auth').value = 'none';
+    onMCPAuthChange();
     const cb = document.getElementById('mcp-f-enabled'); if (cb) cb.checked = true;
   }
   document.getElementById('mcp-f-id').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -7425,6 +7475,63 @@ function onMCPTransportChange() {
   const t = document.getElementById('mcp-f-transport')?.value;
   document.getElementById('mcp-stdio-fields').style.display = t === 'stdio' ? 'block' : 'none';
   document.getElementById('mcp-sse-fields').style.display = t === 'sse' ? 'block' : 'none';
+  // Show auth fields only for SSE transport
+  document.getElementById('mcp-auth-fields').style.display = t === 'sse' ? 'block' : 'none';
+  if (t !== 'sse') {
+    document.getElementById('mcp-oauth-fields').style.display = 'none';
+  }
+}
+
+function onMCPAuthChange() {
+  const auth = document.getElementById('mcp-f-auth')?.value;
+  document.getElementById('mcp-oauth-fields').style.display = auth === 'oauth' ? 'block' : 'none';
+}
+
+async function startMCPOAuth() {
+  // First save the server config
+  await saveMCPServer(true);
+  
+  const id = document.getElementById('mcp-f-id')?.value?.trim();
+  const clientId = document.getElementById('mcp-f-oauth-client-id')?.value?.trim();
+  const authUrl = document.getElementById('mcp-f-oauth-auth-url')?.value?.trim();
+  
+  if (!id) { document.getElementById('mcp-oauth-status').textContent = 'Please save server first'; return; }
+  if (!clientId) { document.getElementById('mcp-oauth-status').textContent = 'Please enter OAuth Client ID first'; return; }
+  if (!authUrl) { document.getElementById('mcp-oauth-status').textContent = 'Please enter Auth URL'; return; }
+  
+  document.getElementById('mcp-oauth-status').textContent = 'Getting OAuth URL...';
+  
+  try {
+    const resp = await api(`/api/mcp/oauth/url/${id}`);
+    if (!resp.success) {
+      document.getElementById('mcp-oauth-status').textContent = 'Error: ' + resp.error;
+      return;
+    }
+    // Open OAuth in popup
+    const w = 600, h = 700;
+    const left = (screen.width - w) / 2;
+    const top = (screen.height - h) / 2;
+    window.open(resp.url, 'MCPOAuth', `width=${w},height=${h},left=${left},top=${top}`);
+    document.getElementById('mcp-oauth-status').textContent = 'Waiting for authorization...';
+    
+    // Poll for connected status
+    let attempts = 0;
+    const poll = setInterval(async () => {
+      attempts++;
+      const servers = await api('/api/mcp/servers');
+      const server = servers?.find(s => s.id === id);
+      if (server?.credentials?.accessToken) {
+        clearInterval(poll);
+        document.getElementById('mcp-oauth-status').textContent = '✓ OAuth connected!';
+        document.getElementById('mcp-oauth-status').style.color = '#10b981';
+      } else if (attempts > 60) { // 30 seconds
+        clearInterval(poll);
+        document.getElementById('mcp-oauth-status').textContent = 'OAuth timeout';
+      }
+    }, 500);
+  } catch (e) {
+    document.getElementById('mcp-oauth-status').textContent = 'Error: ' + e.message;
+  }
 }
 
 function prefillMCPServer(presetKey) {
@@ -7440,17 +7547,31 @@ function prefillMCPServer(presetKey) {
   v('mcp-f-args', p.args || '');
   v('mcp-f-env', p.env || '');
   v('mcp-f-url', p.url || '');
+  
+  // Handle OAuth presets
+  if (p.authType) {
+    document.getElementById('mcp-f-auth').value = p.authType;
+    onMCPAuthChange();
+    if (p.oauth) {
+      v('mcp-f-oauth-client-id', p.oauth.clientId || '');
+      v('mcp-f-oauth-client-secret', p.oauth.clientSecret || '');
+      v('mcp-f-oauth-auth-url', p.oauth.authUrl || '');
+      v('mcp-f-oauth-token-url', p.oauth.tokenUrl || '');
+      v('mcp-f-oauth-scopes', (p.oauth.scopes || []).join(' '));
+    }
+  }
+  
   setIntegTab('mcp');
 }
 
-async function saveMCPServer() {
+async function saveMCPServer(silent) {
   const id = document.getElementById('mcp-f-id')?.value?.trim();
   const name = document.getElementById('mcp-f-name')?.value?.trim();
   const transport = document.getElementById('mcp-f-transport')?.value || 'stdio';
   const enabled = document.getElementById('mcp-f-enabled')?.checked ?? true;
   const msgEl = document.getElementById('mcp-form-msg');
 
-  if (!id || !name) { if (msgEl) msgEl.textContent = 'ID and Name are required.'; return; }
+  if (!id || !name) { if (msgEl && !silent) msgEl.textContent = 'ID and Name are required.'; return; }
 
   const cfg = { id, name, transport, enabled };
 
@@ -7470,21 +7591,34 @@ async function saveMCPServer() {
     headersRaw.split('\n').map(l => l.trim()).filter(Boolean).forEach(line => {
       const colon = line.indexOf(':'); if (colon > 0) cfg.headers[line.slice(0,colon).trim()] = line.slice(colon+1).trim();
     });
+    
+    // Handle OAuth config
+    const authType = document.getElementById('mcp-f-auth')?.value || 'none';
+    cfg.authType = authType;
+    
+    if (authType === 'oauth') {
+      cfg.oauth = {
+        clientId: document.getElementById('mcp-f-oauth-client-id')?.value?.trim() || '',
+        clientSecret: document.getElementById('mcp-f-oauth-client-secret')?.value?.trim() || '',
+        authUrl: document.getElementById('mcp-f-oauth-auth-url')?.value?.trim() || '',
+        tokenUrl: document.getElementById('mcp-f-oauth-token-url')?.value?.trim() || '',
+        scopes: (document.getElementById('mcp-f-oauth-scopes')?.value?.trim() || '').split(/\s+/).filter(Boolean),
+      };
+    }
   }
 
   try {
     const r = await api('/api/mcp/servers', { method: 'POST', body: JSON.stringify(cfg) });
     if (r.success) {
-      if (msgEl) msgEl.textContent = '? Saved';
-      setTimeout(() => hideMCPAddForm(), 600);
+      if (msgEl && !silent) msgEl.textContent = '✓ Saved';
+      if (!silent) setTimeout(() => hideMCPAddForm(), 600);
       await loadMCPServers();
-      // Auto-connect if enabled
       if (enabled) connectMCPServer(id);
     } else {
-      if (msgEl) msgEl.textContent = 'Error: ' + (r.error || 'Unknown');
+      if (msgEl && !silent) msgEl.textContent = 'Error: ' + (r.error || 'Unknown');
     }
   } catch(e) {
-    if (msgEl) msgEl.textContent = 'Save failed: ' + e.message;
+    if (msgEl && !silent) msgEl.textContent = 'Save failed: ' + e.message;
   }
 }
 

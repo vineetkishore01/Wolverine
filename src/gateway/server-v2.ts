@@ -1,5 +1,7 @@
 /**
- * server-v2.ts - SmallClaw v2 Gateway
+ * server-v2.ts - Wolverine v2 Gateway
+ *
+ * Wolverine - Local-first AI agent framework built for small models.
  * 
  * Architecture: Native Ollama Tool Calling
  * Memory: Reads SOUL.md, IDENTITY.md, USER.md, MEMORY.md from workspace
@@ -91,6 +93,9 @@ import {
   shouldRunPreflight,
   type TaskSnapshot as HeartbeatTaskSnapshot,
 } from '../orchestration/multi-agent';
+import { executeReadDocument } from '../tools/documents';
+import { skillConnectorTool, executeSkillConnector } from '../skills/connector-tool';
+import { getSkillConnectorManager } from '../skills/connector';
 import {
   createTask,
   loadTask,
@@ -233,45 +238,45 @@ const isLinux = process.platform === 'linux';
 
 const SAFE_COMMANDS: Record<string, string> = isWindows
   ? {
-      'chrome': 'start chrome',
-      'browser': 'start chrome',
-      'firefox': 'start firefox',
-      'edge': 'start msedge',
-      'notepad': 'start notepad',
-      'calc': 'start calc',
-      'calculator': 'start calc',
-      'explorer': 'start explorer',
-      'terminal': 'start cmd',
-      'cmd': 'start cmd',
-      'powershell': 'start powershell',
-    }
+    'chrome': 'start chrome',
+    'browser': 'start chrome',
+    'firefox': 'start firefox',
+    'edge': 'start msedge',
+    'notepad': 'start notepad',
+    'calc': 'start calc',
+    'calculator': 'start calc',
+    'explorer': 'start explorer',
+    'terminal': 'start cmd',
+    'cmd': 'start cmd',
+    'powershell': 'start powershell',
+  }
   : isMac
     ? {
-        'chrome': 'open -a "Google Chrome"',
-        'browser': 'open',
-        'firefox': 'open -a "Firefox"',
-        'edge': 'open -a "Microsoft Edge"',
-        'notepad': 'open -a "TextEdit"',
-        'calc': 'open -a "Calculator"',
-        'calculator': 'open -a "Calculator"',
-        'explorer': 'open .',
-        'terminal': 'open -a "Terminal"',
-        'cmd': 'open -a "Terminal"',
-        'powershell': 'open -a "Terminal"',
-      }
+      'chrome': 'open -a "Google Chrome"',
+      'browser': 'open',
+      'firefox': 'open -a "Firefox"',
+      'edge': 'open -a "Microsoft Edge"',
+      'notepad': 'open -a "TextEdit"',
+      'calc': 'open -a "Calculator"',
+      'calculator': 'open -a "Calculator"',
+      'explorer': 'open .',
+      'terminal': 'open -a "Terminal"',
+      'cmd': 'open -a "Terminal"',
+      'powershell': 'open -a "Terminal"',
+    }
     : {
-        'chrome': 'google-chrome',
-        'browser': 'xdg-open',
-        'firefox': 'firefox',
-        'edge': 'microsoft-edge',
-        'notepad': 'gedit',
-        'calc': 'gnome-calculator',
-        'calculator': 'gnome-calculator',
-        'explorer': 'xdg-open .',
-        'terminal': 'x-terminal-emulator',
-        'cmd': 'x-terminal-emulator',
-        'powershell': 'pwsh',
-      };
+      'chrome': 'google-chrome',
+      'browser': 'xdg-open',
+      'firefox': 'firefox',
+      'edge': 'microsoft-edge',
+      'notepad': 'gedit',
+      'calc': 'gnome-calculator',
+      'calculator': 'gnome-calculator',
+      'explorer': 'xdg-open .',
+      'terminal': 'x-terminal-emulator',
+      'cmd': 'x-terminal-emulator',
+      'powershell': 'pwsh',
+    };
 
 function quoteShellArg(value: string): string {
   return `"${String(value || '').replace(/"/g, '\\"')}"`;
@@ -299,10 +304,10 @@ const BLOCKED_PATTERNS = ['del ', 'rm ', 'format', 'shutdown', 'restart', 'rmdir
 // ── Sub-Agent Tool Profiles ────────────────────────────────────────────────────────────
 type SubagentProfile = 'file_editor' | 'researcher' | 'shell_runner' | 'reader_only';
 const TOOL_PROFILES: Record<SubagentProfile, Set<string>> = {
-  file_editor:  new Set(['read_file', 'create_file', 'replace_lines', 'insert_after', 'delete_lines', 'find_replace', 'list_files']),
-  researcher:   new Set(['read_file', 'list_files', 'web_search', 'web_fetch']),
+  file_editor: new Set(['read_file', 'create_file', 'replace_lines', 'insert_after', 'delete_lines', 'find_replace', 'list_files']),
+  researcher: new Set(['read_file', 'list_files', 'web_search', 'web_fetch']),
   shell_runner: new Set(['run_command', 'read_file', 'list_files']),
-  reader_only:  new Set(['read_file', 'list_files']),
+  reader_only: new Set(['read_file', 'list_files']),
 };
 
 // Track last-used filename per session for when model forgets to pass it
@@ -455,7 +460,7 @@ function broadcastWS(data: object): void {
   const msg = JSON.stringify(data);
   wss.clients.forEach((client: any) => {
     if (client.readyState === 1) { // OPEN
-      try { client.send(msg); } catch {}
+      try { client.send(msg); } catch { }
     }
   });
 }
@@ -793,7 +798,7 @@ function logToDaily(workspacePath: string, role: string, content: string) {
     const entry = `[${timestamp}] **${role}**: ${content.slice(0, 300)}\n`;
 
     fs.appendFileSync(logPath, entry);
-  } catch {}
+  } catch { }
 }
 
 // ─── Tool Definitions ──────────────────────────────────────────────────────────
@@ -908,6 +913,17 @@ function buildTools() {
     {
       type: 'function',
       function: {
+        name: 'read_document',
+        description: 'Read a rich document (DOCX, PDF, XLSX, RTF). For PDF, if it fails, use browser_open on the file URL.',
+        parameters: {
+          type: 'object', required: ['filename'],
+          properties: { filename: { type: 'string', description: 'Path to the document file' } },
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'web_search',
         description: 'Search the web for current information. Use web_fetch on result URLs to read full page content.',
         parameters: {
@@ -1014,7 +1030,7 @@ function buildTools() {
     ...getBrowserToolDefinitions(),
     ...getDesktopToolDefinitions(),
     // Orchestration tool — only exposed when orchestration is enabled
-    ...(() => {
+    ...((() => {
       const oc = getOrchestrationConfig();
       if (!oc?.enabled || !isOrchestrationSkillEnabled()) return [];
       return [{
@@ -1027,14 +1043,14 @@ function buildTools() {
             required: ['reason'],
             properties: {
               reason: { type: 'string', description: 'Why you need help: planning, stuck, repeated failures, risky edit, etc.' },
-              mode:   { type: 'string', enum: ['planner', 'rescue'], description: 'planner = need upfront strategy; rescue = stuck or failing' },
+              mode: { type: 'string', enum: ['planner', 'rescue'], description: 'planner = need upfront strategy; rescue = stuck or failing' },
             },
           },
         },
       }];
-    })(),
+    })()),
     // ── Sub-agent tools ── shown based on subagent_mode toggle ────────────────────────────────────
-    ...(() => {
+    ...((() => {
       const subagentMode = (getConfig().getConfig() as any).orchestration?.subagent_mode === true;
       if (subagentMode) {
         // Full Claude Cowork–style: free-form arbitrary spawn (multi-agent ON)
@@ -1050,8 +1066,8 @@ function buildTools() {
               type: 'object',
               required: ['task_title', 'task_prompt'],
               properties: {
-                task_title:      { type: 'string', description: 'Short title for the sub-agent task' },
-                task_prompt:     { type: 'string', description: 'Full instruction for the sub-agent (be precise)' },
+                task_title: { type: 'string', description: 'Short title for the sub-agent task' },
+                task_prompt: { type: 'string', description: 'Full instruction for the sub-agent (be precise)' },
                 context_snippet: { type: 'string', description: 'Relevant context pre-extracted for the sub-agent (file contents, URLs, etc.)' },
                 expected_output: { type: 'string', description: 'What the sub-agent should return when done' },
                 profile: {
@@ -1089,7 +1105,56 @@ function buildTools() {
           },
         },
       }];
-    })(),
+    })()),
+    {
+      type: 'function',
+      function: {
+        name: 'list_mcp_servers',
+        description: 'List all currently configured MCP servers and their active tool counts.',
+        parameters: { type: 'object', properties: {} },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'register_mcp_server',
+        description: 'Connect to a new external MCP server (stdio or sse) to gain new tools.',
+        parameters: {
+          type: 'object', required: ['id', 'name', 'transport'],
+          properties: {
+            id: { type: 'string', description: 'Unique ID (alphanumeric/dash)' },
+            name: { type: 'string', description: 'Display name' },
+            transport: { type: 'string', enum: ['stdio', 'sse'], description: 'stdio (local command) or sse (remote URL)' },
+            command: { type: 'string', description: 'For stdio: executable name (node, python, npx, uvx)' },
+            args: { type: 'array', items: { type: 'string' }, description: 'Command arguments' },
+            env: { type: 'object', description: 'Environment variables' },
+            url: { type: 'string', description: 'For sse: endpoint URL' },
+          },
+        },
+      },
+    },
+    {
+      type: 'function' as const,
+      function: {
+        name: skillConnectorTool.name,
+        description: skillConnectorTool.description,
+        parameters: skillConnectorTool.schema as any,
+      },
+    },
+    // Dynamically inject all active tools from connected MCP servers
+    ...((() => {
+      try {
+        const mcpTools = getMCPManager().getAllTools();
+        return mcpTools.map(t => ({
+          type: 'function' as const,
+          function: {
+            name: t.name,
+            description: `(MCP:${t.serverName}) ${t.description}`,
+            parameters: t.inputSchema || { type: 'object', properties: {} },
+          },
+        }));
+      } catch { return []; }
+    })()),
   ];
 }
 
@@ -1358,7 +1423,7 @@ function normalizeToolArgs(rawArgs: any): any {
 
 async function executeTool(name: string, args: any, workspacePath: string, sessionId: string = 'default'): Promise<ToolResult> {
   // Filename inference: if the model forgot to pass filename, use the last one
-  const needsFilename = ['read_file', 'create_file', 'replace_lines', 'insert_after', 'delete_lines', 'find_replace', 'delete_file'];
+  const needsFilename = ['read_file', 'create_file', 'replace_lines', 'insert_after', 'delete_lines', 'find_replace', 'delete_file', 'read_document'];
   if (needsFilename.includes(name)) {
     // Normalize: secondary AI sometimes returns "path" or "file" instead of "filename"
     if (!args.filename && !args.name) {
@@ -1459,6 +1524,17 @@ async function executeTool(name: string, args: any, workspacePath: string, sessi
         if (!fs.existsSync(filePath)) return { name, args, result: `"${filename}" not found`, error: true };
         fs.unlinkSync(filePath);
         return { name, args, result: `${filename} deleted`, error: false };
+      }
+
+      case 'read_document': {
+        const filename = String(args.filename || args.name || args.path || '');
+        const result = await executeReadDocument({ path: filename });
+        return { name, args, result: result.stdout || result.error || '', error: !result.success };
+      }
+
+      case 'skill_connector': {
+        const result = await executeSkillConnector(args as any);
+        return { name, args, result: result.stdout || result.error || '', error: !result.success };
       }
 
       case 'web_search': {
@@ -1855,8 +1931,60 @@ async function executeTool(name: string, args: any, workspacePath: string, sessi
         return { name, args, result, error: result.startsWith('ERROR') };
       }
 
-      default:
+      case 'list_mcp_servers': {
+        const mgr = getMCPManager();
+        const status = mgr.getStatus();
+        const lines = status.map(s => `- ${s.name} (${s.id}): ${s.status}, ${s.tools} tool(s)${s.error ? ` ERR: ${s.error}` : ''}`);
+        return { name, args, result: lines.length ? `Configured MCP Servers:\n${lines.join('\n')}` : 'No MCP servers configured.', error: false };
+      }
+
+      case 'register_mcp_server': {
+        const mgr = getMCPManager();
+        const cfg = {
+          id: String(args.id || ''),
+          name: String(args.name || ''),
+          transport: (args.transport === 'sse' ? 'sse' : 'stdio') as any,
+          command: args.command ? String(args.command) : undefined,
+          args: Array.isArray(args.args) ? args.args.map(String) : undefined,
+          env: (args.env && typeof args.env === 'object') ? args.env : undefined,
+          url: args.url ? String(args.url) : undefined,
+          enabled: true,
+        };
+        try {
+          mgr.upsertConfig(cfg as any);
+          const connectResult = await mgr.connect(cfg.id);
+          if (connectResult.success) {
+            return { name, args, result: `MCP server "${cfg.name}" registered and connected successfully. Found ${connectResult.tools?.length} tools.`, error: false };
+          } else {
+            return { name, args, result: `MCP server "${cfg.name}" registered but connection failed: ${connectResult.error}`, error: true };
+          }
+        } catch (err: any) {
+          return { name, args, result: `Failed to register MCP server: ${err.message}`, error: true };
+        }
+      }
+
+      default: {
+        // Fallback: check if it's an MCP tool
+        const mgr = getMCPManager();
+        const mcpTool = mgr.getAllTools().find(t => t.name === name);
+        if (mcpTool) {
+          try {
+            const mcpResult = await mgr.callTool(mcpTool.serverId, name, args);
+            const textContent = mcpResult.content
+              .map(c => c.text || JSON.stringify(c))
+              .join('\n');
+            return {
+              name,
+              args,
+              result: textContent || 'Success (no output)',
+              error: mcpResult.isError || false,
+            };
+          } catch (err: any) {
+            return { name, args, result: `MCP tool execution failed: ${err.message}`, error: true };
+          }
+        }
         return { name, args, result: `Unknown tool: ${name}`, error: true };
+      }
     }
   } catch (err: any) {
     return { name, args, result: `Error: ${err.message}`, error: true };
@@ -1870,7 +1998,7 @@ function logToolCall(workspacePath: string, toolName: string, args: any, result:
     const logPath = path.join(workspacePath, 'tool_audit.log');
     const ts = new Date().toISOString();
     fs.appendFileSync(logPath, `[${ts}] ${error ? 'FAIL' : 'OK'} ${toolName}(${JSON.stringify(args).slice(0, 200)}) => ${result.slice(0, 200)}\n`);
-  } catch {}
+  } catch { }
 }
 
 // ─── Thinking Stripper ─────────────────────────────────────────────────────────
@@ -1954,7 +2082,7 @@ function isGreetingLikeMessage(text: string): boolean {
   if (/\b(search|open|read|write|file|code|task|build|fix|debug|run|install|http|www\.|\.com|please|could you|can you)\b/i.test(raw)) {
     return false;
   }
-  return /^(hi|hello|hey|yo|sup|howdy|good (morning|afternoon|evening)|hey claw|hello claw|hi claw|hey smallclaw|hello smallclaw|hi smallclaw|how are you)[!.?\s]*$/i.test(raw);
+  return /^(hi|hello|hey|yo|sup|howdy|good (morning|afternoon|evening)|hey claw|hello claw|hi claw|hey wolverine|hello wolverine|hi wolverine|how are you)[!.?\s]*$/i.test(raw);
 }
 
 function sanitizeFinalReply(
@@ -2695,11 +2823,9 @@ async function handleChat(
   // Inject active browser session state so LLM knows to reuse it instead of re-opening
   const browserInfo = getBrowserSessionInfo(sessionId);
   const browserStateCtx = browserInfo.active
-    ? `\n\n[BROWSER SESSION ACTIVE: A browser tab is already open.${
-        browserInfo.title ? ` Current page: "${browserInfo.title}"` : ''
-      }${
-        browserInfo.url ? ` at ${browserInfo.url}` : ''
-      }. Use browser_snapshot to see current elements, or browser_click to navigate. Do NOT call browser_open unless you need to go to a completely different site.]`
+    ? `\n\n[BROWSER SESSION ACTIVE: A browser tab is already open.${browserInfo.title ? ` Current page: "${browserInfo.title}"` : ''
+    }${browserInfo.url ? ` at ${browserInfo.url}` : ''
+    }. Use browser_snapshot to see current elements, or browser_click to navigate. Do NOT call browser_open unless you need to go to a completely different site.]`
     : '';
 
   const now = new Date();
@@ -2732,7 +2858,7 @@ async function handleChat(
   const messages: any[] = [
     {
       role: 'system',
-      content: `${executionModeSystemBlock ? `${executionModeSystemBlock}\n\n` : ''}You are SmallClaw 🦞, a friendly AI assistant that runs locally.
+      content: `${executionModeSystemBlock ? `${executionModeSystemBlock}\n\n` : ''}You are Wolverine 🦞, a friendly AI assistant that runs locally.
 Current date: ${dateStr}, ${timeStr}.
 
 TOOLS:
@@ -2750,7 +2876,7 @@ TOOLS:
 - start_task: Launch a multi-step task (for complex operations needing many steps)
 - task_control: List/get/resume/rerun/pause/delete existing background tasks and statuses
 - schedule_job: Manage scheduled automation jobs (list/create/update/pause/resume/delete/run_now)
-- browser_open: Navigate to a URL in a browser YOU control via Playwright (a persistent Chrome profile saved at C:\Users\rafel\.smallclaw\chrome-debug-profile — you stay logged into sites after the first login, no re-auth needed). You can click, fill, snapshot after.
+- browser_open: Navigate to a URL in a browser YOU control via Playwright (a persistent Chrome profile saved at C:\Users\rafel\.wolverine\chrome-debug-profile — you stay logged into sites after the first login, no re-auth needed). You can click, fill, snapshot after.
 - browser_snapshot: Refresh visible elements. If element count looks low, call browser_wait first
 - browser_click: Click by @ref. ALWAYS take browser_snapshot after to confirm the click worked
 - browser_fill: Type into an [INPUT] element by @ref, then press Enter or click submit
@@ -2767,9 +2893,13 @@ TOOLS:
 - desktop_press_key: Press key/combo in focused desktop window
 - desktop_get_clipboard: Read clipboard text
 - desktop_set_clipboard: Set clipboard text
+- skill_connector: Connect, disconnect, and manage integrations (Email, GitHub, Notion, Telegram, etc.). Use this when the user wants to link a new service or service is not configured.
 
 IDENTITY RULE:
-Your name is SmallClaw. When a user asks you to search for, open, or find any external tool or project, look it up as requested. NEVER redirect to SmallClaw links or repos unless the user is specifically asking about SmallClaw itself. If a search fails, say so and ask for clarification.
+Your name is Wolverine. When a user asks you to search for, open, or find any external tool or project, look it up as requested. NEVER redirect to Wolverine links or repos unless the user is specifically asking about Wolverine itself. If a search fails, say so and ask for clarification.
+
+DYNAMIC SKILLS ACTIVATION:
+If a user wants to connect to a service (e.g. "read my emails" or "check github"), use skill_connector(action='list') to see if it exists. Use action='info' to learn what is needed, then ask the user for the credentials in the chat. Once they provide them, use action='connect' with the credentials to link the service.
 
 TOOL ROUTING - web_fetch vs browser:
 - Use browser_open + browser_snapshot for: social feeds (X/Twitter, Reddit), login-gated pages, JavaScript-heavy SPAs, anything that requires scrolling or clicking to reveal content.
@@ -2880,7 +3010,7 @@ RESPONSE RULES:
             .map((c: any) => {
               const n = String(c?.function?.name || 'unknown');
               let a = '{}';
-              try { a = JSON.stringify(c?.function?.arguments || {}); } catch {}
+              try { a = JSON.stringify(c?.function?.arguments || {}); } catch { }
               return `${n}(${a.slice(0, 240)})`;
             })
             .join(' | ');
@@ -3021,7 +3151,7 @@ RESPONSE RULES:
         const queuedMessage = preflight.friendly_queued_message
           || `On it! I've queued "${taskTitle}" as a background task. You can track progress in the Tasks panel.`;
         sendSSE('task_queued', { taskId: task.id, title: taskTitle });
-        logToDaily(workspacePath, 'SmallClaw', queuedMessage);
+        logToDaily(workspacePath, 'Wolverine', queuedMessage);
         addMessage(sessionId, { role: 'assistant', content: queuedMessage, timestamp: Date.now() });
         return { type: 'chat', text: queuedMessage };
       }
@@ -3035,7 +3165,7 @@ RESPONSE RULES:
           message: 'Advisor route selected secondary_chat. Returning secondary response directly.',
         });
         const text = preflight.secondary_response.trim();
-        logToDaily(workspacePath, 'SmallClaw', text);
+        logToDaily(workspacePath, 'Wolverine', text);
         return { type: 'chat', text };
       }
 
@@ -3074,7 +3204,7 @@ RESPONSE RULES:
           const queuedMessage = preflight.friendly_queued_message
             || `On it! I've queued "${taskTitle}" as a background task. You can track progress in the Tasks panel.`;
           sendSSE('task_queued', { taskId: task.id, title: taskTitle });
-          logToDaily(workspacePath, 'SmallClaw', queuedMessage);
+          logToDaily(workspacePath, 'Wolverine', queuedMessage);
           addMessage(sessionId, { role: 'assistant', content: queuedMessage, timestamp: Date.now() });
           return { type: 'chat', text: queuedMessage };
         }
@@ -3472,7 +3602,7 @@ RESPONSE RULES:
       // Stripped executor system — no editing rules, no identity prose, just tool list + 3 rules
       const strippedSystem = {
         role: 'system',
-        content: `You are SmallClaw. Execute browser tool calls exactly as instructed by the advisor directive below.
+        content: `You are Wolverine. Execute browser tool calls exactly as instructed by the advisor directive below.
 
 BROWSER TOOLS: browser_open, browser_snapshot, browser_click, browser_fill, browser_press_key, browser_wait, browser_scroll, browser_close, web_fetch
 
@@ -3611,7 +3741,7 @@ RULES:
     if (multiAgentActive) {
       const strippedSystem = {
         role: 'system',
-        content: `You are SmallClaw. Execute desktop tool calls exactly as instructed by the advisor directive below.
+        content: `You are Wolverine. Execute desktop tool calls exactly as instructed by the advisor directive below.
 
 DESKTOP TOOLS: desktop_screenshot, desktop_find_window, desktop_focus_window, desktop_click, desktop_drag, desktop_wait, desktop_type, desktop_press_key, desktop_get_clipboard, desktop_set_clipboard
 
@@ -3674,7 +3804,7 @@ RULES:
       if (analysis.exact_files.length) lines.push(`Files: ${analysis.exact_files.join(', ')}`);
       if (analysis.edit_plan.length) lines.push(`Plan: ${analysis.edit_plan.join(' -> ')}`);
       const text = lines.join('\n');
-      logToDaily(workspacePath, 'SmallClaw', text);
+      logToDaily(workspacePath, 'Wolverine', text);
       return { type: 'chat', text };
     }
     // Secondary unavailable — fail-closed. Spec: FILE_ANALYSIS is always Secondary, no primary fallback.
@@ -3900,7 +4030,7 @@ RULES:
       const finalText = parts.length ? parts.join('. ') + '.' : 'Done.';
 
       console.log(`[v2] FINAL (secondary-owned): ${finalText}`);
-      logToDaily(workspacePath, 'SmallClaw', finalText);
+      logToDaily(workspacePath, 'Wolverine', finalText);
       return {
         type: 'execute',
         text: finalText,
@@ -4054,9 +4184,9 @@ RULES:
             const browserRetryReminder = liveInfoForRetry.active
               ? multiAgentActive
                 ? `\n\nCRITICAL: Browser is ALREADY OPEN at "${liveInfoForRetry.url || 'current page'}". ` +
-                  `Do NOT call browser_open. Call browser_snapshot so the secondary AI can analyze and tell you what to do next.`
+                `Do NOT call browser_open. Call browser_snapshot so the secondary AI can analyze and tell you what to do next.`
                 : `\n\nCRITICAL: Browser is ALREADY OPEN at "${liveInfoForRetry.url || 'current page'}". ` +
-                  `Do NOT call browser_open again. Use browser_snapshot to see the current page.`
+                `Do NOT call browser_open again. Use browser_snapshot to see the current page.`
               : '';
             messages.push({
               role: 'user',
@@ -4272,7 +4402,7 @@ RULES:
         messages.push({
           role: 'user',
           content:
-            'Do not stop at an intention statement. Continue now by calling the next SmallClaw tool. Use only available tools (for filesystem use list_files/read_file/create_file/replace_lines/insert_after/delete_lines/find_replace). If a path failed, inspect workspace first and then proceed.',
+            'Do not stop at an intention statement. Continue now by calling the next Wolverine tool. Use only available tools (for filesystem use list_files/read_file/create_file/replace_lines/insert_after/delete_lines/find_replace). If a path failed, inspect workspace first and then proceed.',
         });
         continue;
       }
@@ -4495,7 +4625,7 @@ RULES:
       finalText = sanitizeFinalReply(finalText, { preflightReason: preflightReasonForTurn }) || 'Hey! How can I help?';
       console.log(`[v2] FINAL: ${finalText.slice(0, 150)}`);
 
-      logToDaily(workspacePath, 'SmallClaw', finalText);
+      logToDaily(workspacePath, 'Wolverine', finalText);
       if (fileOpV2Active) {
         maybeSaveFileOpCheckpoint({
           phase: 'done',
@@ -4817,7 +4947,7 @@ RULES:
 
         // Determine profile and build child prompt
         const profile = ((toolArgs.profile || toolArgs.type || 'reader_only') as SubagentProfile);
-        const subTitle  = String(toolArgs.task_title || `${profile} specialist task`).slice(0, 120);
+        const subTitle = String(toolArgs.task_title || `${profile} specialist task`).slice(0, 120);
         const subPrompt = [
           toolArgs.context_snippet ? `[CONTEXT]\n${String(toolArgs.context_snippet).slice(0, 1200)}\n[/CONTEXT]\n\n` : '',
           String(toolArgs.input || toolArgs.task_prompt || '').trim(),
@@ -4919,7 +5049,7 @@ RULES:
             continue;
           }
 
-          const mode   = (toolArgs.mode || 'rescue') as 'planner' | 'rescue';
+          const mode = (toolArgs.mode || 'rescue') as 'planner' | 'rescue';
           const reason = toolArgs.reason || 'Explicitly requested by executor';
           sendSSE('info', { message: `Consulting secondary advisor (${mode} mode)...` });
           console.log(`[Orchestrator] Explicit trigger: ${reason}`);
@@ -5081,7 +5211,7 @@ RULES:
 // ─── SSE + Routes ──────────────────────────────────────────────────────────────
 
 function createSSESender(res: express.Response): (event: string, data: any) => void {
-  return (type: string, data: any) => { try { res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`); } catch {} };
+  return (type: string, data: any) => { try { res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`); } catch { } };
 }
 
 const ACTIVE_TASK_STATUSES: TaskStatus[] = [
@@ -5579,7 +5709,7 @@ app.post('/api/chat', async (req, res) => {
         const compactResult = await handleChat(
           addResult.compactionPrompt,
           sessionId,
-          () => {},
+          () => { },
           undefined,
           abortSignal,
           internalCompactionContext,
@@ -5603,7 +5733,7 @@ app.post('/api/chat', async (req, res) => {
         const flushResult = await handleChat(
           addResult.memoryFlushPrompt,
           sessionId,
-          () => {},
+          () => { },
           undefined,
           abortSignal,
           internalFlushContext,
@@ -5699,7 +5829,7 @@ app.get('/api/skills', async (_req, res) => {
   let orchestrationEligibility: { eligible: boolean; reason?: string } = { eligible: true };
   try {
     orchestrationEligibility = await checkOrchestrationEligibility();
-  } catch {}
+  } catch { }
 
   const skills = skillsManager.getAll().map(s => {
     const isOrchestrator = s.id === 'multi-agent-orchestrator';
@@ -6080,7 +6210,7 @@ app.get('/api/bg-tasks/:id/stream', (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
 
   const send = (data: any) => {
-    try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch {}
+    try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch { }
   };
 
   // Send current state immediately
@@ -6112,12 +6242,12 @@ const taskHeartbeatPath = path.join(CONFIG_DIR_PATH, 'task-heartbeat.json');
 function loadTaskHeartbeatConfig(): { enabled: boolean; interval_minutes: number } {
   try {
     if (fs.existsSync(taskHeartbeatPath)) return JSON.parse(fs.readFileSync(taskHeartbeatPath, 'utf-8'));
-  } catch {}
+  } catch { }
   return { enabled: true, interval_minutes: 10 };
 }
 
 function saveTaskHeartbeatConfig(cfg: { enabled: boolean; interval_minutes: number }): void {
-  try { fs.mkdirSync(path.dirname(taskHeartbeatPath), { recursive: true }); } catch {}
+  try { fs.mkdirSync(path.dirname(taskHeartbeatPath), { recursive: true }); } catch { }
   fs.writeFileSync(taskHeartbeatPath, JSON.stringify(cfg, null, 2), 'utf-8');
 }
 
@@ -6426,7 +6556,7 @@ app.post('/api/channels/send-test/:channel', async (req, res) => {
 
   if (channel === 'telegram') {
     try {
-      await telegramChannel.sendToAllowed('🦞 SmallClaw test message - Telegram is connected!');
+      await telegramChannel.sendToAllowed('🦞 Wolverine test message - Telegram is connected!');
       res.json({ success: true });
     } catch (err: any) {
       res.json({ success: false, error: String(err?.message || err) });
@@ -6436,7 +6566,7 @@ app.post('/api/channels/send-test/:channel', async (req, res) => {
 
   if (channel === 'discord') {
     const dc = normalizeDiscordConfig({ ...channels.discord, ...(req.body || {}) });
-    const text = String(req.body?.text || '🦞 SmallClaw test message - Discord is connected!');
+    const text = String(req.body?.text || '🦞 Wolverine test message - Discord is connected!');
     if (dc.webhookUrl) {
       try {
         const resp = await fetch(dc.webhookUrl, {
@@ -6483,7 +6613,7 @@ app.post('/api/channels/send-test/:channel', async (req, res) => {
   if (channel === 'whatsapp') {
     const wa = normalizeWhatsAppConfig({ ...channels.whatsapp, ...(req.body || {}) });
     const to = String(req.body?.to || wa.testRecipient || '').trim();
-    const text = String(req.body?.text || 'SmallClaw test message - WhatsApp is connected!');
+    const text = String(req.body?.text || 'Wolverine test message - WhatsApp is connected!');
     if (!wa.accessToken || !wa.phoneNumberId || !to) {
       res.json({ success: false, error: 'Provide WhatsApp access token, phone number ID, and test recipient number' });
       return;
@@ -6556,7 +6686,7 @@ app.post('/api/telegram/test', async (req, res) => {
 
 app.post('/api/telegram/send-test', async (req, res) => {
   try {
-    await telegramChannel.sendToAllowed('🦞 SmallClaw test message - Telegram is connected!');
+    await telegramChannel.sendToAllowed('🦞 Wolverine test message - Telegram is connected!');
     res.json({ success: true });
   } catch (err: any) {
     res.json({ success: false, error: String(err?.message || err) });
@@ -6858,7 +6988,7 @@ app.post('/api/settings/paths', (req, res) => {
   };
   const workspacePath = typeof workspace_path === 'string' ? workspace_path.trim() : '';
   if (workspacePath) {
-    try { fs.mkdirSync(workspacePath, { recursive: true }); } catch {}
+    try { fs.mkdirSync(workspacePath, { recursive: true }); } catch { }
   }
   cm.updateConfig({
     tools,
@@ -6989,7 +7119,7 @@ app.get('/api/system-stats', async (_req, res) => {
       const data = await r.json() as any;
       ollamaCount = (data.models || []).length;
     }
-  } catch {}
+  } catch { }
 
   // GPU stats — use the cached detector (probed once at startup, never calls
   // nvidia-smi again). On non-NVIDIA systems this is instant and silent.
@@ -7156,7 +7286,7 @@ app.post('/api/approvals/:id', requireGatewayAuth, (req, res) => {
   // Security audit: log every approval action (action name only, no payload)
   import('../security/log-scrubber').then(({ log }) => {
     log.security('[approvals]', decision.toUpperCase(), 'approval-id:', req.params.id, 'action:', approval.action);
-  }).catch(() => {});
+  }).catch(() => { });
   res.json({ success: true, decision });
 });
 
@@ -7168,7 +7298,7 @@ app.post('/api/memory/confirm', requireGatewayAuth, (req, res) => {
   // scrubSecrets runs inside sanitizeToolLog before any write.
   import('../security/log-scrubber').then(({ log, sanitizeToolLog }) => {
     log.info('[Memory]', sanitizeToolLog('confirm', req.body));
-  }).catch(() => {});
+  }).catch(() => { });
   res.json({ ok: true });
 });
 
@@ -7295,7 +7425,7 @@ app.post('/api/models/test', async (req, res) => {
 app.get('/api/auth/openai/status', (_req, res) => {
   const configDir = CONFIG_DIR_PATH;
   const connected = isConnected(configDir);
-  const tokens    = connected ? loadTokens(configDir) : null;
+  const tokens = connected ? loadTokens(configDir) : null;
   res.json({ connected, account_id: tokens?.account_id || null, expires_at: tokens?.expires_at || null });
 });
 
@@ -7373,7 +7503,7 @@ app.post('/api/settings/hooks/test', async (req, res) => {
   try {
     const cfg = (getConfig().getConfig() as any).hooks || {};
     if (!cfg.enabled) { res.json({ success: false, error: 'Webhooks are disabled' }); return; }
-    if (!cfg.token)   { res.json({ success: false, error: 'No token configured' }); return; }
+    if (!cfg.token) { res.json({ success: false, error: 'No token configured' }); return; }
     res.json({ success: true, message: 'Webhook endpoint is active', path: cfg.path || '/hooks' });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -7449,6 +7579,74 @@ app.get('/api/mcp/tools', (_req, res) => {
   }
 });
 
+// ─── MCP OAuth Routes ─────────────────────────────────────────────────────────
+
+app.get('/api/mcp/oauth/url/:serverId', (req, res) => {
+  try {
+    const mgr = getMCPManager();
+    const result = mgr.getOAuthUrl(req.params.serverId);
+    if (!result) {
+      res.status(400).json({ success: false, error: 'OAuth not configured for this server' });
+      return;
+    }
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/mcp/oauth/callback', async (req, res) => {
+  const { code, state, serverId } = req.query;
+  if (!code || !serverId) {
+    res.send('<html><body><h1>OAuth Failed</h1><p>Missing code or serverId</p><script>window.close()</script></body></html>');
+    return;
+  }
+
+  try {
+    const mgr = getMCPManager();
+    const result = await mgr.handleOAuthCallback(serverId as string, code as string, (state as string) || '');
+    if (result.success) {
+      res.send('<html><body><h1>OAuth Connected!</h1><p>You can close this window and return to Wolverine.</p><script>setTimeout(() => window.close(), 2000)</script></body></html>');
+    } else {
+      res.send(`<html><body><h1>OAuth Failed</h1><p>${result.error}</p><script>window.close()</script></body></html>`);
+    }
+  } catch (err: any) {
+    res.send(`<html><body><h1>OAuth Error</h1><p>${err.message}</p><script>window.close()</script></body></html>`);
+  }
+});
+
+// ─── Skill Connector Routes ──────────────────────────────────────────────────
+
+app.get('/api/skill-connectors/list', (_req, res) => {
+  const mgr = getSkillConnectorManager();
+  res.json({
+    available: mgr.listConnectors(),
+    connected: mgr.getConnectedList(),
+  });
+});
+
+app.get('/api/skill-connectors/info/:id', (req, res) => {
+  const mgr = getSkillConnectorManager();
+  const connector = mgr.getConnector(req.params.id);
+  if (!connector) return res.status(404).json({ error: 'Connector not found' });
+  res.json({
+    ...connector,
+    isConnected: mgr.isConnected(req.params.id),
+  });
+});
+
+app.post('/api/skill-connectors/connect/:id', (req, res) => {
+  const mgr = getSkillConnectorManager();
+  const result = mgr.connect(req.params.id, req.body || {});
+  res.json(result);
+});
+
+app.delete('/api/skill-connectors/disconnect/:id', (req, res) => {
+  const mgr = getSkillConnectorManager();
+  const success = mgr.disconnect(req.params.id);
+  res.json({ success });
+});
+
 // ─── Webhook Routes ──────────────────────────────────────────────────────────
 // Mounted dynamically so the path is always read fresh from config.
 // Must be registered BEFORE the SPA catch-all below.
@@ -7493,7 +7691,7 @@ wss.on('error', (err: any) => {
 });
 wss.on('connection', (ws: WebSocket) => {
   console.log('[v2] WS connected');
-  ws.on('message', (d) => { try { JSON.parse(d.toString()); } catch {} });
+  ws.on('message', (d) => { try { JSON.parse(d.toString()); } catch { } });
   ws.on('close', () => console.log('[v2] WS disconnected'));
 });
 
@@ -7523,9 +7721,9 @@ server.listen(PORT, HOST, () => {
   const hasSearch = tavilyKey ? '✓ Tavily' : googleKey ? '✓ Google' : '✗ None (configure in Settings → Search)';
   console.log(`
 ╔════════════════════════════════════════════════════════════════╗
-║              SmallClaw v2 Gateway (Native Tools)              ║
+║              Wolverine v2 Gateway (Native Tools)              ║
 ╠════════════════════════════════════════════════════════════════╣
-║  Tasks:   Cron scheduler active, jobs at .smallclaw/cron/     ║
+║  Tasks:   Cron scheduler active, jobs at .wolverine/cron/     ║
 ║  Skills: ${String(skillsManager.getAll().length + ' loaded, ' + skillsManager.getEnabledSkills().length + ' enabled').padEnd(49)}║
 ║  Search:  ${hasSearch.padEnd(49)}║
 ║  Memory:  SOUL.md + IDENTITY.md + USER.md + MEMORY.md         ║
@@ -7546,7 +7744,7 @@ server.listen(PORT, HOST, () => {
   console.log('[HeartbeatRunner] Started — interval:', heartbeatRunner.getConfig().intervalMinutes, 'min');
   telegramChannel.start().then(() => {
     // Check if we just restarted after a self-update
-    const selfUpdateStatusFile = path.join(require('os').homedir(), '.smallclaw', 'last_self_update.txt');
+    const selfUpdateStatusFile = path.join(require('os').homedir(), '.wolverine', 'last_self_update.txt');
     if (fs.existsSync(selfUpdateStatusFile)) {
       try {
         const statusContent = fs.readFileSync(selfUpdateStatusFile, 'utf-8').trim();
@@ -7554,14 +7752,14 @@ server.listen(PORT, HOST, () => {
         if (statusContent.startsWith('UPDATE_SUCCESS')) {
           const lines = statusContent.split('\n');
           const timestamp = lines[1] || '';
-          const msg = `✅ SmallClaw self-update complete!\n\nI ran the update, rebuilt, and have restarted the gateway. I'm back online and up to date.\n\n🕐 Updated at: ${timestamp.trim()}`;
-          setTimeout(() => telegramChannel.sendToAllowed(msg).catch(() => {}), 3000);
+          const msg = `✅ Wolverine self-update complete!\n\nI ran the update, rebuilt, and have restarted the gateway. I'm back online and up to date.\n\n🕐 Updated at: ${timestamp.trim()}`;
+          setTimeout(() => telegramChannel.sendToAllowed(msg).catch(() => { }), 3000);
           console.log('[Gateway] Post-update Telegram notification queued.');
         } else if (statusContent.startsWith('UPDATE_FAILED')) {
           const lines = statusContent.split('\n');
           const timestamp = lines[1] || '';
-          const msg = `❌ SmallClaw self-update failed.\n\nThe update process encountered an error. Gateway has restarted with the previous version. Check the terminal for details.\n\n🕐 Attempted at: ${timestamp.trim()}`;
-          setTimeout(() => telegramChannel.sendToAllowed(msg).catch(() => {}), 3000);
+          const msg = `❌ Wolverine self-update failed.\n\nThe update process encountered an error. Gateway has restarted with the previous version. Check the terminal for details.\n\n🕐 Attempted at: ${timestamp.trim()}`;
+          setTimeout(() => telegramChannel.sendToAllowed(msg).catch(() => { }), 3000);
           console.log('[Gateway] Post-update failure Telegram notification queued.');
         }
       } catch (e: any) {
@@ -7586,13 +7784,13 @@ function gracefulShutdown(signal: 'SIGINT' | 'SIGTERM'): void {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[Gateway] Received ${signal}; shutting down...`);
-  try { skillsManager.persistState(); } catch {}
-  try { telegramChannel.stop(); } catch {}
-  try { getMCPManager().disconnectAll(); } catch {}
-  try { cronScheduler.stop(); } catch {}
-  try { stopAgentSchedules(); } catch {}
-  try { heartbeatRunner.stop(); } catch {}
-  try { if (wss) wss.close(); } catch {}
+  try { skillsManager.persistState(); } catch { }
+  try { telegramChannel.stop(); } catch { }
+  try { getMCPManager().disconnectAll(); } catch { }
+  try { cronScheduler.stop(); } catch { }
+  try { stopAgentSchedules(); } catch { }
+  try { heartbeatRunner.stop(); } catch { }
+  try { if (wss) wss.close(); } catch { }
   try {
     server.close(() => process.exit(0));
     const forceExitTimer = setTimeout(() => process.exit(0), 1200) as any;

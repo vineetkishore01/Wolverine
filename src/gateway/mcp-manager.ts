@@ -1,10 +1,10 @@
 /**
- * mcp-manager.ts — SmallClaw MCP Client
+ * mcp-manager.ts — Wolverine MCP Client
  *
  * Manages connections to external MCP (Model Context Protocol) servers.
  * Supports stdio child-process transport and HTTP/SSE transport.
  *
- * Config stored in ~/.smallclaw/mcp-servers.json
+ * Config stored in ~/.wolverine/mcp-servers.json
  */
 
 import { spawn, ChildProcess } from 'child_process';
@@ -16,11 +16,32 @@ import { log } from '../security/log-scrubber';
 
 export type MCPTransport = 'stdio' | 'sse';
 
+export type MCPAuthType = 'none' | 'bearer' | 'oauth';
+
+export interface MCPOAuthConfig {
+  clientId: string;
+  clientSecret?: string;
+  authUrl: string;
+  tokenUrl: string;
+  scopes?: string[];
+}
+
+export interface MCPCredentials {
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt?: number;
+}
+
 export interface MCPServerConfig {
   id: string;
   name: string;
   enabled: boolean;
   transport: MCPTransport;
+  authType?: MCPAuthType;
+  // credentials
+  credentials?: MCPCredentials;
+  // oauth config
+  oauth?: MCPOAuthConfig;
   // stdio transport
   command?: string;
   args?: string[];
@@ -281,7 +302,7 @@ export class MCPManager {
         this.sendRequest(session, 'initialize', {
           protocolVersion: '2024-11-05',
           capabilities: { tools: {} },
-          clientInfo: { name: 'SmallClaw', version: '1.0.0' },
+          clientInfo: { name: 'Wolverine', version: '1.0.0' },
         }).then(async () => {
           clearTimeout(timeout);
           this.sendNotification(session, 'notifications/initialized', {});
@@ -438,6 +459,120 @@ export class MCPManager {
     await Promise.allSettled(enabled.map(c => this.connect(c.id)));
     const connected = this.getStatus().filter(s => s.status === 'connected');
     console.log(`[MCP] ${connected.length}/${enabled.length} server(s) connected`);
+  }
+
+  // ── OAuth Support ─────────────────────────────────────────────────────────────
+
+  getOAuthUrl(serverId: string): { url: string; state: string } | null {
+    const cfg = this.configs.find(c => c.id === serverId);
+    if (!cfg?.oauth?.authUrl) return null;
+    
+    const state = crypto.randomUUID();
+    const baseUrl = process.env.WOLVERINE_URL || 'http://localhost:18789';
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: cfg.oauth.clientId,
+      redirect_uri: `${baseUrl}/api/mcp/oauth/callback?serverId=${serverId}`,
+      scope: cfg.oauth.scopes?.join(' ') || '',
+      state,
+    });
+    
+    return {
+      url: `${cfg.oauth.authUrl}?${params.toString()}`,
+      state,
+    };
+  }
+
+  async handleOAuthCallback(serverId: string, code: string, _state: string): Promise<{ success: boolean; error?: string }> {
+    const cfg = this.configs.find(c => c.id === serverId);
+    if (!cfg?.oauth?.tokenUrl) {
+      return { success: false, error: 'OAuth not configured for this server' };
+    }
+
+    try {
+      const params = new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        client_id: cfg.oauth.clientId,
+        client_secret: cfg.oauth.clientSecret || '',
+        redirect_uri: `${process.env.WOLVERINE_URL || 'http://localhost:18789'}/api/mcp/oauth/callback`,
+      });
+
+      const resp = await fetch(cfg.oauth.tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.text();
+        return { success: false, error: `Token exchange failed: ${err}` };
+      }
+
+      const data = await resp.json() as any;
+      
+      cfg.credentials = {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        expiresAt: data.expires_in ? Date.now() + (data.expires_in * 1000) : undefined,
+      };
+      
+      // Update headers with bearer token
+      cfg.headers = {
+        ...cfg.headers,
+        'Authorization': `Bearer ${cfg.credentials.accessToken}`,
+      };
+
+      this.save();
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  async refreshOAuthToken(serverId: string): Promise<boolean> {
+    const cfg = this.configs.find(c => c.id === serverId);
+    if (!cfg?.oauth?.tokenUrl || !cfg.credentials?.refreshToken) return false;
+
+    // Check if token is about to expire (within 5 minutes)
+    if (cfg.credentials.expiresAt && cfg.credentials.expiresAt - Date.now() > 5 * 60 * 1000) {
+      return true; // Token still valid
+    }
+
+    try {
+      const params = new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: cfg.credentials.refreshToken,
+        client_id: cfg.oauth.clientId,
+        client_secret: cfg.oauth.clientSecret || '',
+      });
+
+      const resp = await fetch(cfg.oauth.tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+
+      if (!resp.ok) return false;
+
+      const data = await resp.json() as any;
+      
+      cfg.credentials = {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token || cfg.credentials.refreshToken,
+        expiresAt: data.expires_in ? Date.now() + (data.expires_in * 1000) : undefined,
+      };
+      
+      cfg.headers = {
+        ...cfg.headers,
+        'Authorization': `Bearer ${cfg.credentials.accessToken}`,
+      };
+
+      this.save();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   // ── JSON-RPC ───────────────────────────────────────────────────────────────

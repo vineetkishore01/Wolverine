@@ -14,9 +14,9 @@ import { getOllamaClient } from '../agents/ollama-client';
 const program = new Command();
 
 program
-  .name('smallclaw')
-  .description('Local AI agent powered by your choice of LLM provider')
-  .version('1.0.1');
+  .name('wolverine')
+  .description('Wolverine - Local AI agent powered by your choice of LLM provider')
+  .version('1.0.0');
 
 type InstallMode = 'git' | 'npm' | 'unknown';
 type UpdateSource = 'git' | 'npm' | 'none';
@@ -364,16 +364,16 @@ function maybeNotifyUpdate(): void {
 
   if (result.available) {
     console.log(`[Update] ${result.message}`);
-    console.log('[Update] Run `smallclaw update` to install.');
+    console.log('[Update] Run `wolverine update` to install.');
   }
 }
 
 // ---- ONBOARD ----
 program
   .command('onboard')
-  .description('Setup SmallClaw for first-time use')
+  .description('Setup Wolverine for first-time use')
   .action(async () => {
-    console.log('Welcome to SmallClaw!\n');
+    console.log('Welcome to Wolverine!\n');
     const config = getConfig();
     config.ensureDirectories();
     config.saveConfig();
@@ -382,9 +382,9 @@ program
     console.log(`  Workspace: ${config.getWorkspacePath()}`);
     getDatabase();
     console.log('Initialized job database\n');
-    console.log('SmallClaw is ready!');
+    console.log('Wolverine is ready!');
     console.log('\nNext steps:');
-    console.log('  1. Start the gateway:  smallclaw gateway start');
+    console.log('  1. Start the gateway:  wolverine gateway start');
     console.log('  2. Open browser:       http://localhost:18789');
     console.log('  3. Go to Settings -> Models to configure your LLM provider');
   });

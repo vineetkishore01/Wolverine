@@ -1,9 +1,9 @@
 /**
- * browser-tools.ts - Browser Automation for SmallClaw
+ * browser-tools.ts - Browser Automation for Wolverine
  * 
  * Strategy: Connect to user's Chrome via CDP (--remote-debugging-port=9222).
  * If Chrome isn't running with the debug port, launch it ourselves with a
- * dedicated SmallClaw profile so it doesn't conflict with the user's Chrome.
+ * dedicated Wolverine profile so it doesn't conflict with the user's Chrome.
  * 
  * Snapshot: DOM-based element scraping (reliable across all Playwright versions).
  * No dependency on deprecated page.accessibility or page.ariaSnapshot APIs.
@@ -241,7 +241,7 @@ async function getOrCreateSession(sessionId: string): Promise<BrowserSession> {
   // We click the primary confirm button automatically so the agent doesn't get stuck.
   context.on('page', async (popup: any) => {
     try {
-      await popup.waitForLoadState('domcontentloaded').catch(() => {});
+      await popup.waitForLoadState('domcontentloaded').catch(() => { });
       const popupUrl = popup.url();
       console.log(`[Browser] Popup opened: ${popupUrl}`);
       // Google OAuth confirm page: click the blue continue/confirm button
@@ -780,8 +780,8 @@ async function extractStructuredFromPage(
         const userNameNode = tw.querySelector('[data-testid="User-Name"]') as any;
         const author = normalize(
           userNameNode?.querySelector('span')?.textContent
-            || tw.querySelector('a[role="link"] span')?.textContent
-            || '',
+          || tw.querySelector('a[role="link"] span')?.textContent
+          || '',
           120,
         );
         let handle = '';
@@ -955,12 +955,14 @@ export async function browserOpen(sessionId: string, url: string): Promise<strin
 
   try {
     let targetUrl = url.trim();
-    if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
+    if (!targetUrl.startsWith('http') && !targetUrl.startsWith('file://')) {
+      targetUrl = 'https://' + targetUrl;
+    }
 
     await session.page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
     // Best-effort networkidle wait — catches SPAs that hydrate after domcontentloaded
     // Non-blocking: if it times out that's fine, we just take a snapshot with what's loaded
-    await session.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+    await session.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => { });
     // Extra settle time for React/Next hydration
     await session.page.waitForTimeout(1500);
 
@@ -980,7 +982,7 @@ export async function browserSnapshot(sessionId: string): Promise<string> {
     // Wait for the DOM to settle before snapshotting — SPAs (like x.com) may still
     // be hydrating after domcontentloaded, leaving querySelectorAll with 0 results.
     // networkidle is best-effort; we proceed even if it times out.
-    await session.page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => {});
+    await session.page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => { });
     // Additional settle time for React/Next/Vue hydration to mount interactive elements.
     await session.page.waitForTimeout(600);
     const snapshot = await takeSnapshot(session.page);
@@ -1028,7 +1030,7 @@ export async function browserPressKey(sessionId: string, key: string): Promise<s
   try {
     await pressKey(session.page, key);
     // Best-effort networkidle after key press (Enter often triggers navigation)
-    await session.page.waitForLoadState('networkidle', { timeout: 4000 }).catch(() => {});
+    await session.page.waitForLoadState('networkidle', { timeout: 4000 }).catch(() => { });
     const snapshot = await takeSnapshot(session.page);
     session.lastSnapshot = snapshot;
     session.lastSnapshotAt = Date.now();
@@ -1225,6 +1227,6 @@ export function getBrowserSessionInfo(sessionId: string): { active: boolean; url
 // Cleanup on process exit
 process.on('exit', () => {
   for (const [, session] of sessions) {
-    try { session.page.close(); } catch {}
+    try { session.page.close(); } catch { }
   }
 });

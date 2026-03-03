@@ -1,25 +1,27 @@
 <p align="center">
-  <img src="screenshots/SmallClaw.png" alt="SmallClaw logo" width="220" />
+  <img src="screenshots/Wolverine.png" alt="Wolverine logo" width="220" />
 </p>
 
-<h1 align="center">SmallClaw 🦞</h1>
+<h1 align="center">Wolverine 🐺</h1>
 
 <p align="center">
   Local-first AI agent framework built for small models, with optional hybrid cloud support.
+  <br>
+  <i>Forked from SmallClaw with enhanced capabilities.</i>
 </p>
 
 <p align="center">
-  <a href="https://github.com/XposeMarket/SmallClaw/stargazers">
-    <img src="https://img.shields.io/github/stars/XposeMarket/SmallClaw?style=for-the-badge" alt="Stars" />
+  <a href="https://github.com/YOUR_USERNAME/wolverine/stargazers">
+    <img src="https://img.shields.io/github/stars/YOUR_USERNAME/wolverine?style=for-the-badge" alt="Stars" />
   </a>
-  <a href="https://github.com/XposeMarket/SmallClaw/network/members">
-    <img src="https://img.shields.io/github/forks/XposeMarket/SmallClaw?style=for-the-badge" alt="Forks" />
+  <a href="https://github.com/YOUR_USERNAME/wolverine/network/members">
+    <img src="https://img.shields.io/github/forks/YOUR_USERNAME/wolverine?style=for-the-badge" alt="Forks" />
   </a>
-  <a href="https://github.com/XposeMarket/SmallClaw/issues">
-    <img src="https://img.shields.io/github/issues/XposeMarket/SmallClaw?style=for-the-badge" alt="Issues" />
+  <a href="https://github.com/YOUR_USERNAME/wolverine/issues">
+    <img src="https://img.shields.io/github/issues/YOUR_USERNAME/wolverine?style=for-the-badge" alt="Issues" />
   </a>
-  <a href="https://github.com/XposeMarket/SmallClaw/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/XposeMarket/SmallClaw?style=for-the-badge" alt="License" />
+  <a href="https://github.com/YOUR_USERNAME/wolverine/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/YOUR_USERNAME/wolverine?style=for-the-badge" alt="License" />
   </a>
 </p>
 
@@ -33,22 +35,30 @@
 </p>
 
 <p align="center">
-  <img src="screenshots/SmallClawDashboard.png" alt="SmallClaw UI" width="900" />
+  <img src="screenshots/WolverineDashboard.png" alt="Wolverine UI" width="900" />
 </p>
 
-# SmallClaw v1.0.5
-...
-**Current release:** `v1.0.5`
+# Wolverine v1.0.0
+**Current release:** `v1.0.0`
 
 ---
 
-> Image setup: put the two images in `assets/`:
-> - `screenshots/SmallClaw.png`
-> - `screenshots/SmallClawDashboard.png`
+## Credits
 
-## What is SmallClaw?
+Wolverine is a fork of [SmallClaw](https://github.com/XposeMarket/SmallClaw) by [Fvnso](https://github.com/fvnso). 
 
-SmallClaw is a chat-first AI agent that supports multiple providers for local-only or hybrid setups (Ollama, llama.cpp, LM Studio, OpenAI API, and OpenAI Codex OAuth). It gives your local model real tools — files, web search, browser automation, terminal commands — delivered through a clean web UI with no API costs, no data leaving your machine.
+SmallClaw was inspired by [OpenClaw](https://openclaw.ai) and the Anthropic team. Built for the local-first AI community.
+
+This fork adds:
+- Native PDF text extraction
+- OAuth support for MCP servers
+- Enhanced workspace/data separation
+
+---
+
+## What is Wolverine?
+
+Wolverine is a chat-first AI agent that supports multiple providers for local-only or hybrid setups (Ollama, llama.cpp, LM Studio, OpenAI API, and OpenAI Codex OAuth). It gives your local model real tools — files, web search, browser automation, terminal commands — delivered through a clean web UI with no API costs, no data leaving your machine.
 
 - ✅ **File operations** — Read, write, and surgically edit files with line-level precision
 - ✅ **Web search** — Multi-provider search (Tavily, Google, Brave, DuckDuckGo) with fallback
@@ -56,27 +66,30 @@ SmallClaw is a chat-first AI agent that supports multiple providers for local-on
 - ✅ **Terminal access** — Run commands in your workspace safely
 - ✅ **Session memory** — Persistent chat sessions with pinned context
 - ✅ **Skills system** — Drop-in SKILL.md files to give the agent new capabilities
+- ✅ **Document Intelligence** — Native reading of PDF, DOCX, XLSX, and RTF files
+- ✅ **MCP Automation** — Connect to any MCP server (stdio/sse) including OAuth support
 - ✅ **Free forever** — No API costs, runs on your hardware
+- ✅ **Learning & Memory** — Agent continuously learns via MEMORY.md, USER.md, SOUL.md, AGENTS.md
 
 ## Architecture
 
-SmallClaw v2 is built around a single-pass chat handler. When you send a message, one LLM call decides whether to respond conversationally or call tools — no separate planning, execution, and verification agents. This dramatically reduces latency and works much better with small models that struggle to coordinate across multiple roles.
+Wolverine is built around a single-pass chat handler. When you send a message, one LLM call decides whether to respond conversationally or call tools — no separate planning, execution, and verification agents.
 
 ```
 +-----------------------------------------------+
 |               Web UI (index.html)             |
 |   Sessions · Chat · Process Log · Settings    |
 +------------------------+----------------------+
-                         |
-                   SSE stream + REST
-                         |
+                          |
+                    SSE stream + REST
+                          |
 +-----------------------------------------------+
-|          Express Gateway (server-v2.ts)       |
+|          Express Gateway (server-v2.ts)        |
 |   Session state · Tool registry · SSE stream  |
 +------------------------+----------------------+
-                         |
-            Native tool-calling + provider API
-                         |
+                          |
+             Native tool-calling + provider API
+                          |
 +-----------------------------------------------+
 |        handleChat() — the core loop           |
 |  1) Build system prompt + short history       |
@@ -92,70 +105,11 @@ SmallClaw v2 is built around a single-pass chat handler. When you send a message
 (read/write/edit)   (search/fetch)     (Playwright)
 ```
 
-### How a turn works
-
-Every message goes through the same single path. The model sees the system prompt, a short rolling history (last 5 turns), and your message. It then either responds in plain text or emits a tool call. If it calls a tool, SmallClaw executes it and feeds the result back into the same conversation — the model keeps going until it writes a final text response. The whole thing is streamed back to the UI in real time as SSE events.
-
-There are no separate discuss/plan/execute modes. The model decides in one shot whether a message needs tools or not.
-
-### Session state
-
-Each browser session stores a rolling message history (last N turns) and a workspace path. History is kept short on purpose — small models perform better with compact context than with long accumulated histories. Pinned messages let you keep important context permanently in scope without bloating every turn.
-
-## How the Tools Work
-
-SmallClaw uses Ollama's native tool-calling format. The model doesn't write code to execute — it returns a structured JSON tool call, SmallClaw runs it in a sandboxed environment, and the result goes back to the model as a tool response message.
-
-### File Tools
-
-File editing is surgical. The model is instructed to always read a file with line numbers first, then make targeted edits rather than rewriting entire files. This prevents the common small-model failure of silently dropping content during rewrites.
-
-| Tool | What it does |
-|------|-------------|
-| `list_files` | List workspace directory contents |
-| `read_file` | Read file with line numbers |
-| `create_file` | Create a new file (fails if already exists) |
-| `replace_lines` | Replace lines N–M with new content |
-| `insert_after` | Insert content after line N |
-| `delete_lines` | Delete lines N–M |
-| `find_replace` | Find exact text string and replace it |
-| `delete_file` | Delete a file |
-
-### Web Tools
-
-| Tool | What it does |
-|------|-------------|
-| `web_search` | Search across providers — returns headlines and snippets |
-| `web_fetch` | Fetch and extract the full text of a URL |
-
-Search uses a provider waterfall: Tavily → Google CSE → Brave → DuckDuckGo. You configure API keys and provider preference in Settings → Search. If no keys are set, DuckDuckGo runs without a key as a baseline fallback.
-
-### Browser Tools
-
-SmallClaw controls a real browser via Playwright — not just opening a URL for you to click, but navigating, filling forms, and taking snapshots itself.
-
-| Tool | What it does |
-|------|-------------|
-| `browser_open` | Open a URL in a Playwright-controlled browser |
-| `browser_snapshot` | Capture current page elements and layout |
-| `browser_click` | Click an element by reference ID |
-| `browser_fill` | Type into an input field |
-| `browser_press_key` | Press Enter, Tab, Escape, etc. |
-| `browser_wait` | Wait N ms then snapshot (for dynamic pages) |
-| `browser_close` | Close the browser tab |
-
-### System Tools
-
-| Tool | What it does |
-|------|-------------|
-| `run_command` | Open an app or file for you to interact with (VS Code, Notepad, Chrome). SmallClaw can open it but not control it. |
-| `start_task` | Launch a multi-step background task for long-running operations |
-
 ## Prerequisites
 
-1. **Node.js** 22 (LTS) ([Download](https://nodejs.org/)) - *Required for Apple Silicon/macOS to avoid compilation errors.*
+1. **Node.js** 22 (LTS) - Required for Apple Silicon/macOS
 2. **At least one model provider**:
-   - Ollama ([Download](https://ollama.ai/))
+   - Ollama
    - llama.cpp server
    - LM Studio local server
    - OpenAI API key
@@ -166,8 +120,8 @@ SmallClaw controls a real browser via Playwright — not just opening a URL for 
 
 ```bash
 # Clone the repository
-git clone https://github.com/xposemarket/smallclaw.git
-cd smallclaw
+git clone https://github.com/YOUR_USERNAME/wolverine.git
+cd wolverine
 
 # Install dependencies
 npm install
@@ -179,29 +133,7 @@ npm run build
 npm link
 
 # Initialize the project (Run Once)
-smallclaw onboard
-```
-
-## CLI Rename (Stage 1)
-
-SmallClaw now uses the `smallclaw` command in docs and examples.
-
-- Preferred command: `smallclaw`
-- Legacy alias still works for now: `localclaw` (deprecated)
-
-### Migration from older installs
-
-```bash
-git pull --ff-only
-npm install
-npm run build
-npm link
-```
-
-Then use:
-
-```bash
-smallclaw gateway start
+wolverine onboard
 ```
 
 ## Quick Start
@@ -219,303 +151,30 @@ ollama pull qwen2.5-coder:32b
 ### 2. Start the gateway
 
 ```bash
-smallclaw gateway start
+wolverine gateway start
 ```
 
-Open `http://localhost:18789` in your browser. That's it.
-
-Legacy alias note: `localclaw gateway start` still works during the transition.
+Open `http://localhost:18789` in your browser.
 
 ### 3. Configure models and search
 
 In the web UI, open Settings (⚙️ in the top bar):
+- **Models tab** — choose provider + model
+- **Search tab** — add API keys for Tavily, Google, or Brave
 
-- **Models tab** — choose provider + model (Ollama, llama.cpp, LM Studio, OpenAI API, or OpenAI Codex OAuth)
-- **Search tab** — add API keys for Tavily, Google, or Brave if you want better web search results
+## Workspace & Learning
 
-## Configuration
+Your workspace (default: `~/WolverineData/workspace`) contains:
 
-Config is stored in `.smallclaw/config.json` in the project folder (or `~/.smallclaw/config.json` as a fallback):
+- **AGENTS.md** — Agent task definitions
+- **MEMORY.md** — Long-term learned facts
+- **SOUL.md** — Core personality/principles  
+- **USER.md** — User preferences
+- **IDENTITY.md** — Agent identity
+- **memory/** — Daily logs
 
-```json
-{
-  "models": {
-    "primary": "qwen3:4b",
-    "roles": {
-      "manager": "qwen3:4b",
-      "executor": "qwen3:4b",
-      "verifier": "qwen3:4b"
-    }
-  },
-  "ollama": {
-    "endpoint": "http://localhost:11434"
-  },
-  "search": {
-    "preferred_provider": "tavily",
-    "tavily_api_key": "",
-    "google_api_key": "",
-    "google_cx": "",
-    "brave_api_key": "",
-    "search_rigor": "verified"
-  },
-  "workspace": {
-    "path": "path/to/your/workspace"
-  }
-}
-```
-
-Most settings can be changed live from the Settings panel without restarting the gateway.
-
-### Agents Array Example
-
-User-defined agents (no preset roles). Put this in `.smallclaw/config.json`:
-
-```jsonc
-{
-  "agents": [
-    {
-      "id": "main",
-      "name": "Rafi",
-      "description": "My main daily assistant. Handles chat, tasks, and general requests.",
-      "emoji": "🦞",
-      "default": true,
-      "workspace": "D:/SmallClaw/workspace",
-      "tools": { "profile": "full" },
-      "minimalPrompt": false
-    },
-    {
-      "id": "researcher",
-      "name": "Scout",
-      "description": "Deep web research. Given a topic, returns a structured research brief.",
-      "emoji": "🔍",
-      "workspace": "D:/SmallClaw/agents/researcher/workspace",
-      "model": "ollama/qwen3:4b",
-      "tools": { "profile": "web", "deny": ["browser"] },
-      "minimalPrompt": true,
-      "maxSteps": 10
-    },
-    {
-      "id": "writer",
-      "name": "Quill",
-      "description": "Content writer. Takes research briefs and produces polished drafts.",
-      "emoji": "✍️",
-      "workspace": "D:/SmallClaw/agents/writer/workspace",
-      "tools": { "profile": "coding", "deny": ["web_search", "web_fetch", "browser"] },
-      "minimalPrompt": true
-    },
-    {
-      "id": "orchestrator",
-      "name": "Director",
-      "description": "Coordinates other agents. Runs on a cron schedule to manage autonomous pipelines.",
-      "emoji": "🎬",
-      "workspace": "D:/SmallClaw/agents/orchestrator/workspace",
-      "tools": { "profile": "full" },
-      "minimalPrompt": false,
-      "canSpawn": true,
-      "spawnAllowlist": ["researcher", "writer"],
-      "cronSchedule": "0 8 * * *"
-    }
-  ]
-}
-```
-
-## Self-Updating
-
-SmallClaw includes a built-in updater. In most cases, users can update from any install directory with:
-
-```bash
-smallclaw update
-```
-
-Use this to check first:
-
-```bash
-smallclaw update check
-```
-
-If your install was manually copied or linked from a custom path, `smallclaw update` still works, but make sure the command resolves to the same install you are currently running.
-
-## MCP Integrations (Settings -> Integrations)
-
-SmallClaw supports MCP server connections from the web UI. Open **Settings -> Integrations** to add servers and credentials.
-
-- Add one or more MCP servers (local or remote)
-- Configure auth/env values per server
-- Save and test directly from the panel
-- Use presets for common providers as a quick start
-
-MCP tools become available to the agent after saving valid settings.
-
-## Webhook Channels (Settings -> Channels)
-
-SmallClaw channel connections are managed in **Settings -> Channels** with a channel selector:
-
-- Telegram
-- Discord
-- WhatsApp
-
-Each channel has its own connection fields and setup instructions. Save settings per channel, run **Test**, then **Send Test** to verify outbound delivery and webhook configuration.
-
-## CLI Commands
-
-### Gateway
-```bash
-# Start the web UI gateway
-smallclaw gateway start
-
-# Check gateway status
-smallclaw gateway status
-```
-
-### Model Management
-```bash
-# List available local models
-smallclaw model list
-
-# Set primary model
-smallclaw model set qwen2.5-coder:32b
-
-# Pull a new model via Ollama
-smallclaw model pull llama-3.3:70b
-```
-
-### System
-```bash
-# Health check
-smallclaw doctor
-
-# Check for updates
-smallclaw update check
-
-# Apply updates
-smallclaw update
-```
-
-## Skills
-
-SmallClaw supports drop-in SKILL.md files that give the model extra context and capabilities for specific domains. Place skill files in `.smallclaw/skills/<skill-name>/SKILL.md`. The model loads and applies them automatically when relevant.
-
-Skills are plain markdown — write instructions, examples, and constraints in natural language. No code required.
-
-## Provider Support
-
-SmallClaw supports these providers in Settings -> Models:
-
-- `ollama` (local)
-- `llama_cpp` (local OpenAI-compatible server)
-- `lm_studio` (local OpenAI-compatible server)
-- `openai` (API key)
-- `openai_codex` (ChatGPT OAuth/Codex endpoint)
-
-Provider selection is live through the web settings API and used by the unified provider factory.
-
-## Multi-Agent Orchestration (Optional Skill)
-
-SmallClaw includes an optional `multi-agent-orchestrator` skill for dual-model advisor/executor behavior:
-
-- Primary model remains executor (tools + edits).
-- Secondary model gives structured planner/rescue guidance.
-- Secondary preflight can run first (`off`, `complex_only`, `always`).
-- Rescue can auto-trigger on failures, loops, risky edits, or no progress.
-
-Important behavior:
-
-- This feature is **not default**.
-- It only runs when the `multi-agent-orchestrator` skill is enabled and eligible.
-- If the skill is disabled, preflight/rescue/post-check continuation logic is disabled.
-
-Current safety/quality controls:
-
-- Assist cooldown and per-turn/session caps
-- Telemetry endpoint: `GET /api/orchestration/telemetry?sessionId=<id>`
-- Post-check continuation: prevents intent-only replies from ending execution early (skill-gated)
-
-## Model Recommendations
-
-### 8GB RAM
-- **qwen3:4b** — Fast, solid for everyday tasks, file editing, web lookups
-
-### 16GB RAM
-- **qwen2.5-coder:32b** — Noticeably better at multi-file code tasks and tool sequencing
-- **deepseek-coder-v2:16b** — Strong alternative for code understanding
-
-### 32GB+ RAM
-- **llama-3.3:70b** — Best reasoning and planning, handles complex multi-step tasks well
-
-## Optimizing for Small Models
-
-SmallClaw is specifically designed around the constraints of 4B–32B parameter models:
-
-- **Short history window** — Only the last 5 turns are sent by default, keeping context tight
-- **Line-number-first file editing** — Forces the model to read before writing, preventing content loss
-- **Native tool-calling** — Uses Ollama's structured tool format instead of free-form code generation, which is much more reliable at small scales
-- **Single-pass routing** — One LLM call decides whether to use tools or respond; no coordination overhead between multiple agents
-- **Surgical edits over rewrites** — `replace_lines`, `insert_after`, `delete_lines` instead of `write_file` for existing files
-
-## Troubleshooting
-
-### "Cannot connect to Ollama"
-```bash
-# Start Ollama
-ollama serve
-
-# Verify it's running
-curl http://localhost:11434/api/tags
-```
-
-### "No models found" in Settings
-```bash
-# Pull a model first
-ollama pull qwen3:4b
-
-# Confirm it's installed
-ollama list
-```
-
-### "Out of memory / model crashes"
-- Drop to a smaller model (qwen3:4b instead of 32b)
-- Close other memory-intensive apps
-- Set `llm_workers: 1` in config if you have multiple concurrent users
-
-### "EPERM: operation not permitted" on macOS
-If you see `EPERM` errors when creating files or `node_modules`:
-1. **Move out of iCloud**: Ensure the project is NOT in `Documents`, `Desktop`, or any folder synced with iCloud Drive. Move it to `/Users/$(whoami)/Source/SmallClaw`.
-2. **Clear Metadata**: Run `sudo xattr -rc .` in the project root to clear macOS quarantine/provenance flags.
-3. **Fix Node Version**: Use **Node 22 (LTS)**. Newer "odd" versions like Node 25 may fail to compile native modules (`better-sqlite3`) due to C++20 requirements.
-
-### Tool calls not working / model just chatting
-- Check Settings → Models and confirm a model is selected and saved
-- Some models handle tool-calling better than others — qwen3 and qwen2.5-coder series are most reliable
-- If the model keeps ignoring tool calls, try a larger variant
-
-## Roadmap
-
-- [x] Single-pass native tool-calling architecture
-- [x] Session-based chat UI
-- [x] File editing with line-level precision
-- [x] Web search with multi-provider fallback
-- [x] Playwright browser automation
-- [x] Skills system (SKILL.md)
-- [x] Live settings (model, search, paths) from UI
-- [ ] Persistent sessions (survive gateway restarts)
-- [ ] Background task daemon mode
-- [ ] Memory / vector store for long-running projects
-- [ ] Git operations tool
-- [ ] Desktop app wrapper
-
-## Contributing
-
-Feel Free to donate if this helped you save some API costs and help me get a Claude Max account to keep working on this faster lol - Cashapp $Fvnso - Venmo @Fvnso . 
+The agent can edit these files during conversations to learn and adapt!
 
 ## License
 
 MIT
-
-## Credits
-
-Inspired by [OpenClaw](https://openclaw.ai) and the Anthropic team. Built for the local-first AI community.
-
----
-
-**Note:** This README reflects SmallClaw `v1.0.5`.
-

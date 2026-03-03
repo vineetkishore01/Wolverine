@@ -59,7 +59,22 @@ interface TelegramUpdate {
     from: { id: number; first_name: string; username?: string };
     chat: { id: number; type: string };
     text?: string;
+    caption?: string;
     date: number;
+    document?: {
+      file_id: string;
+      file_unique_id: string;
+      file_name?: string;
+      mime_type?: string;
+      file_size?: number;
+    };
+    photo?: Array<{
+      file_id: string;
+      file_unique_id: string;
+      file_size: number;
+      width: number;
+      height: number;
+    }>;
   };
   callback_query?: {
     id: string;
@@ -230,7 +245,7 @@ export class TelegramChannel {
             this.handleCallbackQuery(update.callback_query).catch(err =>
               console.error('[Telegram] Callback query error:', err.message)
             );
-          } else if (update.message?.text) {
+          } else if (update.message) {
             this.handleIncomingMessage(update.message).catch(err =>
               console.error('[Telegram] Message handling error:', err.message)
             );
@@ -422,7 +437,7 @@ export class TelegramChannel {
     const data = cq.data;
 
     // Dismiss the loading spinner immediately
-    await this.apiCall('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
+    await this.apiCall('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => { });
 
     // Allowlist check
     if (this.config.allowedUserIds.length > 0 && !this.config.allowedUserIds.includes(userId)) return;
@@ -474,12 +489,35 @@ export class TelegramChannel {
   // ─── Message Handler ─────────────────────────────────────────────────────────
 
   private async handleIncomingMessage(msg: TelegramUpdate['message']): Promise<void> {
-    if (!msg || !msg.text) return;
+    if (!msg) return;
 
     const userId = msg.from.id;
     const chatId = msg.chat.id;
-    const text = msg.text.trim();
+    let text = (msg.text || msg.caption || '').trim();
     const userName = msg.from.first_name || msg.from.username || 'Unknown';
+
+    // Handle files (document or photo)
+    if (msg.document || msg.photo) {
+      try {
+        const fileId = msg.document
+          ? msg.document.file_id
+          : msg.photo![msg.photo!.length - 1].file_id;
+        const fileName = msg.document?.file_name || `telegram_upload_${Date.now()}_${msg.document ? 'doc' : 'photo'}.${msg.document?.mime_type?.split('/')[1] || 'jpg'}`;
+        const destPath = path.join(this.workspaceRoot, fileName);
+
+        await this.apiCall('sendChatAction', { chat_id: chatId, action: 'upload_document' }).catch(() => { });
+        await this.downloadTelegramFile(fileId, destPath);
+
+        const fileActionText = `Uploaded file: ${fileName}`;
+        text = text ? `${fileActionText}\n\n${text}` : fileActionText;
+        console.log(`[Telegram] File saved to ${destPath}`);
+      } catch (err: any) {
+        console.error('[Telegram] File download failed:', err.message);
+        await this.sendMessage(chatId, `⚠️ Failed to download file: ${err.message}`);
+      }
+    }
+
+    if (!text && !msg.document && !msg.photo) return;
 
     console.log(`[Telegram] Message from ${userName} (${userId}): ${text.slice(0, 80)}`);
 
@@ -545,7 +583,7 @@ export class TelegramChannel {
       try {
         const { clearHistory } = await import('./session');
         clearHistory(`telegram_${userId}`);
-      } catch {}
+      } catch { }
       await this.sendMessage(chatId, '🦞 Chat history cleared.');
       return;
     }
@@ -587,11 +625,11 @@ export class TelegramChannel {
       applyApprovedRepair(repairId).then(async (result) => {
         try {
           await this.sendMessage(chatId, result.message);
-        } catch {}
+        } catch { }
       }).catch(async (err) => {
         try {
           await this.sendMessage(chatId, `❌ Unexpected error during repair: ${err.message}`);
-        } catch {}
+        } catch { }
       });
       return;
     }
@@ -635,7 +673,7 @@ export class TelegramChannel {
     }
 
     // Send "typing" indicator
-    await this.apiCall('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {});
+    await this.apiCall('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => { });
 
     // Route to handleChat
     const sessionId = `telegram_${userId}`;
@@ -678,6 +716,15 @@ export class TelegramChannel {
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+  private async downloadTelegramFile(fileId: string, destPath: string): Promise<void> {
+    const fileInfo = await this.apiCall('getFile', { file_id: fileId });
+    const downloadUrl = `https://api.telegram.org/file/bot${this.config.botToken}/${fileInfo.file_path}`;
+    const resp = await fetch(downloadUrl);
+    if (!resp.ok) throw new Error(`Download failed: HTTP ${resp.status}`);
+    const buffer = await resp.arrayBuffer();
+    fs.writeFileSync(destPath, Buffer.from(buffer));
+  }
 
   private splitMessage(text: string, maxLen: number): string[] {
     if (text.length <= maxLen) return [text];
