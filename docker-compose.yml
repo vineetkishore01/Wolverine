@@ -29,7 +29,7 @@ services:
     container_name: smallclaw-ollama
     restart: unless-stopped
     profiles:
-      - ollama   # start only when using: docker compose --profile ollama up
+      - ollama # start only when using: docker compose --profile ollama up
     ports:
       - "11434:11434"
     volumes:
@@ -51,7 +51,7 @@ services:
     #   - /dev/kfd
     #   - /dev/dri
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      test: [ "CMD", "curl", "-f", "http://localhost:11434/api/tags" ]
       interval: 20s
       timeout: 10s
       retries: 5
@@ -87,7 +87,7 @@ services:
     container_name: smallclaw-app
     restart: unless-stopped
     ports:
-      - "${GATEWAY_PORT:-3333}:3333"
+      - "${GATEWAY_PORT:-18789}:18789"
 
     # Allow the container to reach LM Studio / llama.cpp on the HOST.
     # On Linux, host.docker.internal isn't automatically available so we
@@ -107,7 +107,7 @@ services:
 
     environment:
       - NODE_ENV=production
-      - GATEWAY_PORT=3333
+      - GATEWAY_PORT=18789
       - SMALLCLAW_DATA_DIR=/data
       - SMALLCLAW_WORKSPACE_DIR=/data/workspace
 
@@ -139,7 +139,7 @@ services:
       - CODEX_MODEL=${CODEX_MODEL:-gpt-5.3-codex}
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3333/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:18789/api/status" ]
       interval: 30s
       timeout: 10s
       retries: 3

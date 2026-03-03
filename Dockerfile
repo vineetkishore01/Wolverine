@@ -6,7 +6,7 @@
 #   2. runtime  – lean production image with Playwright + Tesseract deps
 
 # ── Stage 1: Builder ────────────────────────────────────────
-FROM node:20-slim AS builder
+FROM node:22-slim AS builder
 
 WORKDIR /app
 
@@ -19,7 +19,7 @@ COPY src/ ./src/
 RUN npm run build
 
 # ── Stage 2: Runtime ────────────────────────────────────────
-FROM node:20-slim AS runtime
+FROM node:22-slim AS runtime
 
 # System deps: Playwright/Chromium + Tesseract OCR
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -80,7 +80,7 @@ RUN mkdir -p /data/workspace /data/logs /root/.localclaw
 ENV NODE_ENV=production \
     SMALLCLAW_DATA_DIR=/data \
     SMALLCLAW_WORKSPACE_DIR=/data/workspace \
-    GATEWAY_PORT=3333 \
+    GATEWAY_PORT=18789 \
     PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright \
     \
     # Active provider
@@ -105,9 +105,9 @@ ENV NODE_ENV=production \
     # OpenAI Codex OAuth (tokens live in mounted ~/.localclaw volume)
     CODEX_MODEL=gpt-5.3-codex
 
-EXPOSE 3333
+EXPOSE 18789
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:3333/health || exit 1
+    CMD curl -f http://localhost:18789/api/status || exit 1
 
-CMD ["node", "dist/cli/index.js", "gateway"]
+CMD ["node", "dist/cli/index.js", "gateway", "start"]

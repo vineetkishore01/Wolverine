@@ -71,8 +71,8 @@ const WORKSPACE_DIR =
 export const DEFAULT_CONFIG: SmallClawConfig = {
   version: '1.0.1',
   gateway: {
-    port: 18789,
-    host: '127.0.0.1',
+    port: Number(process.env.GATEWAY_PORT || process.env.PORT || 18789),
+    host: '0.0.0.0', // Listen on all interfaces in Docker/Local
     auth: {
       enabled: true,
       token: undefined
