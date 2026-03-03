@@ -1,17 +1,16 @@
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { executeMemoryWrite } from '../tools/memory';
-import { sanitizeMemoryText } from '../tools/memory-utils';
+import { getBrainDB } from '../db/brain';
+import { executeMemoryWrite } from '../tools/memory.js';
+import { sanitizeMemoryText } from '../tools/memory-utils.js';
 import { getDatabase } from '../db/database';
 import { getConfig } from '../config/config';
 import {
-  defaultExpiryHoursForKey,
-  upsertFactRecord,
   FactScope,
   FactType,
   FactSourceKind,
-} from './fact-store';
+} from '../types.js';
 
 const db = getDatabase();
 const cfg = getConfig().getConfig();
@@ -71,17 +70,6 @@ export function decideMemoryWrite(claim: MemoryClaim): MemoryDecision {
   return 'DAILY_NOTE';
 }
 
-function getDailyMemoryPath(): string {
-  const day = new Date().toISOString().slice(0, 10);
-  return path.join(cfg.workspace.path, 'memory', `${day}.md`);
-}
-
-export function appendDailyMemoryNote(line: string): void {
-  const p = getDailyMemoryPath();
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  const ts = new Date().toISOString();
-  fs.appendFileSync(p, `- [${ts}] ${sanitizeMemoryText(line)}\n`, 'utf-8');
-}
 
 function normalizeFactKeyFromClaim(claim: MemoryClaim): string {
   const lhs = sanitizeMemoryText(claim.claim).match(/^(.+?)\s+(is|are|was|were)\s+/i)?.[1]?.trim();
@@ -124,48 +112,6 @@ function auditMemoryWrite(args: {
   }
 }
 
-function upsertTypedMemoryFact(input: {
-  key: string;
-  value: string;
-  type?: FactType;
-  scope: FactScope;
-  workspace_id?: string;
-  agent_id?: string;
-  session_id?: string;
-  source_kind?: FactSourceKind;
-  source_ref?: string;
-  source_tool?: string;
-  source_url?: string;
-  confidence?: number;
-  actor?: 'agent' | 'user' | 'system';
-  ttl_hours?: number;
-}): void {
-  const nowIso = new Date().toISOString();
-  const ttlHours = typeof input.ttl_hours === 'number'
-    ? input.ttl_hours
-    : defaultExpiryHoursForKey(input.key);
-  const expires_at = ttlHours
-    ? new Date(Date.now() + ttlHours * 3600_000).toISOString()
-    : undefined;
-
-  upsertFactRecord({
-    key: input.key,
-    value: input.value,
-    type: input.type,
-    scope: input.scope,
-    workspace_id: input.workspace_id,
-    agent_id: input.agent_id,
-    session_id: input.session_id,
-    source_kind: input.source_kind,
-    source_ref: input.source_ref,
-    source_tool: input.source_tool,
-    source_url: input.source_url,
-    verified_at: nowIso,
-    expires_at,
-    confidence: input.confidence,
-    actor: input.actor || 'agent',
-  });
-}
 
 export async function addMemoryFact(args: AddMemoryFactArgs): Promise<{ success: boolean; destination: MemoryDecision; message?: string }> {
   const safeFact = sanitizeMemoryText(args.fact);
@@ -207,104 +153,33 @@ export async function addMemoryFact(args: AddMemoryFactArgs): Promise<{ success:
   }
 
   const decision: MemoryDecision = routing === 'policy' ? decideMemoryWrite(claim) : 'TYPED_FACT';
+  const brain = getBrainDB();
 
   try {
     if (decision === 'DISCARD') {
       return finish(true, 'discarded', decision);
     }
 
-    if (decision === 'DAILY_NOTE') {
-      appendDailyMemoryNote(safeFact);
-      return finish(true, 'daily note appended', decision);
-    }
-
-    if (decision === 'CURATED_PROFILE') {
-      const profileKey = args.key || `profile:${normalizeFactKeyFromClaim(claim).replace(/^fact:/, '')}`;
-      const writeResult = await executeMemoryWrite({
-        fact: safeFact,
-        key: profileKey,
-        action: 'upsert',
-        reference: args.reference,
-        source_tool: args.source_tool,
-        source_output: safeSourceOutput,
-        actor: args.actor || 'agent',
-      });
-      if (!writeResult.success) {
-        const msg = writeResult.error || 'memory_write failed';
-        return finish(false, msg, decision, msg);
-      }
-      upsertTypedMemoryFact({
-        key: profileKey,
-        value: safeFact,
-        type: claim.type,
-        scope: 'global',
-        workspace_id: args.workspace_id,
-        agent_id: args.agent_id,
-        session_id: args.session_id,
-        source_kind: claim.source_kind,
-        source_ref: claim.source_ref,
-        source_tool: args.source_tool,
-        source_url: args.source_url,
-        confidence: claim.confidence,
-        actor: args.actor || 'agent',
-        ttl_hours: claim.ttl_hours,
-      });
-      return finish(true, writeResult.stdout || 'memory profile upserted', decision);
-    }
-
-    if (routing === 'direct') {
-      const writeResult = await executeMemoryWrite({
-        fact: safeFact,
-        key: args.key,
-        action: args.action || 'append',
-        reference: args.reference,
-        source_tool: args.source_tool,
-        source_output: safeSourceOutput,
-        actor: args.actor || 'agent',
-      });
-      if (!writeResult.success) {
-        const msg = writeResult.error || 'memory_write failed';
-        return finish(false, msg, decision, msg);
-      }
-      const directKey = args.key || `fact:${safeFact.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim().replace(/\s+/g, '-').slice(0, 80) || 'item'}`;
-      upsertTypedMemoryFact({
-        key: directKey,
-        value: safeFact,
-        type: args.type,
-        scope: normalizedScope,
-        workspace_id: args.workspace_id,
-        agent_id: args.agent_id,
-        session_id: args.session_id,
-        source_kind: args.source_kind,
-        source_ref: args.source_ref,
-        source_tool: args.source_tool,
-        source_url: args.source_url,
-        confidence: typeof args.confidence === 'number' ? args.confidence : undefined,
-        actor: args.actor || 'agent',
-        ttl_hours: args.ttl_hours,
-      });
-      return finish(true, writeResult.stdout || 'Memory updated', decision);
-    }
-
-    const typedKey = args.key || normalizeFactKeyFromClaim(claim);
-    upsertTypedMemoryFact({
-      key: typedKey,
-      value: safeFact,
-      type: claim.type,
-      scope: claim.scope,
-      workspace_id: args.workspace_id,
-      agent_id: args.agent_id,
-      session_id: args.session_id,
-      source_kind: claim.source_kind,
-      source_ref: claim.source_ref,
+    // Always write to the brain database now
+    const writeResult = await executeMemoryWrite({
+      fact: safeFact,
+      key: args.key,
+      action: args.action || 'upsert',
+      reference: args.reference,
       source_tool: args.source_tool,
-      source_url: args.source_url,
-      confidence: claim.confidence,
+      source_output: safeSourceOutput,
       actor: args.actor || 'agent',
-      ttl_hours: claim.ttl_hours,
+      category: claim.type,
+      importance: args.confidence ?? 0.5
     });
-    appendDailyMemoryNote(safeFact);
-    return finish(true, 'typed fact upserted', decision);
+
+    if (!writeResult.success) {
+      const msg = writeResult.error || 'brain_write failed';
+      return finish(false, msg, decision, msg);
+    }
+
+    return finish(true, writeResult.stdout || 'Memory synchronized with brain', decision);
+
   } catch (err: any) {
     const msg = err?.message || String(err);
     console.error('[memory-manager] Error adding memory fact:', msg);

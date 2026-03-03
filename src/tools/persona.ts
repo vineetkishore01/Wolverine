@@ -15,13 +15,10 @@ import path from 'path';
 import { getConfig } from '../config/config.js';
 import { ToolResult } from '../types.js';
 
-// ─── Allowed persona files ────────────────────────────────────────────────────
-
 const ALLOWED_PERSONA_FILES = new Set([
   'SOUL.md',
   'USER.md',
   'IDENTITY.md',
-  'MEMORY.md',
   'AGENTS.md',
   'TOOLS.md',
 ]);
@@ -201,7 +198,7 @@ export async function executePersonaUpdate(args: PersonaUpdateArgs): Promise<Too
     const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
     const reason = args.reason ? ` — ${args.reason}` : '';
     fs.appendFileSync(logPath, `[${ts}] **persona_update** ${args.file} (${args.mode})${reason}\n`);
-  } catch {}
+  } catch { }
 
   return {
     success: true,
@@ -213,7 +210,7 @@ export async function executePersonaUpdate(args: PersonaUpdateArgs): Promise<Too
 export const personaUpdateTool = {
   name: 'persona_update',
   description:
-    'Update a workspace personality file (SOUL.md, USER.md, IDENTITY.md, MEMORY.md). ' +
+    'Update a workspace personality file (SOUL.md, USER.md, IDENTITY.md). ' +
     'Use this to grow your personality, record user preferences, and keep your model of the user current. ' +
     'ALWAYS use persona_read first to see the current content. ' +
     'Prefer upsert_line for single facts, append_section for new topics, replace_section for updating existing sections.',
@@ -264,13 +261,11 @@ export function shouldTriggerMemoryFlush(historyLength: number, maxMessages: num
  * The model should write durable notes and reply with NO_REPLY if nothing meaningful to write.
  */
 export function buildMemoryFlushPrompt(): string {
-  const today = new Date().toISOString().slice(0, 10);
   return [
     '[SYSTEM: Context window is getting long. Before this session compacts, do the following NOW:]',
     '1. Use memory_write to persist any new facts, preferences, or decisions learned this session',
     '2. Use persona_update to update USER.md with anything new you learned about your human',
-    '3. Write a brief session note to memory/' + today + '.md using the write tool',
-    '4. If you updated SOUL.md, note what changed',
+    '3. If you updated SOUL.md, note what changed',
     '',
     'After writing, reply with just: NO_REPLY',
     'Only send a real reply if there is something important the user needs to know.',

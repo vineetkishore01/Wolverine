@@ -4,6 +4,19 @@ export type JobStatus = 'queued' | 'planning' | 'executing' | 'verifying' | 'com
 export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 export type AgentRole = 'manager' | 'executor' | 'verifier';
 export type VerificationStatus = 'approved' | 'rejected' | 'needs_approval';
+export type FactScope = 'session' | 'global';
+export type FactType =
+  | 'preference'
+  | 'rule'
+  | 'fact'
+  | 'decision'
+  | 'office_holder'
+  | 'weather'
+  | 'breaking_news'
+  | 'market_price'
+  | 'event_date_fact'
+  | 'generic_fact';
+export type FactSourceKind = 'user' | 'tool' | 'file_ref' | 'web' | 'system';
 
 export interface Job {
   id: string;
@@ -416,19 +429,19 @@ export type LocalClawConfig = SmallClawConfig;
 
 export type ProviderID = 'ollama' | 'llama_cpp' | 'lm_studio' | 'openai' | 'openai_codex';
 
-export interface OllamaProviderConfig    { endpoint: string; model: string; }
-export interface LlamaCppProviderConfig  { endpoint: string; model: string; api_key?: string; }
-export interface LMStudioProviderConfig  { endpoint: string; model: string; api_key?: string; }
-export interface OpenAIProviderConfig    { api_key: string;  model: string; }
+export interface OllamaProviderConfig { endpoint: string; model: string; }
+export interface LlamaCppProviderConfig { endpoint: string; model: string; api_key?: string; }
+export interface LMStudioProviderConfig { endpoint: string; model: string; api_key?: string; }
+export interface OpenAIProviderConfig { api_key: string; model: string; }
 export interface OpenAICodexProviderConfig { model: string; } // token managed by auth/openai-oauth.ts
 
 export interface LLMConfig {
   provider: ProviderID;
   providers: {
-    ollama?:       OllamaProviderConfig;
-    llama_cpp?:    LlamaCppProviderConfig;
-    lm_studio?:    LMStudioProviderConfig;
-    openai?:       OpenAIProviderConfig;
+    ollama?: OllamaProviderConfig;
+    llama_cpp?: LlamaCppProviderConfig;
+    lm_studio?: LMStudioProviderConfig;
+    openai?: OpenAIProviderConfig;
     openai_codex?: OpenAICodexProviderConfig;
   };
 }

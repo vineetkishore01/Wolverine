@@ -1,0 +1,10 @@
+{
+  "id": "boot-startup",
+  "history": [],
+  "workspace": "~/SmallClawData/workspace",
+  "createdAt": 1772540523425,
+  "lastActiveAt": 1772573274680,
+  "pendingMemoryFlush": false,
+  "pendingCompaction": false,
+  "contextTokenEstimate": 0
+}

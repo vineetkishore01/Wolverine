@@ -8,7 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import { getConfig } from '../config/config';
-import { appendDailyMemoryNote } from './memory-manager';
+import { PATHS } from '../config/paths.js';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -49,7 +49,7 @@ const SESSION_DIR = (() => {
   try {
     return path.join(getConfig().getConfigDir(), 'sessions');
   } catch {
-    return path.join(process.cwd(), '.smallclaw', 'sessions');
+    return PATHS.sessions();
   }
 })();
 
@@ -153,12 +153,6 @@ function compactHistoryWithSummary(session: Session, summaryText: string, maxMes
     timestamp: Date.now(),
   };
 
-  // Persist compaction summary so restart does not lose condensed context.
-  try {
-    appendDailyMemoryNote(`[compaction-summary] ${String(summaryText || '').slice(0, 600)}`);
-  } catch {
-    // Memory persistence must not break chat flow.
-  }
 
   session.history = [summaryMsg, ...keptRecentHalf, ...tailAfterSummary];
   if (session.history.length > maxMessages) {

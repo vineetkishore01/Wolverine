@@ -188,4 +188,4 @@ You know LocalClaw is working when:
 - Review database: `~/.smallclaw/jobs.db` (SQLite)
 - Enable verbose logging: Set environment variable `DEBUG=*`
 
-Happy automating! 🦞
+Happy automating! 🐺

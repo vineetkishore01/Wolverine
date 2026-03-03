@@ -1,0 +1,51 @@
+{
+  "id": "8db16814-4cb9-4371-bd9e-f79824b6c5ed",
+  "history": [
+    {
+      "role": "user",
+      "content": "hi",
+      "timestamp": 1772540598248
+    },
+    {
+      "role": "assistant",
+      "content": "Hey! 👋 How's it going? Anything on your mind today?",
+      "timestamp": 1772540630217
+    },
+    {
+      "role": "user",
+      "content": "what all tools you have access to?",
+      "timestamp": 1772540818652
+    },
+    {
+      "role": "assistant",
+      "content": "Error: Ollama chat failed: failed to parse JSON: invalid character ']' after top-level value",
+      "timestamp": 1772540847382
+    },
+    {
+      "role": "user",
+      "content": "can you find latest info about iran war from today march 3 2026",
+      "timestamp": 1772540871178
+    },
+    {
+      "role": "assistant",
+      "content": "The situation remains highly volatile with ongoing strikes and diplomatic tensions.",
+      "timestamp": 1772540986880
+    },
+    {
+      "role": "user",
+      "content": "si",
+      "timestamp": 1772541356085
+    },
+    {
+      "role": "assistant",
+      "content": "The Iran war situation remains volatile as of March 3, 2026. Key developments include U.S. embassy attacks in Riyadh, Israel bolstering forces in southern Lebanon, and Trump warning the conflict could last weeks. Oil prices have spiked amid fears of Strait of Hormuz closures, while Amazon reported drone strikes damaging data centers across UAE and Bahrain.",
+      "timestamp": 1772541447079
+    }
+  ],
+  "workspace": "/Users/vineetkishore/FolderX/SmallClaw/workspace",
+  "createdAt": 1772540545220,
+  "lastActiveAt": 1772541447079,
+  "pendingMemoryFlush": false,
+  "pendingCompaction": false,
+  "contextTokenEstimate": 247
+}

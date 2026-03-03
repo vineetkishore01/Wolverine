@@ -12,9 +12,9 @@
  */
 
 import path from 'path';
-import os from 'os';
 import fs from 'fs';
 import { getConfig } from '../config/config';
+import { PATHS } from '../config/paths.js';
 import { log } from '../security/log-scrubber';
 import type { LLMProvider, ProviderID } from './LLMProvider';
 import { OllamaAdapter } from './ollama-adapter';
@@ -48,9 +48,7 @@ function getProviderConfig(): { active: ProviderID; providers: any } {
 }
 
 function getConfigDir(): string {
-  const PROJECT_CONFIG = path.join(process.cwd(), '.smallclaw');
-  const HOME_CONFIG    = path.join(os.homedir(), '.smallclaw');
-  return fs.existsSync(PROJECT_CONFIG) ? PROJECT_CONFIG : HOME_CONFIG;
+  return PATHS.dataHome();
 }
 
 // ─── Factory ───────────────────────────────────────────────────────────────────
@@ -73,13 +71,13 @@ export function getProvider(): LLMProvider {
   }
 
   cachedProviderId = active;
-  cachedProvider   = buildProvider(active, providers);
+  cachedProvider = buildProvider(active, providers);
   return cachedProvider;
 }
 
 /** Force a fresh provider instance (call after settings change). */
 export function resetProvider(): void {
-  cachedProvider   = null;
+  cachedProvider = null;
   cachedProviderId = null;
 }
 
@@ -115,8 +113,8 @@ function buildProvider(id: ProviderID, providers: any): LLMProvider {
     case 'llama_cpp': {
       const cfg = providers.llama_cpp || {};
       return new OpenAICompatAdapter({
-        endpoint:   cfg.endpoint || 'http://localhost:8080',
-        apiKey:     cfg.api_key,   // usually not needed for local
+        endpoint: cfg.endpoint || 'http://localhost:8080',
+        apiKey: cfg.api_key,   // usually not needed for local
         providerId: 'llama_cpp',
       });
     }
@@ -124,8 +122,8 @@ function buildProvider(id: ProviderID, providers: any): LLMProvider {
     case 'lm_studio': {
       const cfg = providers.lm_studio || {};
       return new OpenAICompatAdapter({
-        endpoint:   cfg.endpoint || 'http://localhost:1234',
-        apiKey:     cfg.api_key,   // LM Studio has optional key support
+        endpoint: cfg.endpoint || 'http://localhost:1234',
+        apiKey: cfg.api_key,   // LM Studio has optional key support
         providerId: 'lm_studio',
       });
     }
@@ -135,7 +133,7 @@ function buildProvider(id: ProviderID, providers: any): LLMProvider {
       const apiKey = resolveEnvKey(cfg.api_key);
       if (!apiKey) throw new Error('OpenAI API key not configured. Add it in Settings -> Models.');
       return new OpenAICompatAdapter({
-        endpoint:   'https://api.openai.com',
+        endpoint: 'https://api.openai.com',
         apiKey,
         providerId: 'openai',
       });

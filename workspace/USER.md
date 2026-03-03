@@ -46,7 +46,7 @@
 
 ## Technical Context
 
-- **Platform:** Windows 11
+- **Platform:** macOS
 - **Stack:** TypeScript / Node.js
 - **Editor:** *(unknown — update me)*
 - **Version control:** Git

@@ -9,9 +9,9 @@
  */
 
 import path from 'path';
-import os from 'os';
 import fs from 'fs';
 import { getConfig } from '../config/config';
+import { PATHS, resolveDataPath } from '../config/paths.js';
 import type { LLMProvider } from '../providers/LLMProvider';
 import { contentToString } from '../providers/content-utils';
 
@@ -168,9 +168,7 @@ export interface EligibilityResult {
 }
 
 function getConfigDir(): string {
-  const project = path.join(process.cwd(), '.smallclaw');
-  const home = path.join(os.homedir(), '.smallclaw');
-  return fs.existsSync(project) ? project : home;
+  return PATHS.dataHome();
 }
 
 export async function checkOrchestrationEligibility(): Promise<EligibilityResult> {
@@ -191,7 +189,7 @@ export async function checkOrchestrationEligibility(): Promise<EligibilityResult
   }
 
   if (secondary.provider === 'openai_codex') {
-    const tokenPath = path.join(getConfigDir(), 'credentials', 'oauth-openai.json');
+    const tokenPath = resolveDataPath('credentials', 'oauth-openai.json');
     if (!fs.existsSync(tokenPath)) {
       return { eligible: false, reason: 'Secondary is ChatGPT but no OAuth token found - connect your account first.' };
     }
@@ -1508,31 +1506,31 @@ Return verifier JSON now.`;
     const reasons = compactList(parsed.reasons, 3, 220);
     const findings = Array.isArray(parsed.findings)
       ? parsed.findings
-          .slice(0, 8)
-          .map((f: any) => ({
-            filename: String(f?.filename || '').slice(0, 220),
-            type: String(f?.type || '').slice(0, 80),
-            location_hint: f?.location_hint && typeof f.location_hint === 'object'
-              ? {
-                  start_line: clampInt(f.location_hint.start_line, 1, 1000000, 1),
-                  end_line: clampInt(f.location_hint.end_line, 1, 1000000, 1),
-                }
-              : undefined,
-            expected: String(f?.expected || '').slice(0, 500),
-            observed: String(f?.observed || '').slice(0, 500),
-          }))
+        .slice(0, 8)
+        .map((f: any) => ({
+          filename: String(f?.filename || '').slice(0, 220),
+          type: String(f?.type || '').slice(0, 80),
+          location_hint: f?.location_hint && typeof f.location_hint === 'object'
+            ? {
+              start_line: clampInt(f.location_hint.start_line, 1, 1000000, 1),
+              end_line: clampInt(f.location_hint.end_line, 1, 1000000, 1),
+            }
+            : undefined,
+          expected: String(f?.expected || '').slice(0, 500),
+          observed: String(f?.observed || '').slice(0, 500),
+        }))
       : [];
     const fix = parsed.suggested_fix && typeof parsed.suggested_fix === 'object'
       ? {
-          estimated_lines_changed: clampInt(parsed.suggested_fix.estimated_lines_changed, 0, 100000, 0),
-          estimated_chars: clampInt(parsed.suggested_fix.estimated_chars, 0, 2000000, 0),
-          files_touched: clampInt(parsed.suggested_fix.files_touched, 0, 100, 0),
-        }
+        estimated_lines_changed: clampInt(parsed.suggested_fix.estimated_lines_changed, 0, 100000, 0),
+        estimated_chars: clampInt(parsed.suggested_fix.estimated_chars, 0, 2000000, 0),
+        files_touched: clampInt(parsed.suggested_fix.files_touched, 0, 100, 0),
+      }
       : {
-          estimated_lines_changed: 0,
-          estimated_chars: 0,
-          files_touched: 0,
-        };
+        estimated_lines_changed: 0,
+        estimated_chars: 0,
+        files_touched: 0,
+      };
 
     return {
       verdict,
@@ -1580,11 +1578,11 @@ export async function callSecondaryFilePatchPlanner(input: {
     .join('\n\n');
   const verifierBlock = input.verifier
     ? JSON.stringify({
-        verdict: input.verifier.verdict,
-        reasons: input.verifier.reasons,
-        findings: input.verifier.findings,
-        suggested_fix: input.verifier.suggested_fix,
-      }).slice(0, 5000)
+      verdict: input.verifier.verdict,
+      reasons: input.verifier.reasons,
+      findings: input.verifier.findings,
+      suggested_fix: input.verifier.suggested_fix,
+    }).slice(0, 5000)
     : '(none)';
   const blockedCall = input.blockedPrimaryCall
     ? JSON.stringify(input.blockedPrimaryCall).slice(0, 1800)
@@ -1752,9 +1750,9 @@ Return route JSON now.`;
     const routeRaw = String(parsed.route || '').trim();
     let route: BrowserAdvisorRoute =
       routeRaw === 'answer_now'
-      || routeRaw === 'continue_browser'
-      || routeRaw === 'collect_more'
-      || routeRaw === 'handoff_primary'
+        || routeRaw === 'continue_browser'
+        || routeRaw === 'collect_more'
+        || routeRaw === 'handoff_primary'
         ? routeRaw
         : 'handoff_primary';
     if (!isFeedPage && route === 'collect_more') {
@@ -1765,18 +1763,18 @@ Return route JSON now.`;
     const nextTool =
       nextToolName
         ? {
-            tool: nextToolName,
-            params: parsed.next_tool?.params && typeof parsed.next_tool.params === 'object'
-              ? parsed.next_tool.params
-              : {},
-          }
+          tool: nextToolName,
+          params: parsed.next_tool?.params && typeof parsed.next_tool.params === 'object'
+            ? parsed.next_tool.params
+            : {},
+        }
         : undefined;
 
     const collectPolicy = parsed.collect_policy
       ? {
-          scroll_batches: clampInt(parsed.collect_policy.scroll_batches, 1, 5, 2),
-          target_count: clampInt(parsed.collect_policy.target_count, 8, 80, 24),
-        }
+        scroll_batches: clampInt(parsed.collect_policy.scroll_batches, 1, 5, 2),
+        target_count: clampInt(parsed.collect_policy.target_count, 8, 80, 24),
+      }
       : undefined;
 
     return {
@@ -1865,18 +1863,18 @@ Return desktop route JSON now.`;
   const useVision = secondarySupportsVision(config) && !!input.screenshotBase64;
   const userMessage = useVision
     ? {
-        role: 'user' as const,
-        content: [
-          { type: 'text' as const, text: prompt },
-          {
-            type: 'image_url' as const,
-            image_url: {
-              url: `data:image/png;base64,${input.screenshotBase64}`,
-              detail: 'low' as const,  // low = cheaper tokens, sufficient for UI status checks
-            },
+      role: 'user' as const,
+      content: [
+        { type: 'text' as const, text: prompt },
+        {
+          type: 'image_url' as const,
+          image_url: {
+            url: `data:image/png;base64,${input.screenshotBase64}`,
+            detail: 'low' as const,  // low = cheaper tokens, sufficient for UI status checks
           },
-        ],
-      }
+        },
+      ],
+    }
     : { role: 'user' as const, content: prompt };
 
   try {
@@ -1895,8 +1893,8 @@ Return desktop route JSON now.`;
     const routeRaw = String(parsed.route || '').trim();
     const route: DesktopAdvisorRoute =
       routeRaw === 'answer_now'
-      || routeRaw === 'continue_desktop'
-      || routeRaw === 'handoff_primary'
+        || routeRaw === 'continue_desktop'
+        || routeRaw === 'handoff_primary'
         ? routeRaw
         : 'handoff_primary';
 
@@ -1916,11 +1914,11 @@ Return desktop route JSON now.`;
     const nextTool =
       nextToolName && allowedTools.has(nextToolName)
         ? {
-            tool: nextToolName,
-            params: parsed.next_tool?.params && typeof parsed.next_tool.params === 'object'
-              ? parsed.next_tool.params
-              : {},
-          }
+          tool: nextToolName,
+          params: parsed.next_tool?.params && typeof parsed.next_tool.params === 'object'
+            ? parsed.next_tool.params
+            : {},
+        }
         : undefined;
 
     return {

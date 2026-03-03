@@ -1,10 +1,10 @@
 import Database from 'better-sqlite3';
 import path from 'path';
-import os from 'os';
 import fs from 'fs';
 import { Job, Task, Step, Artifact, Approval, TaskState, JobStatus, TaskStatus } from '../types';
+import { PATHS } from '../config/paths.js';
 
-const DB_PATH = path.join(os.homedir(), '.smallclaw', 'jobs.db');
+const DB_PATH = PATHS.jobsDb();
 
 export class JobDatabase {
   private db: Database.Database;
@@ -138,7 +138,7 @@ export class JobDatabase {
       INSERT INTO jobs (id, title, description, status, priority, metadata)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(job.id, job.title, job.description, job.status, job.priority,
-           job.metadata ? JSON.stringify(job.metadata) : null);
+      job.metadata ? JSON.stringify(job.metadata) : null);
     return this.getJob(job.id)!;
   }
 
@@ -165,8 +165,8 @@ export class JobDatabase {
       INSERT OR IGNORE INTO tasks (id, job_id, title, description, status, assigned_to, dependencies, acceptance_criteria, retry_count)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(task.id, task.job_id, task.title, task.description, task.status,
-           task.assigned_to, JSON.stringify(task.dependencies),
-           JSON.stringify(task.acceptance_criteria), task.retry_count);
+      task.assigned_to, JSON.stringify(task.dependencies),
+      JSON.stringify(task.acceptance_criteria), task.retry_count);
     return this.getTask(task.id)!;
   }
 
@@ -191,8 +191,8 @@ export class JobDatabase {
       INSERT INTO steps (id, task_id, step_number, agent_role, tool_name, tool_args, result, error)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(step.id, step.task_id, step.step_number, step.agent_role, step.tool_name,
-           step.tool_args ? JSON.stringify(step.tool_args) : null,
-           step.result ? JSON.stringify(step.result) : null, step.error);
+      step.tool_args ? JSON.stringify(step.tool_args) : null,
+      step.result ? JSON.stringify(step.result) : null, step.error);
     return this.getStep(step.id)!;
   }
 
@@ -235,8 +235,8 @@ export class JobDatabase {
       INSERT INTO approvals (id, job_id, task_id, action, reason, details, approval_status)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(approval.id, approval.job_id, approval.task_id, approval.action,
-           approval.reason, approval.details ? JSON.stringify(approval.details) : null,
-           approval.status);
+      approval.reason, approval.details ? JSON.stringify(approval.details) : null,
+      approval.status);
     return this.getApproval(approval.id)!;
   }
 

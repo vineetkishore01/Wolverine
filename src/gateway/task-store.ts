@@ -1,7 +1,8 @@
 /**
  * task-store.ts — Persistent background task storage
  *
- * Tasks are stored as individual JSON files in .smallclaw/tasks/
+ * Tasks are stored as individual JSON files in .wolverine/tasks/
+ * each file named by its task ID.
  * plus an index file for fast listing.
  *
  * This is the data layer only — no execution logic.
@@ -11,6 +12,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { getConfig } from '../config/config';
+import { PATHS } from '../config/paths.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -117,11 +119,7 @@ interface TaskIndex {
 const TASKS_DIR_NAME = 'tasks';
 
 function getStateBaseDir(): string {
-  try {
-    return getConfig().getConfigDir();
-  } catch {
-    return path.join(process.cwd(), '.smallclaw');
-  }
+  return PATHS.dataHome();
 }
 
 function getTasksDir(): string {

@@ -1562,7 +1562,7 @@
 <!-- HEADER -->
 <header>
   <div class="logo">
-    <span>🦞</span> Wolverine
+    <span>🐺</span> Wolverine
   </div>
 
   <div class="mode-toggle">
@@ -1643,7 +1643,7 @@
   <div id="chat-view">
     <div id="chat-messages">
       <div class="chat-welcome" id="chat-welcome">
-        <div class="chat-welcome-icon">🦞</div>
+        <div class="chat-welcome-icon">🐺</div>
         <h2>Wolverine</h2>
         <p>Chat directly with your local model. No API keys, no cloud — just you and the model.</p>
         <div class="hint">Switch to Agent mode for multi-step agentic tasks with tools.</div>
@@ -3491,7 +3491,7 @@ function renderChatMessages() {
   if (chatHistory.length === 0) {
     container.innerHTML = `
       <div class="chat-welcome" id="chat-welcome">
-        <div class="chat-welcome-icon">🦞</div>
+        <div class="chat-welcome-icon">🐺</div>
         <h2>Wolverine</h2>
         <p>Chat directly with your local model. No API keys, no cloud — just you and the model.</p>
         <div class="hint">Enable Agent mode when you want planning + tool execution in this chat.</div>
@@ -3507,7 +3507,7 @@ function renderChatMessages() {
     const clickHandler = contextPinMode ? ` onclick="togglePinMessage(${idx})"` : '';
     return `
     <div class="msg ${msg.role}${pinClass}${selectedClass}${confirmedClass}"${clickHandler}>
-      <div class="msg-avatar">${msg.role === 'user' ? 'U' : '🦞'}</div>
+      <div class="msg-avatar">${msg.role === 'user' ? 'U' : '🐺'}</div>
       <div class="msg-body">
         <div class="msg-role">${msg.role === 'user' ? 'You' : (msg.mode === 'agentic' ? 'Wolverine (Agent)' : 'Wolverine')}</div>
         ${msg.role === 'ai' ? renderAssistantContent(msg.content) : `<div class="msg-content">${escHtml(msg.content)}</div>`}
@@ -3527,7 +3527,7 @@ function renderChatMessages() {
       : '';
     container.innerHTML += `
       <div class="msg ai" id="thinking-msg">
-        <div class="msg-avatar">🦞</div>
+        <div class="msg-avatar">🐺</div>
         <div class="msg-body">
           <div class="msg-role">Wolverine${useAgentMode ? ' (Agent)' : ''}</div>
           ${currentPreflightStatus ? `<div class="msg-content" style="margin-bottom:6px;color:#26487e">${escHtml(currentPreflightStatus)}</div>` : ''}
@@ -6245,7 +6245,7 @@ async function loadInstalledSkills() {
       el.innerHTML = '<div class="empty-state" style="padding:16px">No skills yet.<br>Click "+ Create" to make one!</div>';
     } else {
       el.innerHTML = skills.map(s => {
-        const skillEmoji = (s.emoji === '🧩' || s.emoji === '🦞' || s.emoji === '⚠️') ? s.emoji : '🧩';
+        const skillEmoji = (s.emoji === '🧩' || s.emoji === '🐺' || s.emoji === '⚠️') ? s.emoji : '🧩';
         return `
         <div class="skill-card ${s.enabled ? 'enabled' : ''}" data-skill-id="${escHtml(s.id)}" onclick="toggleSkill('${escHtml(s.id)}')">
           <div class="skill-card-top">
@@ -6344,7 +6344,7 @@ function closeSkillModal() {
 async function saveSkillFromModal() {
   const name = document.getElementById('skill-modal-name').value.trim();
   const rawEmoji = document.getElementById('skill-modal-emoji').value.trim();
-  const emoji = (rawEmoji === '🧩' || rawEmoji === '🦞' || rawEmoji === '⚠️') ? rawEmoji : '🧩';
+  const emoji = (rawEmoji === '🧩' || rawEmoji === '🐺' || rawEmoji === '⚠️') ? rawEmoji : '🧩';
   const description = document.getElementById('skill-modal-desc').value.trim();
   const instructions = document.getElementById('skill-modal-instructions').value.trim();
 

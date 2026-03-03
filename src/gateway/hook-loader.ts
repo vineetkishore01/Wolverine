@@ -1,7 +1,7 @@
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { hookBus, type HookEvent } from './hooks.js';
+import { PATHS } from '../config/paths.js';
 
 const ALLOWED_EVENTS: Set<HookEvent['type']> = new Set([
   'gateway:startup',
@@ -71,7 +71,7 @@ export function loadWorkspaceHooks(workspacePath: string): void {
 
 export function loadBuiltinHookDirectories(workspacePath: string): void {
   // Minimal discovery order: user home hooks first, then workspace hooks.
-  const homeHooks = path.join(os.homedir(), '.smallclaw', 'hooks');
+  const homeHooks = PATHS.hooks();
   registerHooksFromDir(homeHooks);
   registerHooksFromDir(path.join(workspacePath, 'hooks'));
 }

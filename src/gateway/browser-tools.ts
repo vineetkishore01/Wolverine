@@ -9,6 +9,8 @@
  * No dependency on deprecated page.accessibility or page.ariaSnapshot APIs.
  */
 
+import { resolveDataPath } from '../config/paths.js';
+
 type PwBrowser = any;
 type PwContext = any;
 type PwPage = any;
@@ -189,7 +191,7 @@ async function getOrCreateSession(sessionId: string): Promise<BrowserSession> {
       const path = await import('path');
       const os = await import('os');
       const profileDir = process.env.CHROME_PROFILE
-        || path.join(os.homedir(), '.smallclaw', 'chrome-debug-profile');
+        || resolveDataPath('chrome-debug-profile');
 
       // Ensure profile dir exists
       if (!fs.existsSync(profileDir)) fs.mkdirSync(profileDir, { recursive: true });

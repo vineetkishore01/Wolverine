@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "entries": {
+    "search.tavily_api_key": {
+      "enc": "de80a449b872db799df84f460ae67946da710e78845ff2bc1e8d0d58b17d3215d2fa9235a45c32da076aee2546944c389a2d30d24eff323e4e56",
+      "iv": "24d29ba46b9331486afd94b44e51b8fa",
+      "tag": "4b3ea9c56f8cc668837818f7d43b0a46",
+      "createdAt": 1772541310587,
+      "expiresAt": 0
+    },
+    "channels.telegram.botToken": {
+      "enc": "0ebebc1e6d00fda89fa0fb2c7c45bb293152bac31d6c22266c1aae53c1281f3cba0c1f4690d3014d8d40c5a30887",
+      "iv": "c50d876901e9f00786d95081264b4e63",
+      "tag": "5bffb2436bae0168d823137e1637a10a",
+      "createdAt": 1772574539670,
+      "expiresAt": 0
+    }
+  }
+}

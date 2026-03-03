@@ -19,6 +19,7 @@ import os from 'os';
 import { execSync, spawn } from 'child_process';
 import { randomUUID } from 'crypto';
 import { ToolResult } from '../types.js';
+import { PATHS } from '../config/paths.js';
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
@@ -27,9 +28,7 @@ function getSmallClawRoot(): string {
 }
 
 function getSmallClawDataDir(): string {
-  const projectData = path.join(getSmallClawRoot(), '.smallclaw');
-  const homeData = path.join(os.homedir(), '.smallclaw');
-  return fs.existsSync(projectData) ? projectData : homeData;
+  return PATHS.dataHome();
 }
 
 function getPendingRepairsDir(): string {
@@ -143,7 +142,7 @@ export async function executeProposeRepair(args: ProposeRepairArgs): Promise<Too
       error: `Patch dry-run failed — it does not apply cleanly to current source:\n${details}\n\nDouble-check the diff context lines match the actual file content.`,
     };
   } finally {
-    try { fs.unlinkSync(tmpPatch); } catch {}
+    try { fs.unlinkSync(tmpPatch); } catch { }
   }
 
   // Generate a short ID for the repair
@@ -282,7 +281,7 @@ export async function applyApprovedRepair(repairId: string): Promise<ApplyRepair
     savePendingRepair(repair);
     return { success: false, repairId, message: `❌ Failed to apply patch #${repairId}:\n\n${details}` };
   } finally {
-    try { fs.unlinkSync(tmpPatch); } catch {}
+    try { fs.unlinkSync(tmpPatch); } catch { }
   }
 
   // Step 3: Build
@@ -313,7 +312,7 @@ export async function applyApprovedRepair(repairId: string): Promise<ApplyRepair
       repair.buildOutput += '\n\n⚠️ Auto-revert also failed. Source may be in a modified state.';
       savePendingRepair(repair);
     } finally {
-      try { fs.unlinkSync(revertPatch); } catch {}
+      try { fs.unlinkSync(revertPatch); } catch { }
     }
 
     return {

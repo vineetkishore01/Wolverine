@@ -9,6 +9,15 @@
 import fs from 'fs';
 import path from 'path';
 
+import { migrateLegacyDataHome } from '../config/paths.js';
+import { bootstrapDataHome } from '../config/bootstrap.js';
+
+export async function boot(): Promise<void> {
+  // Phase 0: Ensure runtime data home is ready
+  migrateLegacyDataHome();
+  await bootstrapDataHome();
+}
+
 type BootResult =
   | { status: 'skipped'; reason: string }
   | { status: 'ran'; reply: string }

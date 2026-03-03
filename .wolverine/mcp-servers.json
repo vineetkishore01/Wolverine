@@ -1,0 +1,30 @@
+[
+  {
+    "id": "notion-mcp-server",
+    "name": "Notion MCP Server",
+    "transport": "sse",
+    "enabled": true,
+    "url": "https://mcp.notion.com/mcp",
+    "headers": {}
+  },
+  {
+    "id": "notion_oauth",
+    "name": "Notion (OAuth)",
+    "transport": "sse",
+    "enabled": true,
+    "url": "https://mcp.notion.com/mcp",
+    "headers": {},
+    "authType": "oauth",
+    "oauth": {
+      "clientId": "",
+      "clientSecret": "",
+      "authUrl": "https://api.notion.com/v1/oauth/authorize",
+      "tokenUrl": "https://api.notion.com/v1/oauth/token",
+      "scopes": [
+        "read_content",
+        "write_content",
+        "insert_content"
+      ]
+    }
+  }
+]

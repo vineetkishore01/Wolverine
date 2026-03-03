@@ -23,9 +23,9 @@ function intEnv(name: string, fallback: number): number {
 }
 
 const PROMPT_BUDGET_FULL = {
-  totalChars: intEnv('SMALLCLAW_PROMPT_TOTAL_CHARS', 3600),
+  totalChars: intEnv('SMALLCLAW_PROMPT_TOTAL_CHARS', 4800),
   soulChars: 1400,
-  memoryChars: 700,
+  contextEngineerChars: 1200,
   skillsTotalChars: 1400,
   skillEachChars: 900,
   extraChars: 1000,
@@ -59,33 +59,6 @@ export function loadSoul(): string {
   return readFirstExisting(SOUL_PATHS);
 }
 
-export function loadMemory(): string {
-  return readFirstExisting(MEMORY_PATHS);
-}
-
-function loadCuratedMemoryProfile(maxChars = 1400): string {
-  const raw = loadMemory();
-  if (!raw) return '';
-  const lines = raw.split(/\r?\n/);
-  const curated = lines
-    .map(l => l.trim())
-    .filter(l => l.startsWith('- ') && (/\[(rule|profile|preference)\]/i.test(l) || /\[key=profile:/i.test(l) || /\[key=rule:/i.test(l)))
-    .slice(0, 12);
-  if (!curated.length) return '';
-  const text = curated.join('\n');
-  return text.length > maxChars ? text.slice(0, maxChars) : text;
-}
-
-export function updateMemory(newContent: string): void {
-  const target = fs.existsSync(MEMORY_PATHS[0]) ? MEMORY_PATHS[0] : MEMORY_PATHS[1];
-  const dir = path.dirname(target);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-  // Atomic write: write to temp file then rename
-  const tmp = `${target}.tmp-${Date.now()}`;
-  fs.writeFileSync(tmp, newContent, 'utf-8');
-  fs.renameSync(tmp, target);
-}
 
 export interface SkillInfo {
   slug: string;
@@ -141,7 +114,7 @@ export function loadSkills(): SkillInfo[] {
         });
       }
     }
-  } catch {}
+  } catch { }
   return skills;
 }
 
@@ -200,7 +173,7 @@ export function selectSkillSlugsForMessage(message: string, max = 2): string[] {
 export interface BuildSystemPromptOptions {
   includeSkillSlugs?: string[];
   extraInstructions?: string;
-  includeMemory?: boolean;
+  injectedContext?: string; // Context Engineer output
   /** workspace directory to read bootstrap files from */
   workspacePath?: string;
   /**
@@ -246,21 +219,12 @@ export function loadWorkspaceBootstrap(
     { label: 'SOUL.md', filename: 'SOUL.md' },
     { label: 'IDENTITY.md', filename: 'IDENTITY.md' },
     { label: 'USER.md', filename: 'USER.md' },
-    { label: 'MEMORY.md', filename: 'MEMORY.md' },
     { label: 'HEARTBEAT.md', filename: 'HEARTBEAT.md' },
   ];
 
   for (const f of fullFiles) {
     const content = read(f.filename);
     if (content) sections.push({ label: f.label, content: clampText(content, 3000) });
-  }
-
-  // Daily memory file
-  const today = new Date().toISOString().slice(0, 10);
-  const dailyPath = path.join(workspacePath, 'memory', `${today}.md`);
-  if (fs.existsSync(dailyPath)) {
-    const daily = fs.readFileSync(dailyPath, 'utf-8').trim();
-    if (daily) sections.push({ label: `memory/${today}.md`, content: clampText(daily, 2000) });
   }
 
   if (!sections.length) return '';
@@ -276,7 +240,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     ? PROMPT_BUDGET_MINIMAL
     : PROMPT_BUDGET_FULL;
   const soul = loadSoul();
-  const memory = loadMemory();
   const allSkills = loadSkills();
 
   // Skills are opt-in per turn to keep context tight on small models.
@@ -300,19 +263,17 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const soulCapped = clampText(soul, budget.soulChars);
   if (soulCapped) pushPart(soulCapped);
 
-  const includeMemory = options?.includeMemory ?? true;
-  if (includeMemory) {
-    const curated = clampText(loadCuratedMemoryProfile(budget.memoryChars), budget.memoryChars);
-    if (curated && !curated.includes('no facts stored')) {
-      pushPart(`## Curated Profile Memory\n${curated}`);
-    }
-  }
-
   // If a workspacePath is provided, inject workspace bootstrap files.
   if (options?.workspacePath) {
     const mode = options.promptMode ?? 'full';
     const bootstrap = loadWorkspaceBootstrap(options.workspacePath, mode);
     if (bootstrap) pushPart(bootstrap);
+  }
+
+  // Inject Context Engineer Output (highly relevant memories/procedures for this specific turn)
+  if (options?.injectedContext) {
+    const budgetLimit = (budget as any).contextEngineerChars || 1200;
+    pushPart(clampText(options.injectedContext, budgetLimit));
   }
 
   if (skills.length > 0) {

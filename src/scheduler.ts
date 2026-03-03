@@ -3,9 +3,10 @@ import path from 'path';
 import { Cron } from 'croner';
 import { getAgents, ensureAgentWorkspace } from './config/config.js';
 import { spawnAgent } from './agents/spawner.js';
+import { resolveDataPath } from './config/paths.js';
 
 const activeCronJobs: Map<string, Cron> = new Map();
-const historyPath = path.join(process.cwd(), '.smallclaw', 'agents', 'run-history.json');
+const historyPath = resolveDataPath('agents', 'run-history.json');
 const MAX_HISTORY = 300;
 
 export interface AgentRunHistoryEntry {
@@ -44,7 +45,7 @@ function saveRunHistory(entries: AgentRunHistoryEntry[]): void {
   try {
     fs.mkdirSync(path.dirname(historyPath), { recursive: true });
     fs.writeFileSync(historyPath, JSON.stringify(runHistoryCache, null, 2), 'utf-8');
-  } catch {}
+  } catch { }
 }
 
 export function recordAgentRun(entry: Omit<AgentRunHistoryEntry, 'id'>): AgentRunHistoryEntry {

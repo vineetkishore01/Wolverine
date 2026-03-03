@@ -5,6 +5,7 @@ import os from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { getConfig } from '../config/config.js';
+import { PATHS } from '../config/paths.js';
 import { ToolResult } from '../types.js';
 
 const execFileAsync = promisify(execFile);
@@ -48,7 +49,7 @@ function isPathAllowed(targetPath: string): { allowed: boolean; reason?: string 
   }
 
   // Check allowed paths
-  const isInAllowedPath = permissions.allowed_paths.some(allowed => 
+  const isInAllowedPath = permissions.allowed_paths.some(allowed =>
     isPathInside(allowed, absPath)
   );
 
@@ -173,8 +174,7 @@ export interface ReadToolArgs {
 type RetrievalMode = 'fast' | 'standard' | 'deep';
 
 function getLocalConfigFilePath(): string {
-  const projectCfg = path.join(process.cwd(), '.smallclaw', 'config.json');
-  return fsSync.existsSync(projectCfg) ? projectCfg : path.join(os.homedir(), '.smallclaw', 'config.json');
+  return PATHS.config();
 }
 
 function getRetrievalMode(): RetrievalMode {
@@ -365,11 +365,11 @@ export async function executeList(args: ListToolArgs): Promise<ToolResult> {
     }
 
     const entries = await fs.readdir(absPath, { withFileTypes: true });
-    
+
     const files = entries
       .filter(e => e.isFile())
       .map(e => e.name);
-    
+
     const directories = entries
       .filter(e => e.isDirectory())
       .map(e => e.name);
@@ -670,7 +670,7 @@ export async function executeApplyPatch(args: ApplyPatchArgs): Promise<ToolResul
     const details = truncateOutput(String(err?.stderr || err?.stdout || err?.message || err || 'unknown error'));
     return { success: false, error: `apply_patch failed: ${details}` };
   } finally {
-    await fs.unlink(tempPatchPath).catch(() => {});
+    await fs.unlink(tempPatchPath).catch(() => { });
   }
 }
 

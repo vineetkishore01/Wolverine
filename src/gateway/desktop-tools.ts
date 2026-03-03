@@ -12,6 +12,7 @@ import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import crypto from 'crypto';
+import { resolveDataPath } from '../config/paths.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -316,7 +317,7 @@ async function runOcr(imagePath: string): Promise<{ text: string; confidence: nu
     const ocrEnabled = String(process.env.SMALLCLAW_DESKTOP_OCR || '1').trim() !== '0';
     if (!ocrEnabled) return null;
     const timeoutMs = clampInt(process.env.SMALLCLAW_OCR_TIMEOUT_MS, 1000, 120000, 25000);
-    const ocrCacheDir = path.join(process.cwd(), '.smallclaw', 'ocr-cache');
+    const ocrCacheDir = resolveDataPath('ocr-cache');
     fs.mkdirSync(ocrCacheDir, { recursive: true });
     const { stdout } = await execFileAsync(
       process.execPath,
@@ -353,7 +354,7 @@ export async function desktopScreenshot(sessionId: string): Promise<string> {
   ]);
 
   const png = fs.readFileSync(shot.path);
-  try { fs.unlinkSync(shot.path); } catch {}
+  try { fs.unlinkSync(shot.path); } catch { }
 
   const screenshotBase64 = png.toString('base64');
   const capturedAt = Date.now();

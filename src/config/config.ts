@@ -3,6 +3,7 @@ import path from 'path';
 import os from 'os';
 import { AgentDefinition, SmallClawConfig } from '../types.js';
 import { getVault, scrubSecrets } from '../security/vault.js';
+import { PATHS } from './paths.js';
 
 function migrateLegacyDir(legacyDir: string, targetDir: string): void {
   try {
@@ -23,40 +24,34 @@ function migrateLegacyDir(legacyDir: string, targetDir: string): void {
 }
 
 function migrateLegacyData(): void {
-  const projectLegacy = path.join(__dirname, '..', '..', '.localclaw');
-  const projectTarget = path.join(__dirname, '..', '..', '.smallclaw');
-  const homeLegacy = path.join(os.homedir(), '.localclaw');
-  const homeTarget = path.join(os.homedir(), '.smallclaw');
+  const projectLegacy = path.join(__dirname, '..', '..', '.smallclaw');
+  const projectTarget = path.join(__dirname, '..', '..', '.wolverine');
+  const homeLegacy = path.join(os.homedir(), '.smallclaw');
+  const homeTarget = PATHS.dataHome();
 
-  if (process.env.SMALLCLAW_DATA_DIR) {
-    const dataRoot = process.env.SMALLCLAW_DATA_DIR;
-    migrateLegacyDir(path.join(dataRoot, '.localclaw'), path.join(dataRoot, '.smallclaw'));
-    return;
-  }
+  if (process.env.WOLVERINE_HOME) return; // PATHS handles this
 
-  // Prefer project-local migration when this repo has (or previously had)
-  // project-scoped state; otherwise migrate home-scoped state.
-  const hasProjectScopedState = fs.existsSync(projectLegacy) || fs.existsSync(projectTarget);
-  if (hasProjectScopedState) {
+  // Local-to-local migration
+  if (fs.existsSync(projectLegacy) && !fs.existsSync(projectTarget)) {
     migrateLegacyDir(projectLegacy, projectTarget);
-    return;
   }
 
-  migrateLegacyDir(homeLegacy, homeTarget);
+  // Home-to-home migration is also handled by PATHS.migrateLegacyDataHome() in boot.ts, 
+  // but we can keep a check here if needed for early config loading.
 }
 
 migrateLegacyData();
 
 // ── Config & workspace directory resolution ──────────────────────────────────
 // Priority:
-//   1. SMALLCLAW_DATA_DIR env var   (set by Docker / CI)
-//   2. .smallclaw/ next to the project root
-//   3. ~/.smallclaw in the user's home directory
-const PROJECT_CONFIG = path.join(__dirname, '..', '..', '.smallclaw');
-const HOME_CONFIG    = path.join(os.homedir(), '.smallclaw');
+//   1. WOLVERINE_HOME / SMALLCLAW_DATA_DIR env var
+//   2. .wolverine/ next to the project root
+//   3. ~/.wolverine in the user's home directory
+const PROJECT_CONFIG = path.join(__dirname, '..', '..', '.wolverine');
+const HOME_CONFIG = PATHS.dataHome();
 const CONFIG_DIR =
-  process.env.SMALLCLAW_DATA_DIR
-    ? path.join(process.env.SMALLCLAW_DATA_DIR, '.smallclaw')
+  (process.env.WOLVERINE_HOME || process.env.SMALLCLAW_DATA_DIR)
+    ? (process.env.WOLVERINE_HOME || process.env.SMALLCLAW_DATA_DIR) as string
     : fs.existsSync(PROJECT_CONFIG)
       ? PROJECT_CONFIG
       : HOME_CONFIG;
@@ -93,21 +88,21 @@ export const DEFAULT_CONFIG: SmallClawConfig = {
     providers: {
       ollama: {
         endpoint: process.env.OLLAMA_HOST ?? 'http://localhost:11434',
-        model:    'qwen3:4b',
+        model: 'qwen3.5:4b',
       },
       lm_studio: {
         endpoint: process.env.LM_STUDIO_ENDPOINT ?? 'http://localhost:1234',
-        model:    process.env.LM_STUDIO_MODEL    ?? '',
-        api_key:  process.env.LM_STUDIO_API_KEY  ?? undefined,
+        model: process.env.LM_STUDIO_MODEL ?? '',
+        api_key: process.env.LM_STUDIO_API_KEY ?? undefined,
       },
       llama_cpp: {
         endpoint: process.env.LLAMA_CPP_ENDPOINT ?? 'http://localhost:8080',
-        model:    process.env.LLAMA_CPP_MODEL    ?? '',
+        model: process.env.LLAMA_CPP_MODEL ?? '',
       },
       openai: {
         // Supports inline value OR env: reference
         api_key: process.env.OPENAI_API_KEY ? `env:OPENAI_API_KEY` : '',
-        model:   process.env.OPENAI_MODEL   ?? 'gpt-4o',
+        model: process.env.OPENAI_MODEL ?? 'gpt-4o',
       },
       openai_codex: {
         model: process.env.CODEX_MODEL ?? 'gpt-5.3-codex',
@@ -115,11 +110,11 @@ export const DEFAULT_CONFIG: SmallClawConfig = {
     },
   } as any,
   models: {
-    primary: 'qwen3:4b',
+    primary: 'qwen3.5:4b',
     roles: {
-      manager: 'qwen3:4b',
-      executor: 'qwen3:4b',
-      verifier: 'qwen3:4b'
+      manager: 'qwen3.5:4b',
+      executor: 'qwen3.5:4b',
+      verifier: 'qwen3.5:4b'
     }
   },
   tools: {
@@ -161,7 +156,7 @@ export const DEFAULT_CONFIG: SmallClawConfig = {
     workspace_file: 'HEARTBEAT.md'
   },
   workspace: {
-    path: WORKSPACE_DIR
+    path: WORKSPACE_DIR || ''
   },
   agents: [] as AgentDefinition[],
   session: {
@@ -276,17 +271,17 @@ function normalizeLegacyPathsInConfig(loaded: any): any {
 // On saveConfig(), any of these found as plain strings are moved to the vault
 // and replaced with a "vault:<key>" reference.
 const SECRET_FIELD_MAP: Array<[string[], string]> = [
-  [['gateway', 'auth', 'token'],                  'gateway.auth_token'],
-  [['channels', 'telegram', 'botToken'],          'channels.telegram.botToken'],
-  [['channels', 'discord', 'botToken'],           'channels.discord.botToken'],
-  [['channels', 'whatsapp', 'accessToken'],       'channels.whatsapp.accessToken'],
-  [['channels', 'whatsapp', 'webhookSecret'],     'channels.whatsapp.webhookSecret'],
-  [['search', 'tavily_api_key'],                  'search.tavily_api_key'],
-  [['search', 'google_api_key'],                  'search.google_api_key'],
-  [['search', 'brave_api_key'],                   'search.brave_api_key'],
-  [['llm', 'providers', 'openai', 'api_key'],     'llm.openai.api_key'],
-  [['llm', 'providers', 'lm_studio', 'api_key'],  'llm.lm_studio.api_key'],
-  [['hooks', 'token'],                             'hooks.token'],
+  [['gateway', 'auth', 'token'], 'gateway.auth_token'],
+  [['channels', 'telegram', 'botToken'], 'channels.telegram.botToken'],
+  [['channels', 'discord', 'botToken'], 'channels.discord.botToken'],
+  [['channels', 'whatsapp', 'accessToken'], 'channels.whatsapp.accessToken'],
+  [['channels', 'whatsapp', 'webhookSecret'], 'channels.whatsapp.webhookSecret'],
+  [['search', 'tavily_api_key'], 'search.tavily_api_key'],
+  [['search', 'google_api_key'], 'search.google_api_key'],
+  [['search', 'brave_api_key'], 'search.brave_api_key'],
+  [['llm', 'providers', 'openai', 'api_key'], 'llm.openai.api_key'],
+  [['llm', 'providers', 'lm_studio', 'api_key'], 'llm.lm_studio.api_key'],
+  [['hooks', 'token'], 'hooks.token'],
 ];
 
 function deepGet(obj: any, keys: string[]): string | undefined {
@@ -349,13 +344,13 @@ export class ConfigManager {
         // providers not present in config.json are preserved.
         const mergedLlm = loaded.llm
           ? {
-              ...DEFAULT_CONFIG.llm,
-              ...loaded.llm,
-              providers: {
-                ...(DEFAULT_CONFIG.llm as any)?.providers,
-                ...loaded.llm.providers,
-              },
-            }
+            ...DEFAULT_CONFIG.llm,
+            ...loaded.llm,
+            providers: {
+              ...(DEFAULT_CONFIG.llm as any)?.providers,
+              ...loaded.llm.providers,
+            },
+          }
           : DEFAULT_CONFIG.llm;
 
         const mergedChannels = {
@@ -393,7 +388,7 @@ export class ConfigManager {
 
   public saveConfig(): void {
     try {
-      if (!fs.existsSync(CONFIG_DIR)) {
+      if (CONFIG_DIR && !fs.existsSync(CONFIG_DIR)) {
         fs.mkdirSync(CONFIG_DIR, { recursive: true });
       }
       // Before writing, migrate any plaintext secrets to the vault
@@ -432,7 +427,7 @@ export class ConfigManager {
     ];
 
     for (const dir of dirs) {
-      if (!fs.existsSync(dir)) {
+      if (dir && !fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
     }
@@ -544,7 +539,7 @@ export function ensureAgentWorkspace(agent: AgentDefinition): string {
         '## Example Tasks',
         '- Check for new trends in [topic] and write a brief to workspace/reports/',
         '- Post a draft to workspace/drafts/ for human review',
-        '- Update MEMORY.md with anything new learned',
+        '- Use memory_write to save anything new learned',
         '',
         '## Rules',
         '- Always write outputs to files, never just respond in chat',

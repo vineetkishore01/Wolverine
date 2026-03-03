@@ -2,6 +2,7 @@ import { ToolResult } from '../types.js';
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
+import { PATHS } from '../config/paths.js';
 
 type SearchResultItem = { title: string; url: string; snippet: string };
 type StructuredSource = { id: number; tier: 'A' | 'B' | 'C'; title: string; url: string; snippet: string; score: number };
@@ -462,8 +463,7 @@ function getSearchConfig(): {
   braveKey?: string;
 } {
   try {
-    const projectCfg = path.join(process.cwd(), '.smallclaw', 'config.json');
-    const cfg = fs.existsSync(projectCfg) ? projectCfg : path.join(os.homedir(), '.smallclaw', 'config.json');
+    const cfg = PATHS.config();
     if (fs.existsSync(cfg)) {
       const data = JSON.parse(fs.readFileSync(cfg, 'utf-8'));
       const preferredRaw = String(data.search?.preferred_provider || 'tavily').toLowerCase();
@@ -476,7 +476,7 @@ function getSearchConfig(): {
         braveKey: data.search?.brave_api_key,
       };
     }
-  } catch {}
+  } catch { }
   return { preferred: 'tavily' };
 }
 // ── Google Custom Search API ─────────────────────────────────────────────---
@@ -856,7 +856,7 @@ export async function executeWebFetch(args: { url: string; max_chars?: number })
 
 export const webSearchTool = {
   name: 'web_search',
-  description: 'Search the web. Uses Tavily or Brave API if configured in ~/.smallclaw/config.json (search.tavily_api_key / search.brave_api_key), otherwise falls back to DuckDuckGo (no key needed).',
+  description: 'Search the web. Uses Tavily or Brave API if configured in ~/.wolverine/config.json (search.tavily_api_key / search.brave_api_key), otherwise falls back to DuckDuckGo (no key needed).',
   execute: executeWebSearch,
   schema: {
     query: 'string (required) - Search query',

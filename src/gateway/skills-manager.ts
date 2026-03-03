@@ -1,11 +1,12 @@
 /**
- * skills-manager.ts - Skills System for SmallClaw
- * 
- * Reads SKILL.md files from .smallclaw/skills/<name>/SKILL.md
- * Parses YAML frontmatter + markdown instructions
+ * skills-manager.ts
+ *
+ * Handles discovery and metadata extraction for skills (local or remote).
+ * Reads SKILL.md files from .wolverine/skills/<name>/SKILL.md
+ * and presents them as tool definitions to the LLM.
  * Tracks enabled/disabled state in config
  * Injects enabled skills into system prompt
- * 
+ *
  * Compatible with OpenClaw SKILL.md format.
  */
 

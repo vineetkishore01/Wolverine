@@ -39,7 +39,7 @@ export async function executeSelfUpdate(): Promise<ToolResult> {
     const statusDir = path.join(require('os').homedir(), '.smallclaw');
     if (!fs.existsSync(statusDir)) fs.mkdirSync(statusDir, { recursive: true });
     // Don't write yet — self-update.bat will write the final status itself
-  } catch {}
+  } catch { }
 
   try {
     // Spawn detached so this process can exit cleanly while update runs
@@ -54,7 +54,7 @@ export async function executeSelfUpdate(): Promise<ToolResult> {
     return {
       success: true,
       stdout: [
-        '🦞 Self-update initiated!',
+        '🐺 Self-update initiated!',
         '',
         'SmallClaw is now:',
         '  1. Pulling the latest code',

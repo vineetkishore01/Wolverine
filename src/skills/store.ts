@@ -1,6 +1,6 @@
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
+import { PATHS, resolveDataPath } from '../config/paths.js';
 
 function safeReadDirs(dir: string): string[] {
   try {
@@ -49,11 +49,9 @@ function copyLegacySkillsIfNeeded(projectRoot: string, legacyRoot: string): void
 }
 
 export function resolveSkillsRoot(): string {
-  const projectRoot = path.join(process.cwd(), '.smallclaw', 'skills');
-  const legacyRoot = path.join(os.homedir(), '.smallclaw', 'skills');
-  fs.mkdirSync(projectRoot, { recursive: true });
-  copyLegacySkillsIfNeeded(projectRoot, legacyRoot);
-  return projectRoot;
+  const skillsDir = PATHS.skills();
+  fs.mkdirSync(skillsDir, { recursive: true });
+  return skillsDir;
 }
 
 export function resolveSkillDir(skillId: string): string {
@@ -61,7 +59,7 @@ export function resolveSkillDir(skillId: string): string {
 }
 
 export function resolveSkillLockFile(): string {
-  return path.join(process.cwd(), '.smallclaw', '.clawhub', 'lock.json');
+  return resolveDataPath('.clawhub', 'lock.json');
 }
 
 export function ensureSkillsRoot(): string {

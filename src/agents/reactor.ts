@@ -239,7 +239,7 @@ export async function runNodeCallSandbox(
     },
   };
 
-  
+
   // ── Injected helper functions for simpler model code ──
   // Instead of model writing 10 lines of fs/path code,
   // it can write: return readFile('index.html') or writeFile('index.html', newContent)
@@ -374,7 +374,6 @@ function buildNodeCallSystemPrompt(
     : selectSkillSlugsForMessage(userMessage, 2);
   const soul = buildSystemPrompt({
     includeSkillSlugs: selectedSkillSlugs,
-    includeMemory: options.promptMode !== 'minimal',
     extraInstructions: options.extraInstructions,
     workspacePath: workspacePath,
     promptMode: options.promptMode ?? 'full',
@@ -474,7 +473,6 @@ function buildNativeToolSystemPrompt(
   const today = new Date().toISOString().slice(0, 10);
   const soul = buildSystemPrompt({
     includeSkillSlugs: Array.isArray(options.skillSlugs) ? options.skillSlugs : [],
-    includeMemory: false,
     extraInstructions: String(options.extraInstructions || '').trim() || undefined,
   });
   const toolInstructions = `

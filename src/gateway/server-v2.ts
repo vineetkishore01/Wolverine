@@ -4,7 +4,7 @@
  * Wolverine - Local-first AI agent framework built for small models.
  * 
  * Architecture: Native Ollama Tool Calling
- * Memory: Reads SOUL.md, IDENTITY.md, USER.md, MEMORY.md from workspace
+ * Memory: Brain Database (SQLite) + SOUL.md, IDENTITY.md, USER.md from workspace
  * Search: Tavily / Google Custom Search API / Brave / DuckDuckGo
  * Logging: Daily session logs in memory/
  */
@@ -32,6 +32,7 @@ import { loadWorkspaceHooks } from './hook-loader';
 import { runBootMd } from './boot';
 import { TaskRunner, runTask, TaskTool, TaskState } from './task-runner';
 import { SkillsManager } from './skills-manager';
+import { buildContextForMessage } from './context-engineer';
 import {
   browserOpen,
   browserSnapshot,
@@ -94,6 +95,8 @@ import {
   type TaskSnapshot as HeartbeatTaskSnapshot,
 } from '../orchestration/multi-agent';
 import { executeReadDocument } from '../tools/documents';
+import { executeMemoryWrite, executeMemorySearch } from '../tools/memory';
+import { executeProcedureSave, executeProcedureList, executeProcedureGet } from '../tools/procedures';
 import { skillConnectorTool, executeSkillConnector } from '../skills/connector-tool';
 import { getSkillConnectorManager } from '../skills/connector';
 import {
@@ -749,12 +752,11 @@ function readDailyMemoryContext(workspacePath: string, maxTokens: number = 800):
   }
 }
 
-async function buildPersonalityContext(sessionId: string, workspacePath: string): Promise<string> {
+async function buildPersonalityContext(sessionId: string, workspacePath: string, injectedContext?: string): Promise<string> {
   const identity = loadWorkspaceFile(workspacePath, 'IDENTITY.md', 200);
   const dailyMemory = readDailyMemoryContext(workspacePath, 800);
   const soul = loadWorkspaceFile(workspacePath, 'SOUL.md', 500);
   const user = loadWorkspaceFile(workspacePath, 'USER.md', 300);
-  const memory = loadWorkspaceFile(workspacePath, 'MEMORY.md', 600);
   const self = loadWorkspaceFile(workspacePath, 'SELF.md', 600);
 
   const bootstrapFiles = [
@@ -762,9 +764,12 @@ async function buildPersonalityContext(sessionId: string, workspacePath: string)
     { path: path.join(workspacePath, 'memory', '_recent.md'), content: dailyMemory.trim(), label: 'RECENT_MEMORY' },
     { path: path.join(workspacePath, 'SOUL.md'), content: soul, label: 'SOUL' },
     { path: path.join(workspacePath, 'USER.md'), content: user, label: 'USER' },
-    { path: path.join(workspacePath, 'MEMORY.md'), content: memory, label: 'MEMORY' },
     { path: path.join(workspacePath, 'SELF.md'), content: self, label: 'SELF' },
   ];
+
+  if (injectedContext) {
+    bootstrapFiles.push({ path: 'CONTEXT_ENGINEER', content: injectedContext, label: 'CONTEXT_ENGINEER' });
+  }
 
   await hookBus.fire({
     type: 'agent:bootstrap',
@@ -776,7 +781,7 @@ async function buildPersonalityContext(sessionId: string, workspacePath: string)
 
   const parts: string[] = [];
   for (const file of bootstrapFiles) {
-    const content = String(file?.content || '').trim();
+    const content = String(file?.content || '').trim().replace(/🦞/g, '🐺');
     if (!content) continue;
     const label = String(file?.label || '').trim().toUpperCase() || 'BOOTSTRAP';
     parts.push(`[${label}]\n${content}`);
@@ -1022,6 +1027,81 @@ function buildTools() {
             model_override: { type: 'string', description: 'Optional model override for this scheduled job' },
             confirm: { type: 'boolean', description: 'Must be true for create/update/delete actions' },
             limit: { type: 'number', description: 'Optional max jobs returned for list' },
+          },
+        },
+      },
+    },
+    {
+      type: 'function' as const,
+      function: {
+        name: 'memory_write',
+        description: 'Persist a fact, preference, or rule to your SQLite brain. Use for long-term learning.',
+        parameters: {
+          type: 'object',
+          required: ['fact'],
+          properties: {
+            fact: { type: 'string', description: 'The fact to remember' },
+            category: { type: 'string', description: 'preference, rule, fact, experience, skill_learned' },
+          },
+        },
+      },
+    },
+    {
+      type: 'function' as const,
+      function: {
+        name: 'memory_search',
+        description: 'Search your brain for past facts or preferences.',
+        parameters: {
+          type: 'object',
+          required: ['query'],
+          properties: {
+            query: { type: 'string', description: 'what to look for' },
+          },
+        },
+      },
+    },
+    {
+      type: 'function' as const,
+      function: {
+        name: 'procedure_save',
+        description: 'Save a learned multi-step workflow that can be reused later.',
+        parameters: {
+          type: 'object',
+          required: ['name', 'trigger_keywords', 'steps'],
+          properties: {
+            name: { type: 'string', description: 'unique name for the procedure' },
+            description: { type: 'string', description: 'what this procedure does' },
+            trigger_keywords: { type: 'string', description: 'comma-separated keywords to trigger/find this' },
+            steps: {
+              type: 'array',
+              items: { type: 'object', properties: { order: { type: 'number' }, tool: { type: 'string' }, args_template: { type: 'object' }, description: { type: 'string' } } },
+              description: 'list of objects with {order, tool, args_template, description}'
+            },
+          },
+        },
+      },
+    },
+    {
+      type: 'function' as const,
+      function: {
+        name: 'procedure_list',
+        description: 'List all saved procedures',
+        parameters: {
+          type: 'object',
+          properties: {},
+        },
+      },
+    },
+    {
+      type: 'function' as const,
+      function: {
+        name: 'procedure_get',
+        description: 'Get details and steps of a specific procedure',
+        parameters: {
+          type: 'object',
+          required: ['name'],
+          properties: {
+            name: { type: 'string', description: 'name of the procedure' },
           },
         },
       },
@@ -1530,6 +1610,31 @@ async function executeTool(name: string, args: any, workspacePath: string, sessi
         const filename = String(args.filename || args.name || args.path || '');
         const result = await executeReadDocument({ path: filename });
         return { name, args, result: result.stdout || result.error || '', error: !result.success };
+      }
+
+      case 'memory_write': {
+        const res = await executeMemoryWrite(args as any);
+        return { name, args, result: res.stdout || res.error || '', error: !res.success };
+      }
+
+      case 'memory_search': {
+        const res = await executeMemorySearch(args as any);
+        return { name, args, result: res.stdout || res.error || '', error: !res.success };
+      }
+
+      case 'procedure_save': {
+        const res = await executeProcedureSave(args as any);
+        return { name, args, result: res.stdout || res.error || '', error: !res.success };
+      }
+
+      case 'procedure_list': {
+        const res = await executeProcedureList(args as any);
+        return { name, args, result: res.stdout || res.error || '', error: !res.success };
+      }
+
+      case 'procedure_get': {
+        const res = await executeProcedureGet(args as any);
+        return { name, args, result: res.stdout || res.error || '', error: !res.success };
       }
 
       case 'skill_connector': {
@@ -2818,7 +2923,14 @@ async function handleChat(
     }
   }
 
-  const personalityCtx = await buildPersonalityContext(sessionId, workspacePath);
+  // Run the Context Engineer to dynamically fetch relevant facts/procedures
+  const contextPackage = buildContextForMessage(message, sessionId);
+  const injectedContext = [
+    contextPackage.relevantMemories,
+    contextPackage.matchedProcedure,
+  ].filter(Boolean).join('\n\n');
+
+  const personalityCtx = await buildPersonalityContext(sessionId, workspacePath, injectedContext);
 
   // Inject active browser session state so LLM knows to reuse it instead of re-opening
   const browserInfo = getBrowserSessionInfo(sessionId);
@@ -7726,7 +7838,7 @@ server.listen(PORT, HOST, () => {
 ║  Tasks:   Cron scheduler active, jobs at .wolverine/cron/     ║
 ║  Skills: ${String(skillsManager.getAll().length + ' loaded, ' + skillsManager.getEnabledSkills().length + ' enabled').padEnd(49)}║
 ║  Search:  ${hasSearch.padEnd(49)}║
-║  Memory:  SOUL.md + IDENTITY.md + USER.md + MEMORY.md         ║
+║  Memory:  Brain Database (SQLite) + SOUL.md + IDENTITY.md      ║
 ║                                                               ║
 ║  Web UI:    http://${HOST}:${PORT}                            ║
 ║  Model:     ${liveConfig.models.primary.padEnd(45)}║

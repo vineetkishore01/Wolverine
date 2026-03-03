@@ -524,7 +524,7 @@ export class TelegramChannel {
     // Check allowlist
     if (this.config.allowedUserIds.length > 0 && !this.config.allowedUserIds.includes(userId)) {
       console.log(`[Telegram] Rejected message from unauthorized user ${userId}`);
-      await this.sendMessage(chatId, '🦞 Unauthorized. Your Telegram user ID is not in the allowlist.\n\nYour ID: <code>' + userId + '</code>');
+      await this.sendMessage(chatId, '🐺 Unauthorized. Your Telegram user ID is not in the allowlist.\n\nYour ID: <code>' + userId + '</code>');
       return;
     }
 
@@ -571,12 +571,12 @@ export class TelegramChannel {
 
     // ── Built-in commands ──────────────────────────────────────────────────────
     if (text === '/start') {
-      await this.sendMessage(chatId, `🦞 <b>SmallClaw connected!</b>\n\nYour Telegram user ID: <code>${userId}</code>\n\nJust send me a message and I'll respond using your local LLM.\n\n<b>Commands:</b>\n/status — check connection\n/clear — reset chat history\n/browse — browse workspace files\n/download &lt;path&gt; — download a file\n\n<b>Self-Repair:</b>\n/repairs — list pending repair proposals\n/repair &lt;id&gt; — show full details of a repair\n/approve &lt;id&gt; — apply a repair, rebuild &amp; restart\n/reject &lt;id&gt; — discard a repair`);
+      await this.sendMessage(chatId, `🐺 <b>SmallClaw connected!</b>\n\nYour Telegram user ID: <code>${userId}</code>\n\nJust send me a message and I'll respond using your local LLM.\n\n<b>Commands:</b>\n/status — check connection\n/clear — reset chat history\n/browse — browse workspace files\n/download &lt;path&gt; — download a file\n\n<b>Self-Repair:</b>\n/repairs — list pending repair proposals\n/repair &lt;id&gt; — show full details of a repair\n/approve &lt;id&gt; — apply a repair, rebuild &amp; restart\n/reject &lt;id&gt; — discard a repair`);
       return;
     }
     if (text === '/status') {
       const busy = this.deps.getIsModelBusy();
-      await this.sendMessage(chatId, `🦞 <b>Status</b>\n\nModel: ${busy ? '🔄 Busy' : '✅ Ready'}\nBot: @${this.botInfo?.username || 'unknown'}\nYour ID: <code>${userId}</code>`);
+      await this.sendMessage(chatId, `🐺 <b>Status</b>\n\nModel: ${busy ? '🔄 Busy' : '✅ Ready'}\nBot: @${this.botInfo?.username || 'unknown'}\nYour ID: <code>${userId}</code>`);
       return;
     }
     if (text === '/clear') {
@@ -584,7 +584,7 @@ export class TelegramChannel {
         const { clearHistory } = await import('./session');
         clearHistory(`telegram_${userId}`);
       } catch { }
-      await this.sendMessage(chatId, '🦞 Chat history cleared.');
+      await this.sendMessage(chatId, '🐺 Chat history cleared.');
       return;
     }
 
@@ -592,13 +592,13 @@ export class TelegramChannel {
     if (text === '/repairs') {
       const pending = listPendingRepairs();
       if (pending.length === 0) {
-        await this.sendMessage(chatId, '🦞 No pending repairs.');
+        await this.sendMessage(chatId, '🐺 No pending repairs.');
         return;
       }
       const lines = pending.map(r =>
         `🔧 <b>#${r.id}</b> — <code>${r.affectedFile}</code>\n   ${r.errorSummary.slice(0, 80)}`
       );
-      await this.sendMessage(chatId, `🦞 <b>Pending Repairs (${pending.length})</b>\n\n${lines.join('\n\n')}\n\nUse /approve &lt;id&gt; or /reject &lt;id&gt;`);
+      await this.sendMessage(chatId, `🐺 <b>Pending Repairs (${pending.length})</b>\n\n${lines.join('\n\n')}\n\nUse /approve &lt;id&gt; or /reject &lt;id&gt;`);
       return;
     }
 
@@ -668,7 +668,7 @@ export class TelegramChannel {
 
     // Check if model is busy
     if (this.deps.getIsModelBusy()) {
-      await this.sendMessage(chatId, '🦞 I\'m currently busy with another task. Try again in a moment.');
+      await this.sendMessage(chatId, '🐺 I\'m currently busy with another task. Try again in a moment.');
       return;
     }
 
@@ -711,7 +711,7 @@ export class TelegramChannel {
       console.log(`[Telegram] Replied to ${userName}: ${responseText.slice(0, 80)}`);
     } catch (err: any) {
       console.error(`[Telegram] handleChat error:`, err.message);
-      await this.sendMessage(chatId, `🦞 Error: ${err.message}`);
+      await this.sendMessage(chatId, `🐺 Error: ${err.message}`);
     }
   }
 
