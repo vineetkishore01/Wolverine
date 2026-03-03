@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/SmallClaw.png" alt="SmallClaw logo" width="220" />
+  <img src="screenshots/SmallClaw.png" alt="SmallClaw logo" width="220" />
 </p>
 
 <h1 align="center">SmallClaw 🦞</h1>
@@ -33,7 +33,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/SmallClawDashboard.png" alt="SmallClaw UI" width="900" />
+  <img src="screenshots/SmallClawDashboard.png" alt="SmallClaw UI" width="900" />
 </p>
 
 # SmallClaw v1.0.4
@@ -45,8 +45,8 @@
 ---
 
 > Image setup: put the two images in `assets/`:
-> - `assets/SmallClaw.png`
-> - `assets/SmallClawDashboard.png`
+> - `screenshots/SmallClaw.png`
+> - `screenshots/SmallClawDashboard.png`
 
 ## What is SmallClaw?
 

@@ -13,6 +13,7 @@ import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import { z } from 'zod';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
   getConfig,
@@ -5527,9 +5528,25 @@ app.get('/api/status', async (_req, res) => {
   });
 });
 
+const chatRateLimits = new Map<string, { count: number, resetTime: number }>();
+
 app.post('/api/chat', async (req, res) => {
   const { message, sessionId = 'default', pinnedMessages } = req.body;
   if (!message || typeof message !== 'string') { res.status(400).json({ error: 'Message required' }); return; }
+
+  const now = Date.now();
+  const limitState = chatRateLimits.get(sessionId) || { count: 0, resetTime: now + 60000 };
+  if (now > limitState.resetTime) {
+    limitState.count = 0;
+    limitState.resetTime = now + 60000;
+  }
+  limitState.count++;
+  chatRateLimits.set(sessionId, limitState);
+
+  if (limitState.count > 30) {
+    res.status(429).json({ error: 'Too Many Requests - Rate limit exceeded' });
+    return;
+  }
   lastMainSessionId = String(sessionId || 'default');
 
   res.setHeader('Content-Type', 'text/event-stream');
@@ -7238,9 +7255,19 @@ app.get('/api/settings/provider', (_req, res) => {
 });
 
 // POST /api/settings/provider  — update provider config
+const providerSettingsSchema = z.object({
+  provider: z.string().min(1),
+  providers: z.record(z.any()).optional()
+}).passthrough();
+
 app.post('/api/settings/provider', (req, res) => {
   try {
-    const llm = sanitizeLLMConfig(req.body?.llm);
+    const parsed = providerSettingsSchema.safeParse(req.body?.llm);
+    if (!parsed.success) {
+      res.status(400).json({ success: false, error: 'Invalid config schema' });
+      return;
+    }
+    const llm = sanitizeLLMConfig(parsed.data);
     if (!llm?.provider) { res.status(400).json({ success: false, error: 'Missing llm.provider' }); return; }
     const configManager = getConfig();
     configManager.updateConfig({ llm } as any);
