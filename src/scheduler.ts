@@ -2,7 +2,6 @@ import fs from 'fs';
 import path from 'path';
 import { Cron } from 'croner';
 import { getAgents, ensureAgentWorkspace } from './config/config.js';
-import { spawnAgent } from './agents/spawner.js';
 import { resolveDataPath } from './config/paths.js';
 
 const activeCronJobs: Map<string, Cron> = new Map();
@@ -116,6 +115,8 @@ export function initializeAgentSchedules(): void {
         heartbeatContent,
       ].join('\n');
 
+      console.warn(`[Scheduler] Cron triggered for ${agent.id}, but spawnAgent is deprecated.`);
+      /*
       const result = await spawnAgent({
         agentId: agent.id,
         task,
@@ -141,6 +142,7 @@ export function initializeAgentSchedules(): void {
       } else {
         console.error(`[Scheduler] Agent "${agent.id}" failed: ${result.error}`);
       }
+      */
     });
 
     activeCronJobs.set(agent.id, job);

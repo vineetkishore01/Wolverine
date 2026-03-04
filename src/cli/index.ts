@@ -89,12 +89,12 @@ function readPackageMeta(rootDir: string): { name: string; version: string } {
     const raw = fs.readFileSync(pkgPath, 'utf-8');
     const pkg = JSON.parse(raw) as any;
     return {
-      name: String(pkg?.name || process.env.SMALLCLAW_NPM_PACKAGE || 'smallclaw'),
+      name: String(pkg?.name || process.env.WOLVERINE_NPM_PACKAGE || 'wolverine'),
       version: String(pkg?.version || '0.0.0'),
     };
   } catch {
     return {
-      name: String(process.env.SMALLCLAW_NPM_PACKAGE || 'smallclaw'),
+      name: String(process.env.WOLVERINE_NPM_PACKAGE || 'wolverine'),
       version: '0.0.0',
     };
   }
@@ -210,9 +210,9 @@ function checkNpmUpdate(ctx: UpdateContext): UpdateCheckResult {
   const candidates = Array.from(
     new Set(
       [
-        process.env.SMALLCLAW_NPM_PACKAGE,
+        process.env.WOLVERINE_NPM_PACKAGE,
         ctx.packageName,
-        'smallclaw',
+        'wolverine',
       ].filter(Boolean).map(v => String(v)),
     ),
   );
@@ -348,7 +348,7 @@ function applyNpmUpdate(ctx: UpdateContext, check: UpdateCheckResult): boolean {
 }
 
 function maybeNotifyUpdate(): void {
-  if (process.env.SMALLCLAW_DISABLE_UPDATE_CHECK === '1') return;
+  if (process.env.WOLVERINE_DISABLE_UPDATE_CHECK === '1') return;
   const ctx = resolveUpdateContext();
   const cache = readUpdateCache();
   const isFresh = cache
@@ -396,7 +396,7 @@ gateway
   .command('start')
   .description('Start the gateway + web UI server')
   .action(async () => {
-    console.log('SmallClaw Gateway starting...\n');
+    console.log('Wolverine Gateway starting...\n');
     maybeNotifyUpdate();
     try {
       const res = await fetch('http://127.0.0.1:18789/api/status', {
@@ -424,7 +424,7 @@ gateway
       console.log('Gateway: Online');
       console.log(`Model:   ${data.currentModel || 'unknown'}`);
     } catch {
-      console.log('Gateway: Offline (run: smallclaw gateway start)');
+      console.log('Gateway: Offline (run: wolverine gateway start)');
     }
   });
 
@@ -434,11 +434,11 @@ program
   .description('Run a mission via the gateway (starts gateway if needed)')
   .option('-p, --priority <number>', 'Job priority', '0')
   .action(async (mission: string) => {
-    console.log('SmallClaw Agent');
+    console.log('Wolverine Agent');
     console.log(`Mission: ${mission}\n`);
     console.log('The CLI agent command now routes through the gateway.');
     console.log('Start the gateway and send your mission via the web UI or Telegram.');
-    console.log('\n  smallclaw gateway start');
+    console.log('\n  wolverine gateway start');
     console.log('  http://localhost:18789');
   });
 
@@ -494,7 +494,7 @@ model.command('set <n>').action((name: string) => {
 
 // ---- DOCTOR ----
 program.command('doctor').action(async () => {
-  console.log('SmallClaw Health Check\n');
+  console.log('Wolverine Health Check\n');
   const cfg = getConfig().getConfig() as any;
   const provider = cfg.llm?.provider || 'ollama';
   console.log(`Provider:  ${provider}`);
@@ -513,7 +513,7 @@ program.command('doctor').action(async () => {
     await fetch('http://localhost:18789/api/status');
     console.log(`Gateway:   Online -> http://localhost:18789`);
   } catch {
-    console.log(`Gateway:   Offline (run: smallclaw gateway start)`);
+    console.log(`Gateway:   Offline (run: wolverine gateway start)`);
   }
 });
 
@@ -541,7 +541,7 @@ program
     }
 
     if (!check.available) {
-      console.log('[update] SmallClaw is already up to date.');
+      console.log('[update] Wolverine is already up to date.');
       return;
     }
 
@@ -568,7 +568,7 @@ program
     }
 
     console.log('[update] Update complete.');
-    console.log('[update] Restart any running SmallClaw gateway process.');
+    console.log('[update] Restart any running Wolverine gateway process.');
   });
 
 program.parse();

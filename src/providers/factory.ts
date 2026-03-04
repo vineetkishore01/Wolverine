@@ -41,7 +41,7 @@ function getProviderConfig(): { active: ProviderID; providers: any } {
     providers: {
       ollama: {
         endpoint: raw.ollama?.endpoint || 'http://localhost:11434',
-        model: raw.models?.primary || 'qwen3:4b',
+        model: raw.models?.primary || 'qwen3.5:4b',
       },
     },
   };
@@ -180,7 +180,7 @@ export function getModelForRole(role: 'manager' | 'executor' | 'verifier'): stri
   if (active === 'openai') return DEFAULT_OPENAI_MODEL;
 
   // Legacy
-  return raw.models?.roles?.[role] || raw.models?.primary || 'qwen3:4b';
+  return raw.models?.roles?.[role] || raw.models?.primary || 'qwen3.5:4b';
 }
 
 export function getPrimaryModel(): string {

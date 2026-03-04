@@ -525,14 +525,21 @@ COLLECTION MINIMUMS — enforce these strictly:
 - Only route answer_now when total_collected >= MIN_FEED_ITEMS AND the evidence clearly answers the goal
 - If unsure whether you have enough: default to collect_more, not answer_now
 
+MEMORY & PROGRESS (critical for multi-step tasks):
+- You will receive a SCRATCHPAD (Memory) section. This contains findings from previous pages or actions.
+- Use it to cross-ref current findings. Do NOT repeat research already in the scratchpad.
+- If the GOAL is a multi-part question, only route answer_now if BOTH the current page AND the SCRATCHPAD together satisfy the entire goal.
+- If you have partial information, route continue_browser with a hint to use scratchpad_write to save current progress before moving to the next source.
+
 NON-FEED PAGES (critical):
 - For page types other than x_feed/search_results, do NOT enforce MIN_FEED_ITEMS.
 - On generic/app pages (example: chatgpt.com composer), NEVER route collect_more just to chase feed items.
-- You will receive a PAGE SNAPSHOT section with all interactive elements listed as [@ref] role "name" [INPUT].
-- Read the snapshot carefully. Identify the correct @ref number for the element to click or fill.
-- Set next_tool.params to use the exact @ref number: {"ref": 4} for browser_click, or {"ref": 12, "text": ".."} for browser_fill.
-- NEVER invent CSS selectors or href values. ONLY use @ref numbers from the snapshot.
-- If the snapshot already shows actionable controls, route continue_browser with a concrete @ref-based next step.
+  - You will receive a PAGE SNAPSHOT section with all interactive elements listed as [N] role "name" [INPUT].
+- Read the snapshot carefully. Identify the correct reference number [N] for the element to click or fill.
+- Set next_tool.params to use the exact reference number: {"ref": 4} for browser_click, or {"ref": 12, "text": ".."} for browser_fill.
+- NEVER invent CSS selectors or href values. ONLY use reference numbers [N] from the snapshot.
+- If the snapshot already shows actionable controls, route continue_browser with a concrete ref-based next step.
+- IF ON GOOGLE or other search engines: DO NOT use browser_fill or browser_press_key to type queries. They often fail. INSTEAD, use browser_open with the exact search URL (e.g. {"url": "https://google.com/search?q=your+search+query"}).
 
 SCROLL BEHAVIOR for collect_more:
 - X/Twitter uses virtual DOM scrolling — old tweets are REMOVED from DOM as you scroll
@@ -562,7 +569,7 @@ Rules:
 
 const DESKTOP_ADVISOR_SYSTEM = `You are a desktop automation advisor for a local executor AI.
 
-You receive desktop context from a Windows machine (active window + open window titles + OCR text + screenshot metadata).
+You receive desktop context from a computer (macOS or Windows) including active window, open window titles, OCR text, and screenshot metadata.
 When the screenshot image is attached, use it directly — you can see UI elements, progress bars, status indicators,
 and colour-coded states that OCR may miss. Prioritise what you see in the image over OCR text when they conflict.
 The primary executor (a small 4B local model) controls tools directly and must follow your next step exactly.
@@ -742,6 +749,7 @@ export interface BrowserAdvisorInput {
   }>;
   textBlocks?: string[];
   snapshot?: string;
+  scratchpad?: string;
   scrollState?: {
     batch?: number;
     total_collected?: number;
@@ -1703,6 +1711,10 @@ export async function callSecondaryBrowserAdvisor(
     ? `\nPAGE SNAPSHOT (all interactive elements — use @ref numbers for browser_click/browser_fill):\n${input.snapshot.trim().slice(0, 6000)}`
     : '';
 
+  const scratchpadSection = input.scratchpad && input.scratchpad.trim().length > 0
+    ? `\nSCRATCHPAD (Memory):\n${input.scratchpad.trim().slice(0, 4000)}`
+    : '\nSCRATCHPAD (Memory): (empty)';
+
   const prompt = `GOAL:
 ${String(input.goal || '').slice(0, 900)}
 
@@ -1718,7 +1730,7 @@ total_collected=${totalCollected}
 dedupe_count=${Number(input.scrollState?.dedupe_count || 0)}
 MIN_FEED_ITEMS=${minItems}
 
-${collectionStatus}${snapshotSection}
+${collectionStatus}${snapshotSection}${scratchpadSection}
 
 EXTRACTED FEED:
 ${evidenceBody || '(none)'}

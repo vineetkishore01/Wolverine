@@ -1,5 +1,5 @@
 /**
- * security/index.ts — SmallClaw Security Module
+ * security/index.ts — Wolverine Security Module
  *
  * Barrel export for all security primitives.
  * Import from here rather than individual files.

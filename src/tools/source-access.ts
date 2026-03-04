@@ -1,5 +1,5 @@
 /**
- * source-access.ts — Read-Only Access to SmallClaw Source Code
+ * source-access.ts — Read-Only Access to Wolverine Source Code
  *
  * Gives the AI the ability to read its own source files for error analysis
  * and self-repair planning. Deliberately READ-ONLY — no writes, no deletes.
@@ -101,7 +101,7 @@ export async function executeReadSource(args: ReadSourceArgs): Promise<ToolResul
 export const readSourceTool = {
   name: 'read_source',
   description:
-    'Read a SmallClaw source file (read-only). Use this to analyze errors, understand how a module works, ' +
+    'Read a Wolverine source file (read-only). Use this to analyze errors, understand how a module works, ' +
     'or prepare a repair proposal. Paths are relative to src/ e.g. "gateway/telegram-channel.ts". ' +
     'Returns numbered lines. Use start_line + num_lines to paginate large files.',
   execute: executeReadSource,
@@ -195,7 +195,7 @@ export async function executeListSource(args: ListSourceArgs): Promise<ToolResul
 export const listSourceTool = {
   name: 'list_source',
   description:
-    'List files and directories inside the SmallClaw src/ folder. ' +
+    'List files and directories inside the Wolverine src/ folder. ' +
     'Use with no args to see the top-level structure. ' +
     'Pass a subdirectory like "gateway" or "tools" to drill in.',
   execute: executeListSource,

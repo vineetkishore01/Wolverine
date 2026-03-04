@@ -1,12 +1,12 @@
 @echo off
-:: SmallClaw Auto-Start Script
+:: Wolverine Auto-Start Script
 :: This script is registered with Windows Task Scheduler to run at login.
-:: It starts the SmallClaw gateway in a new terminal window.
+:: It starts the Wolverine gateway in a new terminal window.
 
-title SmallClaw Gateway
+title Wolverine Gateway
 
-:: Change to SmallClaw directory
-cd /d "D:\SmallClaw"
+:: Change to Wolverine directory
+cd /d "D:\Wolverine"
 
 :: Start the gateway
 node dist/cli/index.js gateway start

@@ -25,7 +25,6 @@ import {
   resolveAgentWorkspace,
 } from '../config/config';
 import { getOllamaClient } from '../agents/ollama-client';
-import { spawnAgent } from '../agents/spawner';
 import { getSession, addMessage, getHistory, getHistoryForApiCall, getWorkspace, setWorkspace, clearHistory, cleanupSessions } from './session';
 import { hookBus } from './hooks';
 import { loadWorkspaceHooks } from './hook-loader';
@@ -45,7 +44,7 @@ import {
   getBrowserToolDefinitions,
   getBrowserSessionInfo,
   getBrowserAdvisorPacket,
-} from './browser-tools';
+} from './pinchtab-bridge';
 import {
   desktopScreenshot,
   desktopFindWindow,
@@ -94,10 +93,13 @@ import {
   shouldRunPreflight,
   type TaskSnapshot as HeartbeatTaskSnapshot,
 } from '../orchestration/multi-agent';
+import { getBrainDB } from '../db/brain';
 import { executeReadDocument } from '../tools/documents';
 import { executeMemoryWrite, executeMemorySearch } from '../tools/memory';
-import { executeProcedureSave, executeProcedureList, executeProcedureGet } from '../tools/procedures';
+import { executeProcedureSave, executeProcedureList, executeProcedureGet, executeProcedureRecordResult } from '../tools/procedures';
+import { executeScratchpadWrite, executeScratchpadRead, executeScratchpadClear } from '../tools/scratchpad';
 import { skillConnectorTool, executeSkillConnector } from '../skills/connector-tool';
+import { executeSkillCreate, executeSkillTest } from '../tools/skill-builder';
 import { getSkillConnectorManager } from '../skills/connector';
 import {
   createTask,
@@ -1095,6 +1097,21 @@ function buildTools() {
     {
       type: 'function' as const,
       function: {
+        name: 'procedure_record_result',
+        description: 'Record whether a saved procedure was successful or failed.',
+        parameters: {
+          type: 'object',
+          required: ['id', 'success'],
+          properties: {
+            id: { type: 'string', description: 'ID of the procedure' },
+            success: { type: 'boolean', description: 'true if successful, false otherwise' },
+          },
+        },
+      },
+    },
+    {
+      type: 'function' as const,
+      function: {
         name: 'procedure_get',
         description: 'Get details and steps of a specific procedure',
         parameters: {
@@ -1102,6 +1119,78 @@ function buildTools() {
           required: ['name'],
           properties: {
             name: { type: 'string', description: 'name of the procedure' },
+          },
+        },
+      },
+    },
+    {
+      type: 'function' as const,
+      function: {
+        name: 'scratchpad_write',
+        description: 'Write or append notes, intermediate reasoning, and state to your persistent scratchpad. Use this to remember things during complex, multi-step tasks.',
+        parameters: {
+          type: 'object',
+          required: ['content'],
+          properties: {
+            content: { type: 'string', description: 'The text to write to the scratchpad' },
+          },
+        },
+      },
+    },
+    {
+      type: 'function' as const,
+      function: {
+        name: 'scratchpad_read',
+        description: 'Read the current contents of your scratchpad.',
+        parameters: {
+          type: 'object',
+          properties: {},
+        },
+      },
+    },
+    {
+      type: 'function' as const,
+      function: {
+        name: 'scratchpad_clear',
+        description: 'Clear all contents from your scratchpad when you are done with a task.',
+        parameters: {
+          type: 'object',
+          properties: {},
+        },
+      },
+    },
+    {
+      type: 'function' as const,
+      function: {
+        name: 'skill_create',
+        description: 'Create a new skill after learning how a service works. Use this after browsing documentation to create a reusable skill with tools and procedures.',
+        parameters: {
+          type: 'object',
+          required: ['name', 'description'],
+          properties: {
+            name: { type: 'string', description: 'Short name (e.g., "obsidian", "youtube")' },
+            description: { type: 'string', description: 'What this skill does' },
+            emoji: { type: 'string' },
+            category: { type: 'string', description: 'productivity, communication, development, automation, data' },
+            requirements: { type: 'array', description: 'Credentials/config needed', items: { type: 'object' } },
+            tools: { type: 'array', description: 'Shell-based tools this skill provides', items: { type: 'object' } },
+            procedures: { type: 'array', description: 'Multi-step workflows', items: { type: 'object' } },
+          },
+        },
+      },
+    },
+    {
+      type: 'function' as const,
+      function: {
+        name: 'skill_test',
+        description: 'Test a newly created skill by running one of its tools.',
+        parameters: {
+          type: 'object',
+          required: ['skill_name', 'tool_name'],
+          properties: {
+            skill_name: { type: 'string', description: 'Name of the skill' },
+            tool_name: { type: 'string', description: 'Name of the tool within the skill to test' },
+            params: { type: 'object', description: 'Arguments for the tool' },
           },
         },
       },
@@ -1637,8 +1726,38 @@ async function executeTool(name: string, args: any, workspacePath: string, sessi
         return { name, args, result: res.stdout || res.error || '', error: !res.success };
       }
 
+      case 'procedure_record_result': {
+        const res = await executeProcedureRecordResult(args as any);
+        return { name, args, result: res.stdout || res.error || '', error: !res.success };
+      }
+
+      case 'scratchpad_write': {
+        const res = await executeScratchpadWrite({ ...args, session_id: sessionId });
+        return { name, args, result: res.stdout || res.error || '', error: !res.success };
+      }
+
+      case 'scratchpad_read': {
+        const res = await executeScratchpadRead({ session_id: sessionId });
+        return { name, args, result: res.stdout || res.error || '', error: !res.success };
+      }
+
+      case 'scratchpad_clear': {
+        const res = await executeScratchpadClear({ session_id: sessionId });
+        return { name, args, result: res.stdout || res.error || '', error: !res.success };
+      }
+
       case 'skill_connector': {
         const result = await executeSkillConnector(args as any);
+        return { name, args, result: result.stdout || result.error || '', error: !result.success };
+      }
+
+      case 'skill_create': {
+        const result = await executeSkillCreate(args as any);
+        return { name, args, result: result.stdout || result.error || '', error: !result.success };
+      }
+
+      case 'skill_test': {
+        const result = await executeSkillTest(args as any);
         return { name, args, result: result.stdout || result.error || '', error: !result.success };
       }
 
@@ -2623,7 +2742,7 @@ async function handleChat(
     const preemptRaw = {
       ...(oc?.preempt || {}),
       restart_mode: oc?.preempt?.restart_mode
-        || process.env.SMALLCLAW_OLLAMA_RESTART_MODE
+        || process.env.WOLVERINE_OLLAMA_RESTART_MODE
         || (process.platform === 'win32' ? 'inherit_console' : 'detached_hidden'),
     };
     const normalizedPreempt = clampPreemptConfig(preemptRaw);
@@ -2928,6 +3047,7 @@ async function handleChat(
   const injectedContext = [
     contextPackage.relevantMemories,
     contextPackage.matchedProcedure,
+    contextPackage.activeScratchpad,
   ].filter(Boolean).join('\n\n');
 
   const personalityCtx = await buildPersonalityContext(sessionId, workspacePath, injectedContext);
@@ -2967,98 +3087,30 @@ async function handleChat(
     return '';
   })();
 
+  const scratchpadContent = getBrainDB().getScratchpad(sessionId);
+  const scratchpadCtx = scratchpadContent
+    ? `\n\nSCRATCHPAD (Memory):\n${scratchpadContent.slice(0, 10000)}`
+    : '';
+
+  const { buildStaticSystemPrompt, buildDynamicSystemPrompt } = await import('../prompts/system.js');
   const messages: any[] = [
     {
       role: 'system',
-      content: `${executionModeSystemBlock ? `${executionModeSystemBlock}\n\n` : ''}You are Wolverine 🦞, a friendly AI assistant that runs locally.
-Current date: ${dateStr}, ${timeStr}.
-
-TOOLS:
-- list_files: List workspace files
-- read_file: Read file WITH line numbers (do this before editing)
-- create_file: Create NEW file (fails if exists)
-- replace_lines: Replace lines N-M with new content
-- insert_after: Insert content after line N
-- delete_lines: Delete lines N-M
-- find_replace: Find exact text and replace
-- delete_file: Delete a file
-- web_search: Search the web. Returns headlines + short snippets.
-- web_fetch: Fetch full text content from a URL. Use after web_search to read the actual page.
-- run_command: Open apps for the USER to see (chrome, notepad, vscode). Use desktop_* tools to interact with desktop apps afterward.
-- start_task: Launch a multi-step task (for complex operations needing many steps)
-- task_control: List/get/resume/rerun/pause/delete existing background tasks and statuses
-- schedule_job: Manage scheduled automation jobs (list/create/update/pause/resume/delete/run_now)
-- browser_open: Navigate to a URL in a browser YOU control via Playwright (a persistent Chrome profile saved at C:\Users\rafel\.wolverine\chrome-debug-profile — you stay logged into sites after the first login, no re-auth needed). You can click, fill, snapshot after.
-- browser_snapshot: Refresh visible elements. If element count looks low, call browser_wait first
-- browser_click: Click by @ref. ALWAYS take browser_snapshot after to confirm the click worked
-- browser_fill: Type into an [INPUT] element by @ref, then press Enter or click submit
-- browser_press_key: Press Enter/Tab/Escape. Use Enter after filling a search box
-- browser_wait: Wait N ms then snapshot — use when page has few elements or content is still loading
-- browser_close: Close browser tab
-- desktop_screenshot: Capture full desktop screenshot and window context (Windows)
-- desktop_find_window: Find desktop windows by title/process
-- desktop_focus_window: Bring a desktop window to foreground
-- desktop_click: Click at screen coordinates
-- desktop_drag: Drag mouse from one coordinate to another
-- desktop_wait: Wait for UI to settle (ms)
-- desktop_type: Type text into focused desktop window
-- desktop_press_key: Press key/combo in focused desktop window
-- desktop_get_clipboard: Read clipboard text
-- desktop_set_clipboard: Set clipboard text
-- skill_connector: Connect, disconnect, and manage integrations (Email, GitHub, Notion, Telegram, etc.). Use this when the user wants to link a new service or service is not configured.
-
-IDENTITY RULE:
-Your name is Wolverine. When a user asks you to search for, open, or find any external tool or project, look it up as requested. NEVER redirect to Wolverine links or repos unless the user is specifically asking about Wolverine itself. If a search fails, say so and ask for clarification.
-
-DYNAMIC SKILLS ACTIVATION:
-If a user wants to connect to a service (e.g. "read my emails" or "check github"), use skill_connector(action='list') to see if it exists. Use action='info' to learn what is needed, then ask the user for the credentials in the chat. Once they provide them, use action='connect' with the credentials to link the service.
-
-TOOL ROUTING - web_fetch vs browser:
-- Use browser_open + browser_snapshot for: social feeds (X/Twitter, Reddit), login-gated pages, JavaScript-heavy SPAs, anything that requires scrolling or clicking to reveal content.
-- Use web_fetch for: static article URLs, documentation, blog posts, news pages — any URL where you already have the link and just need the text content. It is faster and cheaper than browser.
-- Combined pattern: use browser to discover and collect links from a feed, then use web_fetch on specific linked URLs to read their full content.
-
-BROWSER RULES:
-0. YOU control the browser via Playwright — it is NOT the user's browser. The user is separate. The Chrome profile is persistent so you are already logged into sites the user has signed into before.
-1. run_command launches apps/windows. Use browser_* for web pages and desktop_* for native app/screen control.
-2. If you already have a browser open, DO NOT call browser_open again. Use browser_snapshot to see the current page, then browser_click to navigate.
-3. If you land on a login page and see a one-click sign-in button (e.g. "Sign in as [name]", "Continue as [name]", Google/Apple sign-in), click it immediately — do not snapshot repeatedly. The Chrome profile preserves the OAuth session so it will complete without a password.
-3. browser_open RETURNS a snapshot — read it immediately. Find the correct link by @ref, then call browser_click to follow it.
-4. After EVERY click, read the snapshot returned in the tool result to confirm what changed.
-5. Prefer direct search URLs over clicking search boxes.
-
-DESKTOP RULES (Windows):
-1. Use desktop_screenshot first to inspect active/open windows.
-2. Use desktop_focus_window before desktop_click or desktop_type when the target app is not focused.
-3. desktop_screenshot includes OCR preview text when available; use that evidence for status checks.
-4. For status checks like "is VS Code done?", capture a fresh desktop_screenshot before answering.
-
-SCHEDULER RULES:
-1. If the user asks for recurring or time-based automation ("every day", "at 9am", "tomorrow"), use schedule_job.
-2. Always ask for explicit yes/no confirmation before create/update/delete schedule actions.
-3. Keep schedule details (when) separate from instruction_prompt (what to do).
-
-TASK MANAGEMENT RULES:
-1. If the user asks about existing background tasks (status/list/rerun/resume), call task_control first.
-2. Do NOT use list_files/read_file to discover task state.
-3. Use start_task only for creating a new task, not for resuming/rerunning an existing one.
-
-AUTOMATION AUTHORIZATION:
-- This app runs on the user's own machine; user requests here are explicit authorization for local browser and desktop automation.
-- If the user asks to "use my computer" to open a site/click/type, execute with browser_* or desktop_* tools instead of refusing.
-- Do not output policy refusal text for normal user-authorized local automation requests.
-
-EDITING RULES:
-1. ALWAYS read_file first to see line numbers.
-2. Use replace_lines, insert_after, delete_lines for SURGICAL edits.
-3. NEVER rewrite an entire file to change part of it.
-4. KEEP all existing content the user didn't ask to change.
-5. create_file is ONLY for new files.
-
-RESPONSE RULES:
-- Keep responses SHORT (1-2 sentences).
-- Do NOT think out loud. Act and report.
-- For greetings/questions, reply naturally without tools.${callerContext ? '\n\n' + callerContext : ''}${browserStateCtx}${personalityCtx}${skillsManager.buildPromptContext(500)}`,
+      content: buildStaticSystemPrompt({
+        executionModeSystemBlock,
+      }),
+    },
+    {
+      role: 'system',
+      content: buildDynamicSystemPrompt({
+        dateStr,
+        timeStr,
+        callerContext: callerContext || '',
+        browserStateCtx,
+        personalityCtx,
+        skillsContext: skillsManager.buildPromptContext(500),
+        scratchpadCtx,
+      }),
     },
   ];
 
@@ -3564,9 +3616,12 @@ RESPONSE RULES:
       return; // don't call advisor yet — next round will re-enter this function with fresh snapshot
     }
 
+    const scratchpad = getBrainDB().getScratchpad(sessionId) || '';
+
     let advisor = await callSecondaryBrowserAdvisor({
       goal: message,
       minFeedItemsBeforeAnswer: browserMinFeedItemsBeforeAnswer,
+      scratchpad,
       page: {
         title: packet.page.title,
         url: packet.page.url,
@@ -5323,7 +5378,7 @@ RULES:
 // ─── SSE + Routes ──────────────────────────────────────────────────────────────
 
 function createSSESender(res: express.Response): (event: string, data: any) => void {
-  return (type: string, data: any) => { try { res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`); } catch { } };
+  return (type: string, data: any) => { try { res.write(`data: ${JSON.stringify({ type, ...(data || {}) })}\n\n`); } catch { } };
 }
 
 const ACTIVE_TASK_STATUSES: TaskStatus[] = [
@@ -6044,6 +6099,27 @@ function getOrchestrationConfigForApi() {
     subagent_mode: raw.subagent_mode === true,
   };
 }
+
+app.get('/api/procedures', (_req, res) => {
+  try {
+    const brain = getBrainDB();
+    const rows = brain.listProcedures();
+    res.json({ success: true, procedures: rows });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/procedures/:id', (req, res) => {
+  try {
+    const id = req.params.id;
+    const brain = getBrainDB();
+    brain.deleteProcedure(id);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 app.get('/api/orchestration/config', (_req, res) => {
   res.json(getOrchestrationConfigForApi());
@@ -6997,51 +7073,7 @@ app.put('/api/agents/:id/agents-md', (req, res) => {
   res.json({ success: true, path: filePath });
 });
 
-app.post('/api/agents/:id/spawn', async (req, res) => {
-  const agentId = sanitizeAgentId(req.params.id);
-  const agent = getAgentById(agentId);
-  if (!agent) {
-    res.status(404).json({ success: false, error: `Agent "${agentId}" not found` });
-    return;
-  }
-  const task = String(req.body?.task || '').trim();
-  if (!task) {
-    res.status(400).json({ success: false, error: 'task is required' });
-    return;
-  }
-  const context = req.body?.context !== undefined ? String(req.body.context) : undefined;
-  const maxStepsRaw = req.body?.maxSteps;
-  const maxSteps = Number.isFinite(Number(maxStepsRaw)) && Number(maxStepsRaw) > 0
-    ? Math.floor(Number(maxStepsRaw))
-    : undefined;
-  const timeoutRaw = req.body?.timeoutMs;
-  const timeoutMs = Number.isFinite(Number(timeoutRaw)) && Number(timeoutRaw) > 0
-    ? Math.floor(Number(timeoutRaw))
-    : 120000;
-
-  const startedAt = Date.now();
-  const result = await spawnAgent({
-    agentId,
-    task,
-    context,
-    maxSteps,
-    timeoutMs,
-  });
-  const finishedAt = Date.now();
-  const historyEntry = recordAgentRun({
-    agentId: result.agentId,
-    agentName: result.agentName,
-    trigger: 'manual',
-    success: result.success,
-    startedAt,
-    finishedAt,
-    durationMs: result.durationMs,
-    stepCount: result.stepCount,
-    error: result.error,
-    resultPreview: result.success ? String(result.result || '').slice(0, 400) : undefined,
-  });
-  res.json({ success: result.success, result, historyEntry });
-});
+// Legacy spawn endpoint deleted: /api/agents/:id/spawn
 
 // ─── Settings API ────────────────────────────────────────────────────────────────
 
@@ -7136,6 +7168,22 @@ app.post('/api/settings/agent', (req, res) => {
   res.json({ success: true });
 });
 
+app.get('/api/settings/thinking', (_req, res) => {
+  const cfg = getConfig().getConfig();
+  res.json({ success: true, enabled: cfg.ollama?.thinking_enabled !== false });
+});
+
+app.post('/api/settings/thinking', (req, res) => {
+  const { enabled } = req.body;
+  const cm = getConfig();
+  const current = cm.getConfig();
+  const ollama = (current as any).ollama || {};
+  cm.updateConfig({
+    ollama: { ...ollama, thinking_enabled: !!enabled }
+  } as any);
+  res.json({ success: true });
+});
+
 // ─── Model / Ollama Settings API ──────────────────────────────────────────────────
 
 app.get('/api/settings/model', (_req, res) => {
@@ -7155,13 +7203,13 @@ app.post('/api/settings/model', (req, res) => {
     cm.updateConfig({
       models: {
         primary: primary || current.models.primary,
-        roles: { ...current.models.roles, ...(roles || {}) },
+        roles: { ...(current.models?.roles || {}), ...(roles || {}) },
       }
     });
   }
   if (ollama_endpoint) {
     cm.updateConfig({
-      ollama: { ...(current as any).ollama, endpoint: ollama_endpoint }
+      ollama: { ...((current as any).ollama || {}), endpoint: ollama_endpoint }
     } as any);
   }
   res.json({ success: true, model: getConfig().getConfig().models.primary });
@@ -7184,6 +7232,42 @@ app.get('/api/ollama/models', async (_req, res) => {
     res.json({ success: true, models });
   } catch (err: any) {
     res.json({ success: false, models: [], error: err.message });
+  }
+});
+
+// Fetch a specific model's Modelfile (proxies Ollama /api/show)
+app.get('/api/ollama/show/:name', async (req, res) => {
+  try {
+    const name = req.params.name;
+    const ollamaEndpoint = (getConfig().getConfig() as any).ollama?.endpoint || 'http://localhost:11434';
+    const response = await fetch(`${ollamaEndpoint}/api/show`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!response.ok) { res.status(response.status).json({ success: false, error: `Ollama returned ${response.status}` }); return; }
+    const data = await response.json();
+    res.json({ success: true, ...(data || {}) });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Create a model from a Modelfile (proxies Ollama /api/create)
+app.post('/api/ollama/create', async (req, res) => {
+  try {
+    const { name, modelfile } = req.body;
+    if (!name || !modelfile) { res.status(400).json({ success: false, error: 'Name and Modelfile required' }); return; }
+    const ollamaEndpoint = (getConfig().getConfig() as any).ollama?.endpoint || 'http://localhost:11434';
+    const response = await fetch(`${ollamaEndpoint}/api/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, modelfile, stream: false }),
+    });
+    if (!response.ok) { res.status(response.status).json({ success: false, error: `Ollama returned ${response.status}` }); return; }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -7490,7 +7574,7 @@ app.get('/api/settings/provider', (_req, res) => {
   const raw = getConfig().getConfig() as any;
   const llmRaw = raw.llm || {
     provider: 'ollama',
-    providers: { ollama: { endpoint: raw.ollama?.endpoint || 'http://localhost:11434', model: raw.models?.primary || 'qwen3:4b' } },
+    providers: { ollama: { endpoint: raw.ollama?.endpoint || 'http://localhost:11434', model: raw.models?.primary || 'qwen3.5:4b' } },
   };
   const llm = redactConfigForUI(sanitizeLLMConfig(llmRaw));
   res.json({ success: true, llm });

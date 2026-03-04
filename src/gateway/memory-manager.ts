@@ -49,8 +49,6 @@ export interface AddMemoryFactArgs {
   routing?: 'direct' | 'policy';
 }
 
-type MemoryDecision = 'DISCARD' | 'DAILY_NOTE' | 'TYPED_FACT' | 'CURATED_PROFILE';
-
 function shouldDiscardClaim(claim: MemoryClaim): boolean {
   const text = sanitizeMemoryText(claim.claim);
   if (!text || text.length < 10) return true;
@@ -60,7 +58,7 @@ function shouldDiscardClaim(claim: MemoryClaim): boolean {
   return false;
 }
 
-export function decideMemoryWrite(claim: MemoryClaim): MemoryDecision {
+export function decideMemoryWrite(claim: MemoryClaim): string {
   if (shouldDiscardClaim(claim)) return 'DISCARD';
   if (!claim.source_kind || !claim.source_ref) return 'DAILY_NOTE';
   if ((claim.type === 'preference' || claim.type === 'rule') && claim.scope === 'global' && claim.confidence >= 0.9) {
@@ -68,14 +66,6 @@ export function decideMemoryWrite(claim: MemoryClaim): MemoryDecision {
   }
   if (claim.confidence >= 0.55) return 'TYPED_FACT';
   return 'DAILY_NOTE';
-}
-
-
-function normalizeFactKeyFromClaim(claim: MemoryClaim): string {
-  const lhs = sanitizeMemoryText(claim.claim).match(/^(.+?)\s+(is|are|was|were)\s+/i)?.[1]?.trim();
-  const base = lhs || sanitizeMemoryText(claim.claim);
-  const slug = base.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim().replace(/\s+/g, '-').slice(0, 80) || 'item';
-  return `fact:${slug}`;
 }
 
 function shouldForceSessionScopeForTemporalClaim(text: string): boolean {
@@ -113,10 +103,10 @@ function auditMemoryWrite(args: {
 }
 
 
-export async function addMemoryFact(args: AddMemoryFactArgs): Promise<{ success: boolean; destination: MemoryDecision; message?: string }> {
+export async function addMemoryFact(args: AddMemoryFactArgs): Promise<{ success: boolean; message?: string }> {
   const safeFact = sanitizeMemoryText(args.fact);
   if (!safeFact) {
-    return { success: false, destination: 'DISCARD', message: 'fact required' };
+    return { success: false, message: 'fact required' };
   }
   const safeSourceOutput = args.source_output ? sanitizeMemoryText(args.source_output) : undefined;
   const normalizedScope: FactScope = shouldForceSessionScopeForTemporalClaim(safeFact) ? 'session' : (args.scope || 'global');
@@ -135,7 +125,7 @@ export async function addMemoryFact(args: AddMemoryFactArgs): Promise<{ success:
 
   const routing = args.routing || 'direct';
 
-  const finish = (success: boolean, message: string, destination: MemoryDecision, error?: string) => {
+  const finish = (success: boolean, message: string, error?: string) => {
     auditMemoryWrite({
       reference: args.reference,
       fact: safeFact,
@@ -145,19 +135,18 @@ export async function addMemoryFact(args: AddMemoryFactArgs): Promise<{ success:
       success,
       error,
     });
-    return { success, destination, message };
+    return { success, message };
   };
 
   if (shouldDiscardClaim(claim)) {
-    return finish(true, 'discarded', 'DISCARD');
+    return finish(true, 'discarded');
   }
 
-  const decision: MemoryDecision = routing === 'policy' ? decideMemoryWrite(claim) : 'TYPED_FACT';
-  const brain = getBrainDB();
+  const decision = routing === 'policy' ? decideMemoryWrite(claim) : 'TYPED_FACT';
 
   try {
     if (decision === 'DISCARD') {
-      return finish(true, 'discarded', decision);
+      return finish(true, 'discarded');
     }
 
     // Always write to the brain database now
@@ -175,14 +164,14 @@ export async function addMemoryFact(args: AddMemoryFactArgs): Promise<{ success:
 
     if (!writeResult.success) {
       const msg = writeResult.error || 'brain_write failed';
-      return finish(false, msg, decision, msg);
+      return finish(false, msg, msg);
     }
 
-    return finish(true, writeResult.stdout || 'Memory synchronized with brain', decision);
+    return finish(true, writeResult.stdout || 'Memory synchronized with brain');
 
   } catch (err: any) {
     const msg = err?.message || String(err);
     console.error('[memory-manager] Error adding memory fact:', msg);
-    return finish(false, msg, decision, msg);
+    return finish(false, msg, msg);
   }
 }

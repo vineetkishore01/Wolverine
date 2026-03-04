@@ -1,0 +1,16 @@
+{
+  "id": "175d3369-10c6-4b9b-a573-538ac8e06b26",
+  "history": [
+    {
+      "role": "user",
+      "content": "open a browser and search about israel iran war updates from today",
+      "timestamp": 1772653881297
+    }
+  ],
+  "workspace": "/Users/vineetkishore/SmallClawData/workspace",
+  "createdAt": 1772653865093,
+  "lastActiveAt": 1772653881297,
+  "pendingMemoryFlush": false,
+  "pendingCompaction": false,
+  "contextTokenEstimate": 25
+}

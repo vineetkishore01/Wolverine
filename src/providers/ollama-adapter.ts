@@ -40,7 +40,6 @@ export class OllamaAdapter implements LLMProvider {
 
   async chat(messages: ChatMessage[], model: string, options?: ChatOptions): Promise<ChatResult> {
     // Normalize all messages to string content before sending to Ollama.
-    // Small models do not support ContentPart[] arrays.
     const normalizedMessages = messages.map(m => ({
       ...m,
       content: contentToString(m.content),
@@ -51,32 +50,44 @@ export class OllamaAdapter implements LLMProvider {
 
     for (const think of thinkCandidates) {
       try {
-        const response: any = await this.client.chat({
+        const chatRequest: any = {
           model,
           messages: normalizedMessages as any,
           tools: options?.tools,
-          ...(Array.isArray(options?.tools) && options!.tools!.length ? { tool_choice: 'auto' } : {}),
           options: {
             temperature: options?.temperature ?? 0.25,
             top_p: 0.9,
             num_ctx: options?.num_ctx ?? 4096,
-            num_predict: options?.max_tokens ?? 256,
+            num_predict: options?.max_tokens ?? 512,
           },
-          ...(think === undefined ? {} : { think }),
           stream: false,
-        } as any);
+        };
 
+        // Handle thinking mode
+        if (think !== undefined) {
+          const isThinkingEnabled = (options as any)?.thinking_enabled !== false;
+          chatRequest.think = isThinkingEnabled ? think : false;
+        }
+
+        const response: any = await this.client.chat(chatRequest);
         const message = response?.message || { role: 'assistant', content: String(response?.response || '') };
         return { message, thinking: response?.thinking };
       } catch (error: any) {
         lastError = error;
         const msg = String(error?.message || error || '');
-        if (!/think value .* not supported|invalid think|think .* not supported/i.test(msg)) {
-          throw new Error(`Ollama chat failed: ${msg}`);
+        const idx = thinkCandidates.indexOf(think);
+        const isLastCandidate = idx === thinkCandidates.length - 1;
+
+        if (!isLastCandidate) {
+          // Always try the next think candidate on error
+          console.warn(`[OllamaAdapter] Chat failed (think=${think}), trying next candidate. Error: ${msg.slice(0, 120)}`);
+          continue;
         }
+
+        throw new Error(`Ollama chat failed at ${this.endpoint}: ${msg}`);
       }
     }
-    throw new Error(`Ollama chat failed: ${lastError?.message || 'Unknown'}`);
+    throw new Error(`Ollama chat failed at ${this.endpoint}: ${lastError?.message || 'Unknown'}`);
   }
 
   async generate(prompt: string, model: string, options?: GenerateOptions): Promise<GenerateResult> {
@@ -85,7 +96,7 @@ export class OllamaAdapter implements LLMProvider {
 
     for (const think of thinkCandidates) {
       try {
-        const response = await this.client.generate({
+        const generateRequest: any = {
           model,
           prompt,
           system: options?.system,
@@ -94,18 +105,30 @@ export class OllamaAdapter implements LLMProvider {
             temperature: options?.temperature ?? 0.3,
             top_p: 0.9,
             num_ctx: options?.num_ctx ?? 2048,
-            num_predict: options?.max_tokens ?? 256,
+            num_predict: options?.max_tokens ?? 512,
           },
-          ...(think === undefined ? {} : { think }),
           stream: false,
-        });
+        };
+
+        if (think !== undefined) {
+          const isThinkingEnabled = (options as any)?.thinking_enabled !== false;
+          generateRequest.think = isThinkingEnabled ? think : false;
+        }
+
+        const response: any = await this.client.generate(generateRequest);
         return { response: response.response, thinking: response.thinking };
       } catch (error: any) {
         lastError = error;
         const msg = String(error?.message || error || '');
-        if (!/think value .* not supported|invalid think|think .* not supported/i.test(msg)) {
-          throw new Error(`Ollama generate failed: ${msg}`);
+        const idx = thinkCandidates.indexOf(think);
+        const isLastCandidate = idx === thinkCandidates.length - 1;
+
+        if (!isLastCandidate) {
+          console.warn(`[OllamaAdapter] Generate failed (think=${think}), trying next candidate. Error: ${msg.slice(0, 120)}`);
+          continue;
         }
+
+        throw new Error(`Ollama generate failed: ${msg}`);
       }
     }
     throw new Error(`Ollama generate failed: ${lastError?.message || 'Unknown'}`);

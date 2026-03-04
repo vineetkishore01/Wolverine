@@ -624,7 +624,7 @@ export async function executeApplyPatch(args: ApplyPatchArgs): Promise<ToolResul
   const workspacePath = getConfig().getConfig().workspace.path;
   const tempPatchPath = path.join(
     os.tmpdir(),
-    `smallclaw-apply-${Date.now()}-${Math.random().toString(36).slice(2)}.patch`
+    `wolverine-apply-${Date.now()}-${Math.random().toString(36).slice(2)}.patch`
   );
 
   try {

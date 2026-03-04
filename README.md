@@ -7,52 +7,8 @@
 <p align="center">
   Local-first AI agent framework built for small models, with optional hybrid cloud support.
   <br>
-  <i>Forked from SmallClaw with enhanced capabilities.</i>
-</p>
-
-<p align="center">
-  <a href="https://github.com/YOUR_USERNAME/wolverine/stargazers">
-    <img src="https://img.shields.io/github/stars/YOUR_USERNAME/wolverine?style=for-the-badge" alt="Stars" />
-  </a>
-  <a href="https://github.com/YOUR_USERNAME/wolverine/network/members">
-    <img src="https://img.shields.io/github/forks/YOUR_USERNAME/wolverine?style=for-the-badge" alt="Forks" />
-  </a>
-  <a href="https://github.com/YOUR_USERNAME/wolverine/issues">
-    <img src="https://img.shields.io/github/issues/YOUR_USERNAME/wolverine?style=for-the-badge" alt="Issues" />
-  </a>
-  <a href="https://github.com/YOUR_USERNAME/wolverine/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/YOUR_USERNAME/wolverine?style=for-the-badge" alt="License" />
-  </a>
-</p>
-
-<p align="center">
-  <a href="#installation">Install</a> ·
-  <a href="#quick-start">Quick Start</a> ·
-  <a href="#provider-support">Providers</a> ·
-  <a href="#multi-agent-orchestration-optional-skill">Multi Agent</a> ·
-  <a href="#skills">Skills</a> ·
-  <a href="#troubleshooting">Troubleshooting</a>
-</p>
-
-<p align="center">
-  <img src="screenshots/WolverineDashboard.png" alt="Wolverine UI" width="900" />
-</p>
-
 # Wolverine v1.0.0
 **Current release:** `v1.0.0`
-
----
-
-## Credits
-
-Wolverine is a fork of [SmallClaw](https://github.com/XposeMarket/SmallClaw) by [Fvnso](https://github.com/fvnso). 
-
-SmallClaw was inspired by [OpenClaw](https://openclaw.ai) and the Anthropic team. Built for the local-first AI community.
-
-This fork adds:
-- Native PDF text extraction
-- OAuth support for MCP servers
-- Enhanced workspace/data separation
 
 ---
 

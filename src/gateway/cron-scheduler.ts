@@ -1,5 +1,5 @@
 /**
- * cron-scheduler.ts — SmallClaw Tasks / Cron System
+ * cron-scheduler.ts — Wolverine Tasks / Cron System
  *
  * Design constraints (4B model reality):
  *  - isModelBusy guard: if a user chat is in-flight, skip the tick entirely

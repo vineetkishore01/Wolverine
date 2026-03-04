@@ -12,6 +12,7 @@
 import { getProvider, getModelForRole, getPrimaryModel, resetProvider } from '../providers/factory';
 import type { LLMProvider } from '../providers/LLMProvider';
 import { AgentRole } from '../types';
+import { getConfig } from '../config/config';
 
 export interface GenerateOutput {
   response: string;
@@ -46,11 +47,12 @@ export class OllamaClient {
     const model = String(options?.model || '').trim() || getModelForRole(role);
     const result = await this.provider.chat(messages, model, {
       temperature: options?.temperature,
-      max_tokens:  options?.num_predict,
-      num_ctx:     options?.num_ctx,
-      tools:       options?.tools,
-      think:       options?.think,
-    });
+      max_tokens: options?.num_predict,
+      num_ctx: options?.num_ctx,
+      tools: options?.tools,
+      think: options?.think,
+      thinking_enabled: getConfig().getConfig().ollama.thinking_enabled !== false,
+    } as any);
     return { message: result.message, thinking: result.thinking };
   }
 
@@ -71,12 +73,13 @@ export class OllamaClient {
     const model = getModelForRole(role);
     return this.provider.generate(prompt, model, {
       temperature: options?.temperature,
-      format:      options?.format,
-      system:      options?.system,
-      num_ctx:     options?.num_ctx,
-      max_tokens:  options?.num_predict,
-      think:       options?.think,
-    });
+      format: options?.format,
+      system: options?.system,
+      num_ctx: options?.num_ctx,
+      max_tokens: options?.num_predict,
+      think: options?.think,
+      thinking_enabled: getConfig().getConfig().ollama.thinking_enabled !== false,
+    } as any);
   }
 
   async generate(prompt: string, role: AgentRole, options?: Parameters<OllamaClient['generateWithThinking']>[2]): Promise<string> {
@@ -191,7 +194,7 @@ export class OllamaClient {
     cleaned = cleaned.replace(/<think>[\s\S]*/gi, '').trim();
 
     const start = cleaned.indexOf('{');
-    const end   = cleaned.lastIndexOf('}');
+    const end = cleaned.lastIndexOf('}');
 
     if (start === -1) {
       throw new Error(`Invalid JSON response from model: SyntaxError: Unexpected end of JSON input`);
@@ -204,14 +207,14 @@ export class OllamaClient {
       cleaned = cleaned.replace(/,\s*$/, '');
       let openBraces = 0, openBrackets = 0, inString = false, escaped = false;
       for (const ch of cleaned) {
-        if (escaped)         { escaped = false; continue; }
+        if (escaped) { escaped = false; continue; }
         if (ch === '\\' && inString) { escaped = true; continue; }
-        if (ch === '"')      { inString = !inString; continue; }
-        if (inString)        continue;
-        if (ch === '{')       openBraces++;
-        else if (ch === '}')  openBraces  = Math.max(0, openBraces - 1);
-        else if (ch === '[')  openBrackets++;
-        else if (ch === ']')  openBrackets = Math.max(0, openBrackets - 1);
+        if (ch === '"') { inString = !inString; continue; }
+        if (inString) continue;
+        if (ch === '{') openBraces++;
+        else if (ch === '}') openBraces = Math.max(0, openBraces - 1);
+        else if (ch === '[') openBrackets++;
+        else if (ch === ']') openBrackets = Math.max(0, openBrackets - 1);
       }
       if (inString) cleaned += '"';
       cleaned += ']'.repeat(Math.max(0, openBrackets));

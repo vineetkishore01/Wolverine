@@ -1,5 +1,5 @@
 /**
- * telegram-channel.ts — Telegram Bot for SmallClaw
+ * telegram-channel.ts — Telegram Bot for Wolverine
  *
  * Uses raw Telegram Bot API via fetch() — no external dependencies.
  * Long polling loop: zero port forwarding, works from anywhere.
@@ -571,7 +571,7 @@ export class TelegramChannel {
 
     // ── Built-in commands ──────────────────────────────────────────────────────
     if (text === '/start') {
-      await this.sendMessage(chatId, `🐺 <b>SmallClaw connected!</b>\n\nYour Telegram user ID: <code>${userId}</code>\n\nJust send me a message and I'll respond using your local LLM.\n\n<b>Commands:</b>\n/status — check connection\n/clear — reset chat history\n/browse — browse workspace files\n/download &lt;path&gt; — download a file\n\n<b>Self-Repair:</b>\n/repairs — list pending repair proposals\n/repair &lt;id&gt; — show full details of a repair\n/approve &lt;id&gt; — apply a repair, rebuild &amp; restart\n/reject &lt;id&gt; — discard a repair`);
+      await this.sendMessage(chatId, `🐺 <b>Wolverine connected!</b>\n\nYour Telegram user ID: <code>${userId}</code>\n\nJust send me a message and I'll respond using your local LLM.\n\n<b>Commands:</b>\n/status — check connection\n/clear — reset chat history\n/browse — browse workspace files\n/download &lt;path&gt; — download a file\n\n<b>Self-Repair:</b>\n/repairs — list pending repair proposals\n/repair &lt;id&gt; — show full details of a repair\n/approve &lt;id&gt; — apply a repair, rebuild &amp; restart\n/reject &lt;id&gt; — discard a repair`);
       return;
     }
     if (text === '/status') {
@@ -681,7 +681,9 @@ export class TelegramChannel {
     const sendSSE = (type: string, data: any) => { events.push({ type, data }); };
 
     try {
-      const telegramContext = 'CONTEXT: You are responding via Telegram. You are running on the user\'s local Windows PC. All computer tools (run_command, browser_open, browser_snapshot, browser_click, browser_fill, browser_press_key, browser_wait, browser_close, desktop_screenshot, desktop_find_window, desktop_focus_window, desktop_click, desktop_drag, desktop_wait, desktop_type, desktop_press_key, desktop_get_clipboard, desktop_set_clipboard) are fully available and operational. Use them confidently when the user asks you to open, browse, or interact with anything on their computer.';
+      const isWin = process.platform === 'win32';
+      const osName = isWin ? 'Windows' : (process.platform === 'darwin' ? 'macOS' : 'Linux');
+      const telegramContext = `CONTEXT: You are responding via Telegram. You are running on the user's local ${osName} computer. All computer tools (browser_*, run_command, scratchpad_*, etc.) are fully available. Use them confidently when the user asks you to research or interact.`;
       const isDesktopStatusCheck =
         /\b(vs code|vscode|codex)\b/i.test(text)
         && /\b(done|finished|complete|completed|responded)\b/i.test(text);

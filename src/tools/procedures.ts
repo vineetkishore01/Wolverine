@@ -13,14 +13,23 @@ export async function executeProcedureSave(args: {
     }>;
 }): Promise<ToolResult> {
     if (!args.name?.trim()) return { success: false, error: 'name is required' };
-    if (!args.steps || !Array.isArray(args.steps)) return { success: false, error: 'steps must be an array' };
+    if (!args.steps || !Array.isArray(args.steps) || args.steps.length === 0) {
+        return { success: false, error: 'steps must be a non-empty array' };
+    }
+
+    // Validate steps structure
+    for (const step of args.steps) {
+        if (typeof step.order !== 'number' || !step.tool || !step.description) {
+            return { success: false, error: 'Invalid step format. Each step must have "order" (number), "tool" (string), and "description" (string).' };
+        }
+    }
 
     try {
         const brain = getBrainDB();
         const proc = brain.saveProcedure({
             name: args.name.trim(),
             description: args.description?.trim(),
-            trigger_keywords: args.trigger_keywords?.trim(),
+            trigger_keywords: args.trigger_keywords?.trim() || '',
             steps: JSON.stringify(args.steps)
         });
 
@@ -103,5 +112,25 @@ export const procedureGetTool = {
     execute: executeProcedureGet,
     schema: {
         name: 'string (required) - name of the procedure'
+    }
+};
+export async function executeProcedureRecordResult(args: { id: string; success: boolean }): Promise<ToolResult> {
+    if (!args.id?.trim()) return { success: false, error: 'id is required' };
+    try {
+        const brain = getBrainDB();
+        brain.recordProcedureResult(args.id.trim(), !!args.success);
+        return { success: true, stdout: `Procedure result recorded as ${args.success ? 'success' : 'failure'}.` };
+    } catch (err: any) {
+        return { success: false, error: `Failed to record procedure result: ${err.message}` };
+    }
+}
+
+export const procedureRecordResultTool = {
+    name: 'procedure_record_result',
+    description: 'Record whether a saved procedure was successful or failed.',
+    execute: executeProcedureRecordResult,
+    schema: {
+        id: 'string (required) - ID of the procedure',
+        success: 'boolean (required) - true if successful, false otherwise'
     }
 };

@@ -4,6 +4,7 @@ export interface ContextPackage {
     relevantMemories: string;
     matchedProcedure: string | null;
     activeSkillContext: string | null;
+    activeScratchpad: string | null;
     tokenEstimate: number;
 }
 
@@ -42,7 +43,7 @@ export function buildContextForMessage(
         }
     }
 
-    // 2. Match procedure by trigger keywords
+    // 3. Match procedure by trigger keywords
     let matchedProcedure: string | null = null;
     try {
         const procedure = brain.findProcedure(userMessage);
@@ -58,10 +59,11 @@ export function buildContextForMessage(
                     `${s.order}. ${s.description} → use tool: ${s.tool}`
                 ).join('\n');
                 matchedProcedure = [
-                    `## Saved Procedure Triggered: ${procedure.name}`,
+                    `## Saved Procedure Triggered: ${procedure.name} (ID: ${procedure.id})`,
                     procedure.description || '',
                     'Follow these steps exactly (stop and ask if something breaks):',
                     stepsText,
+                    `IMPORTANT: After completing or failing this procedure, you MUST call procedure_record_result with id: "${procedure.id}" and success: true/false.`,
                 ].filter(Boolean).join('\n');
 
                 if (matchedProcedure.length > maxProcChars) {
@@ -73,9 +75,20 @@ export function buildContextForMessage(
         // Safe fail if DB schema isn't fully updated yet
     }
 
-    // 3. Estimate tokens (rough heuristic: 4 chars per token)
-    const totalChars = (relevantMemories?.length || 0) + (matchedProcedure?.length || 0);
+    // 4. Active Scratchpad
+    let activeScratchpad: string | null = null;
+    try {
+        const scratchpadContent = brain.getScratchpad(sessionId);
+        if (scratchpadContent) {
+            activeScratchpad = `## Active Scratchpad\n${scratchpadContent}`;
+        }
+    } catch {
+        // Safe fail
+    }
+
+    // 5. Estimate tokens (rough heuristic: 4 chars per token)
+    const totalChars = (relevantMemories?.length || 0) + (matchedProcedure?.length || 0) + (activeScratchpad?.length || 0);
     const tokenEstimate = Math.ceil(totalChars / 4);
 
-    return { relevantMemories, matchedProcedure, activeSkillContext: null, tokenEstimate };
+    return { relevantMemories, matchedProcedure, activeSkillContext: null, activeScratchpad, tokenEstimate };
 }

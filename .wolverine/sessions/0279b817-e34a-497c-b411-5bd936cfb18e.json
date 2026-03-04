@@ -3,94 +3,49 @@
   "history": [
     {
       "role": "user",
-      "content": "hi",
-      "timestamp": 1772568409252
+      "content": "open browser and search about israel iran war updates from today",
+      "timestamp": 1772626215953
     },
     {
       "role": "assistant",
-      "content": "Hey there! How can I help you today?",
-      "timestamp": 1772568448390
+      "content": "Error: Ollama chat failed at http://localhost:11434: fetch failed",
+      "timestamp": 1772626216010
     },
     {
       "role": "user",
-      "content": "who are you and what can you do for me?",
-      "timestamp": 1772568467796
+      "content": "open browser and search about israel iran war updates from today",
+      "timestamp": 1772626246758
     },
     {
       "role": "assistant",
-      "content": "I'm Wolverine 🦞, your friendly local AI assistant! I can help you with:\n\n- **File management**: Create, read, edit, and delete files in your workspace\n- **Web research**: Search the web and fetch full article content\n- **Browser automation**: Open websites, scroll through feeds, fill forms, click links (I control a persistent Chrome profile)\n- **Desktop control**: Interact with Windows apps, screenshots, window management\n- **Task automation**: Run multi-step tasks and schedule recurring jobs\n- **Service connections**: Link to GitHub, Email, Notion, Telegram, etc.\n\nJust let me know what you'd like to tackle!",
-      "timestamp": 1772568524168
+      "content": "Error: Ollama chat failed at http://localhost:11434: fetch failed",
+      "timestamp": 1772626246774
     },
     {
       "role": "user",
-      "content": "my name is vineet, save it in your memory..i will ask later",
-      "timestamp": 1772568845405
-    },
-    {
-      "role": "assistant",
-      "content": "Got it, Vineet! I've noted that down. Feel free to reach out anytime—I'm here to help! 🦞",
-      "timestamp": 1772568880881
+      "content": "open browser and search about israel iran war updates from today",
+      "timestamp": 1772626286493
     },
     {
       "role": "user",
-      "content": "whats my name",
-      "timestamp": 1772569275801
-    },
-    {
-      "role": "assistant",
-      "content": "Your name is **Vineet**!",
-      "timestamp": 1772569309429
+      "content": "open browser and search about israel iran war updates from today",
+      "timestamp": 1772626643383
     },
     {
       "role": "user",
-      "content": "what is my name",
-      "timestamp": 1772570037150
-    },
-    {
-      "role": "assistant",
-      "content": "Your name is **Vineet**.",
-      "timestamp": 1772570071271
+      "content": "open browser and search about israel iran war updates from today",
+      "timestamp": 1772627330945
     },
     {
       "role": "user",
-      "content": "hey",
-      "timestamp": 1772570911893
-    },
-    {
-      "role": "assistant",
-      "content": "Hey! How can I help you today?",
-      "timestamp": 1772570948264
-    },
-    {
-      "role": "user",
-      "content": "what is your name and mine?",
-      "timestamp": 1772570957169
-    },
-    {
-      "role": "assistant",
-      "content": "My name is Wolverine 🦞, and yours is Vineet!",
-      "timestamp": 1772570990763
-    },
-    {
-      "role": "user",
-      "content": "hey, who are you and tell me what all you know about me",
-      "timestamp": 1772573091601
-    },
-    {
-      "role": "user",
-      "content": "hey, who are you and tell me what all you know about me",
-      "timestamp": 1772573291458
-    },
-    {
-      "role": "assistant",
-      "content": "My name is **Wolverine** 🦞, your friendly local AI assistant!\n\nAs for what I know about you:  \n- Your name is **Vineet**.  \n- You’ve been chatting with me before, and we’ve exchanged greetings in Spanish too.  \n- You seem to like quick, friendly interactions — so far, that’s all the info I have on you!\n\nAnything else you’d like me to remember or help you with?",
-      "timestamp": 1772573338153
+      "content": "open browser and search about israel iran war updates from today",
+      "timestamp": 1772652000654
     }
   ],
-  "workspace": "~/SmallClawData/workspace",
-  "createdAt": 1772568403690,
-  "lastActiveAt": 1772573338153,
+  "workspace": "/Users/vineetkishore/SmallClawData/workspace",
+  "createdAt": 1772626211203,
+  "lastActiveAt": 1772652000655,
   "pendingMemoryFlush": false,
   "pendingCompaction": false,
-  "contextTokenEstimate": 535
+  "contextTokenEstimate": 200
 }

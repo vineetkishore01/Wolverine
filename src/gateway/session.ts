@@ -1,5 +1,5 @@
 /**
- * session.ts - Simple session state for SmallClaw v2
+ * session.ts - Simple session state for Wolverine v2
  * 
  * No plans. No verified facts. No workspace ledger. No self-learning.
  * Just conversation history.

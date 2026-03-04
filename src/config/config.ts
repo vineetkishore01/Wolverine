@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { AgentDefinition, SmallClawConfig } from '../types.js';
+import { AgentDefinition, WolverineConfig } from '../types.js';
 import { getVault, scrubSecrets } from '../security/vault.js';
 import { PATHS } from './paths.js';
 
@@ -29,15 +29,12 @@ function migrateLegacyData(): void {
   const homeLegacy = path.join(os.homedir(), '.smallclaw');
   const homeTarget = PATHS.dataHome();
 
-  if (process.env.WOLVERINE_HOME) return; // PATHS handles this
+  if (process.env.WOLVERINE_HOME || process.env.SMALLCLAW_HOME) return;
 
   // Local-to-local migration
   if (fs.existsSync(projectLegacy) && !fs.existsSync(projectTarget)) {
     migrateLegacyDir(projectLegacy, projectTarget);
   }
-
-  // Home-to-home migration is also handled by PATHS.migrateLegacyDataHome() in boot.ts, 
-  // but we can keep a check here if needed for early config loading.
 }
 
 migrateLegacyData();
@@ -49,21 +46,24 @@ migrateLegacyData();
 //   3. ~/.wolverine in the user's home directory
 const PROJECT_CONFIG = path.join(__dirname, '..', '..', '.wolverine');
 const HOME_CONFIG = PATHS.dataHome();
+
+const ENV_DATA_DIR = process.env.WOLVERINE_HOME || process.env.WOLVERINE_DATA_DIR || process.env.SMALLCLAW_DATA_DIR;
+
 const CONFIG_DIR =
-  (process.env.WOLVERINE_HOME || process.env.SMALLCLAW_DATA_DIR)
-    ? (process.env.WOLVERINE_HOME || process.env.SMALLCLAW_DATA_DIR) as string
+  ENV_DATA_DIR
+    ? ENV_DATA_DIR as string
     : fs.existsSync(PROJECT_CONFIG)
       ? PROJECT_CONFIG
       : HOME_CONFIG;
 
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
-// Workspace: env var → config-dir-relative default (cross-platform safe)
+// Workspace: env var → home-relative default (WolverineData)
 const WORKSPACE_DIR =
-  process.env.SMALLCLAW_WORKSPACE_DIR ??
-  path.join(CONFIG_DIR, '..', 'workspace');
+  process.env.WOLVERINE_WORKSPACE_DIR ??
+  path.join(os.homedir(), 'WolverineData');
 
-export const DEFAULT_CONFIG: SmallClawConfig = {
+export const DEFAULT_CONFIG: WolverineConfig = {
   version: '1.0.1',
   gateway: {
     port: Number(process.env.GATEWAY_PORT || process.env.PORT || 18789),
@@ -79,12 +79,13 @@ export const DEFAULT_CONFIG: SmallClawConfig = {
     concurrency: {
       llm_workers: 1,
       tool_workers: 3
-    }
+    },
+    thinking_enabled: true
   },
   // ── Provider config – built from env vars so Docker works out of the box.
   // Any values in config.json will override these at load time.
   llm: {
-    provider: (process.env.SMALLCLAW_PROVIDER as any) ?? 'ollama',
+    provider: (process.env.WOLVERINE_PROVIDER as any) ?? 'ollama',
     providers: {
       ollama: {
         endpoint: process.env.OLLAMA_HOST ?? 'http://localhost:11434',
@@ -327,13 +328,13 @@ function migrateSecretsToVault(config: any, configDir: string): any {
 }
 
 export class ConfigManager {
-  private config: SmallClawConfig;
+  private config: WolverineConfig;
 
   constructor() {
     this.config = this.loadConfig();
   }
 
-  private loadConfig(): SmallClawConfig {
+  private loadConfig(): WolverineConfig {
     try {
       if (fs.existsSync(CONFIG_FILE)) {
         const data = fs.readFileSync(CONFIG_FILE, 'utf-8');
@@ -377,11 +378,11 @@ export class ConfigManager {
     return DEFAULT_CONFIG;
   }
 
-  public getConfig(): SmallClawConfig {
+  public getConfig(): WolverineConfig {
     return this.config;
   }
 
-  public updateConfig(updates: Partial<SmallClawConfig>): void {
+  public updateConfig(updates: Partial<WolverineConfig>): void {
     this.config = { ...this.config, ...updates };
     this.saveConfig();
   }
@@ -419,7 +420,7 @@ export class ConfigManager {
   public ensureDirectories(): void {
     const dirs = [
       CONFIG_DIR,
-      this.config.workspace.path,
+      this.getWorkspacePath(),
       this.config.skills.directory,
       this.config.memory.path,
       path.join(CONFIG_DIR, 'sessions'),
@@ -438,7 +439,11 @@ export class ConfigManager {
   }
 
   public getWorkspacePath(): string {
-    return this.config.workspace.path;
+    let p = this.config.workspace.path;
+    if (p.startsWith('~/')) {
+      p = path.join(os.homedir(), p.slice(2));
+    }
+    return p;
   }
 
   public getDatabasePath(): string {
@@ -480,7 +485,7 @@ export function getAgents(): AgentDefinition[] {
     name: 'Main',
     description: 'Default assistant',
     default: true,
-    workspace: cfg.workspace.path,
+    workspace: getConfig().getWorkspacePath(),
   }];
 }
 

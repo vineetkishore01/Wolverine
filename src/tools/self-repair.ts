@@ -1,10 +1,10 @@
 /**
- * self-repair.ts — SmallClaw Self-Repair Tool
+ * self-repair.ts — Wolverine Self-Repair Tool
  *
  * Flow:
  *   1. AI analyzes an error using read_source + list_source
  *   2. AI calls propose_repair() with error context + a unified diff patch
- *   3. The patch is stored in .smallclaw/pending-repairs/<id>.json
+ *   3. The patch is stored in .wolverine/pending-repairs/<id>.json
  *   4. A formatted proposal is returned (Telegram sends it to the user)
  *   5. User replies /approve <id> or /reject <id> in Telegram
  *   6. On approval: patch is applied to src/, npm run build runs, gateway restarts
@@ -23,16 +23,16 @@ import { PATHS } from '../config/paths.js';
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
-function getSmallClawRoot(): string {
+function getWolverineRoot(): string {
   return path.resolve(__dirname, '..', '..');
 }
 
-function getSmallClawDataDir(): string {
+function getWolverineDataDir(): string {
   return PATHS.dataHome();
 }
 
 function getPendingRepairsDir(): string {
-  const dir = path.join(getSmallClawDataDir(), 'pending-repairs');
+  const dir = path.join(getWolverineDataDir(), 'pending-repairs');
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -127,8 +127,8 @@ export async function executeProposeRepair(args: ProposeRepairArgs): Promise<Too
   }
 
   // Dry-run the patch to make sure it applies cleanly before storing
-  const root = getSmallClawRoot();
-  const tmpPatch = path.join(os.tmpdir(), `smallclaw-repair-check-${Date.now()}.patch`);
+  const root = getWolverineRoot();
+  const tmpPatch = path.join(os.tmpdir(), `wolverine-repair-check-${Date.now()}.patch`);
   try {
     fs.writeFileSync(tmpPatch, patchText, 'utf-8');
     execSync(`git apply --check --whitespace=nowarn "${tmpPatch}"`, {
@@ -248,8 +248,8 @@ export async function applyApprovedRepair(repairId: string): Promise<ApplyRepair
     return { success: false, repairId, message: `Repair #${repairId} is not pending (status: ${repair.status})` };
   }
 
-  const root = getSmallClawRoot();
-  const tmpPatch = path.join(os.tmpdir(), `smallclaw-repair-apply-${Date.now()}.patch`);
+  const root = getWolverineRoot();
+  const tmpPatch = path.join(os.tmpdir(), `wolverine-repair-apply-${Date.now()}.patch`);
 
   try {
     fs.writeFileSync(tmpPatch, repair.patch, 'utf-8');
@@ -303,7 +303,7 @@ export async function applyApprovedRepair(repairId: string): Promise<ApplyRepair
     savePendingRepair(repair);
 
     // Revert the patch since build failed
-    const revertPatch = path.join(os.tmpdir(), `smallclaw-repair-revert-${Date.now()}.patch`);
+    const revertPatch = path.join(os.tmpdir(), `wolverine-repair-revert-${Date.now()}.patch`);
     try {
       fs.writeFileSync(revertPatch, repair.patch, 'utf-8');
       execSync(`git apply --reverse --whitespace=nowarn "${revertPatch}"`, { cwd: root, stdio: 'pipe' });
@@ -339,7 +339,7 @@ function triggerGatewayRestart(root: string, repairId: string): void {
   const isWindows = process.platform === 'win32';
   try {
     if (isWindows) {
-      const batPath = path.join(root, 'start-smallclaw.bat');
+      const batPath = path.join(root, 'start-wolverine.bat');
       if (fs.existsSync(batPath)) {
         const child = spawn('cmd.exe', ['/c', batPath], {
           cwd: root, detached: true, stdio: 'ignore', windowsHide: false,

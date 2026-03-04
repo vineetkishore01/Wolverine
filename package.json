@@ -1,7 +1,7 @@
 {
   "name": "wolverine",
   "version": "1.0.0",
-  "description": "Local AI agent framework - Forked from SmallClaw with enhanced capabilities",
+  "description": "Local AI agent framework - Forked from Wolverine with enhanced capabilities",
   "main": "dist/index.js",
   "bin": {
     "wolverine": "./dist/cli/index.js"
@@ -34,7 +34,7 @@
     "node-pty": "^1.1.0",
     "ollama": "^0.5.0",
     "pdf-parse": "^1.1.1",
-    "playwright": "^1.58.2",
+    "pinchtab": "^0.7.6",
     "tesseract.js": "^5.1.1",
     "ws": "^8.16.0",
     "zod": "^3.22.0"

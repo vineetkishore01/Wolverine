@@ -246,7 +246,7 @@ function selectDominantStoryCluster(query: string, ranked: SearchResultItem[]): 
 
 async function fetchCleanArticle(url: string, maxChars = 5000): Promise<string> {
   const res = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) SmallClaw/1.0' },
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Wolverine/1.0' },
     signal: AbortSignal.timeout(15_000),
     redirect: 'follow',
   });
@@ -454,7 +454,7 @@ function rankResults(query: string, results: SearchResultItem[]) {
     .map(x => x.r);
 }
 
-// ── Load optional API keys from ~/.smallclaw/config.json ─────────────────────
+// ── Load optional API keys from ~/.wolverine/config.json ─────────────────────
 function getSearchConfig(): {
   preferred: 'tavily' | 'google' | 'brave' | 'ddg';
   tavilyKey?: string;
@@ -581,7 +581,7 @@ async function searchDDG(query: string, limit: number): Promise<ToolResult> {
   // DDG instant answer API — gives structured results without scraping HTML
   const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_redirect=1&no_html=1&skip_disambig=1`;
   const res = await fetch(url, {
-    headers: { 'User-Agent': 'SmallClaw/1.0' },
+    headers: { 'User-Agent': 'Wolverine/1.0' },
     signal: AbortSignal.timeout(12_000),
   });
 
@@ -640,7 +640,7 @@ async function searchDDG(query: string, limit: number): Promise<ToolResult> {
 async function searchDDGHtml(query: string, limit: number): Promise<ToolResult> {
   const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
   const res = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) SmallClaw/1.0' },
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Wolverine/1.0' },
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) return { success: false, error: `DDG HTML HTTP ${res.status}` };
@@ -817,7 +817,7 @@ export async function executeWebFetch(args: { url: string; max_chars?: number })
 
   try {
     const res = await fetch(args.url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) SmallClaw/1.0' },
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Wolverine/1.0' },
       signal: AbortSignal.timeout(20_000),
       redirect: 'follow',
     });

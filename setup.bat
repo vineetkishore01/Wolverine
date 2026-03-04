@@ -1,19 +1,19 @@
 @echo off
-:: SmallClaw Setup Script
+:: Wolverine Setup Script
 :: Run this once to:
-::   1. Build SmallClaw with the new self-update tool
-::   2. Register SmallClaw to auto-start on Windows login
+::   1. Build Wolverine with the new self-update tool
+::   2. Register Wolverine to auto-start on Windows login
 
-title SmallClaw Setup
-cd /d "D:\SmallClaw"
+title Wolverine Setup
+cd /d "D:\Wolverine"
 
 echo.
 echo ========================================
-echo   SmallClaw Setup
+echo   Wolverine Setup
 echo ========================================
 echo.
 
-echo [1/3] Building SmallClaw...
+echo [1/3] Building Wolverine...
 call npm run build
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Build failed! Check the errors above.
@@ -32,14 +32,14 @@ if %ERRORLEVEL% NEQ 0 (
 echo.
 
 echo [3/3] Registering Windows startup task...
-powershell -ExecutionPolicy Bypass -File "D:\SmallClaw\install-startup.ps1"
+powershell -ExecutionPolicy Bypass -File "D:\Wolverine\install-startup.ps1"
 echo.
 
 echo ========================================
 echo   Setup Complete!
 echo ========================================
 echo.
-echo  Auto-start: SmallClaw will now open when you log in
+echo  Auto-start: Wolverine will now open when you log in
 echo  Self-update: Tell the AI "update yourself" via Telegram
 echo.
 echo  To test right now: smallclaw gateway start

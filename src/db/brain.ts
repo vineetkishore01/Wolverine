@@ -140,12 +140,23 @@ export class BrainDB {
         )
       `).run();
 
-            // 6. Indexes
+            // 6. Scratchpad Table
+            this.db.prepare(`
+        CREATE TABLE IF NOT EXISTS scratchpad (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          content TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      `).run();
+
+            // 7. Indexes
             this.db.prepare("CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category)").run();
             this.db.prepare("CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope)").run();
             this.db.prepare("CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance DESC)").run();
             this.db.prepare("CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed DESC)").run();
             this.db.prepare("CREATE INDEX IF NOT EXISTS idx_procedures_name ON procedures(name)").run();
+            this.db.prepare("CREATE INDEX IF NOT EXISTS idx_scratchpad_session ON scratchpad(session_id)").run();
         })();
 
         // this.migrateLegacyMemory();
@@ -332,6 +343,10 @@ export class BrainDB {
         return this.db.prepare('SELECT * FROM procedures WHERE name = ?').get(name) as Procedure || null;
     }
 
+    public deleteProcedure(id: string): void {
+        this.db.prepare('DELETE FROM procedures WHERE id = ?').run(id);
+    }
+
     public listProcedures(): Procedure[] {
         return this.db.prepare('SELECT * FROM procedures ORDER BY last_used DESC').all() as Procedure[];
     }
@@ -386,6 +401,28 @@ export class BrainDB {
         } catch {
             return row.config;
         }
+    }
+
+    // --- Scratchpad Operations ---
+
+    public getScratchpad(sessionId: string): string | null {
+        const row = this.db.prepare('SELECT content FROM scratchpad WHERE session_id = ?').get(sessionId) as { content: string } | undefined;
+        return row ? row.content : null;
+    }
+
+    public writeScratchpad(sessionId: string, content: string): void {
+        const now = new Date().toISOString();
+        const existing = this.db.prepare('SELECT id FROM scratchpad WHERE session_id = ?').get(sessionId) as { id: string } | undefined;
+        const actualId = existing?.id || randomUUID();
+
+        this.db.prepare(`
+            INSERT OR REPLACE INTO scratchpad (id, session_id, content, updated_at)
+            VALUES (?, ?, ?, ?)
+        `).run(actualId, sessionId, content, now);
+    }
+
+    public clearScratchpad(sessionId: string): void {
+        this.db.prepare('DELETE FROM scratchpad WHERE session_id = ?').run(sessionId);
     }
 
     public close(): void {

@@ -1,7 +1,7 @@
 /**
  * desktop-tools.ts
  *
- * Windows desktop automation primitives for SmallClaw.
+ * Windows desktop automation primitives for Wolverine.
  * Uses PowerShell + Win32 APIs (no native npm dependency required).
  *
  * NOTE: Current implementation targets Windows only.
@@ -158,9 +158,9 @@ $out | ConvertTo-Json -Compress
 async function activeWindowInternal(): Promise<DesktopWindowInfo | null> {
   const script = `
 ${PS_WINAPI_HEADER}
-$hWnd = [SmallClawWinApi]::GetForegroundWindow()
+$hWnd = [WolverineWinApi]::GetForegroundWindow()
 $pid = 0
-[void][SmallClawWinApi]::GetWindowThreadProcessId($hWnd, [ref]$pid)
+[void][WolverineWinApi]::GetWindowThreadProcessId($hWnd, [ref]$pid)
 $proc = $null
 if ($pid -gt 0) {
   $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
@@ -191,7 +191,7 @@ $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
 $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
 $g = [System.Drawing.Graphics]::FromImage($bmp)
 $g.CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bmp.Size)
-$tmp = Join-Path $env:TEMP ("smallclaw-desktop-" + [guid]::NewGuid().ToString() + ".png")
+$tmp = Join-Path $env:TEMP ("wolverine-desktop-" + [guid]::NewGuid().ToString() + ".png")
 $bmp.Save($tmp, [System.Drawing.Imaging.ImageFormat]::Png)
 $g.Dispose()
 $bmp.Dispose()
@@ -240,11 +240,11 @@ function findWindowsByName(allWindows: DesktopWindowInfo[], query: string): Desk
 // The gain is real: when 5 tools fire in sequence each saves one recompile.
 
 const PS_WINAPI_HEADER = `
-if (-not ([System.Management.Automation.PSTypeName]'SmallClawWinApi').Type) {
+if (-not ([System.Management.Automation.PSTypeName]'WolverineWinApi').Type) {
   Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
-public static class SmallClawWinApi {
+public static class WolverineWinApi {
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
   [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
@@ -255,11 +255,11 @@ public static class SmallClawWinApi {
 `;
 
 const PS_INPUTAPI_HEADER = `
-if (-not ([System.Management.Automation.PSTypeName]'SmallClawInputApi').Type) {
+if (-not ([System.Management.Automation.PSTypeName]'WolverineInputApi').Type) {
   Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
-public static class SmallClawInputApi {
+public static class WolverineInputApi {
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
 }
@@ -276,13 +276,13 @@ async function focusWindowHandle(handle: number): Promise<boolean> {
 ${PS_WINAPI_HEADER}
 $hWnd = [IntPtr]::new([Int64]${h})
 # Restore if minimized
-[void][SmallClawWinApi]::ShowWindowAsync($hWnd, 9)
+[void][WolverineWinApi]::ShowWindowAsync($hWnd, 9)
 Start-Sleep -Milliseconds 150
 # Simulate Alt keypress to bypass foreground lock
 $wsh = New-Object -ComObject WScript.Shell
 $wsh.SendKeys('%')
 Start-Sleep -Milliseconds 80
-$ok = [SmallClawWinApi]::SetForegroundWindow($hWnd)
+$ok = [WolverineWinApi]::SetForegroundWindow($hWnd)
 if (-not $ok) {
   # Fallback: use AppActivate by handle's PID
   $procs = Get-Process | Where-Object { $_.MainWindowHandle -eq $hWnd }
@@ -314,9 +314,9 @@ function computeContentHash(base64: string): string {
 
 async function runOcr(imagePath: string): Promise<{ text: string; confidence: number } | null> {
   try {
-    const ocrEnabled = String(process.env.SMALLCLAW_DESKTOP_OCR || '1').trim() !== '0';
+    const ocrEnabled = String(process.env.WOLVERINE_DESKTOP_OCR || '1').trim() !== '0';
     if (!ocrEnabled) return null;
-    const timeoutMs = clampInt(process.env.SMALLCLAW_OCR_TIMEOUT_MS, 1000, 120000, 25000);
+    const timeoutMs = clampInt(process.env.WOLVERINE_OCR_TIMEOUT_MS, 1000, 120000, 25000);
     const ocrCacheDir = resolveDataPath('ocr-cache');
     fs.mkdirSync(ocrCacheDir, { recursive: true });
     const { stdout } = await execFileAsync(
@@ -435,11 +435,11 @@ export async function desktopClick(
 
   const script = `
 ${PS_INPUTAPI_HEADER}
-[void][SmallClawInputApi]::SetCursorPos(${xx}, ${yy})
+[void][WolverineInputApi]::SetCursorPos(${xx}, ${yy})
 Start-Sleep -Milliseconds 40
 for ($i = 0; $i -lt ${repeat}; $i++) {
-  [SmallClawInputApi]::mouse_event(${downFlag}, 0, 0, 0, [UIntPtr]::Zero)
-  [SmallClawInputApi]::mouse_event(${upFlag}, 0, 0, 0, [UIntPtr]::Zero)
+  [WolverineInputApi]::mouse_event(${downFlag}, 0, 0, 0, [UIntPtr]::Zero)
+  [WolverineInputApi]::mouse_event(${upFlag}, 0, 0, 0, [UIntPtr]::Zero)
   if ($i -lt ${repeat - 1}) { Start-Sleep -Milliseconds 80 }
 }
 Write-Output "OK"
@@ -467,16 +467,16 @@ export async function desktopDrag(
 
   const script = `
 ${PS_INPUTAPI_HEADER}
-[void][SmallClawInputApi]::SetCursorPos(${fx}, ${fy})
+[void][WolverineInputApi]::SetCursorPos(${fx}, ${fy})
 Start-Sleep -Milliseconds 30
-[SmallClawInputApi]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+[WolverineInputApi]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
 for ($i = 1; $i -le ${st}; $i++) {
   $x = [int](${fx} + ((${tx} - ${fx}) * $i / ${st}))
   $y = [int](${fy} + ((${ty} - ${fy}) * $i / ${st}))
-  [void][SmallClawInputApi]::SetCursorPos($x, $y)
+  [void][WolverineInputApi]::SetCursorPos($x, $y)
   Start-Sleep -Milliseconds 8
 }
-[SmallClawInputApi]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+[WolverineInputApi]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
 Write-Output "OK"
 `;
   await runPowerShell(script, { timeoutMs: 9000 });

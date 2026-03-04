@@ -10,12 +10,12 @@ import { PATHS } from './paths.js';
 
 /**
  * Resolve the skel directory relative to the compiled dist output.
- * In dev: src/config/bootstrap.ts → ../../.smallclaw/skel
- * In dist: dist/config/bootstrap.js → ../../.smallclaw/skel
- * Both resolve to <project-root>/.smallclaw/skel
+ * In dev: src/config/bootstrap.ts → ../../.wolverine/skel
+ * In dist: dist/config/bootstrap.js → ../../.wolverine/skel
+ * Both resolve to <project-root>/.wolverine/skel
  */
 function getSkelDir(): string {
-    return path.join(__dirname, '..', '..', '.smallclaw', 'skel');
+    return path.join(__dirname, '..', '..', '.wolverine', 'skel');
 }
 
 export function bootstrapDataHome(): void {

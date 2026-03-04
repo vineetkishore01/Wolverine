@@ -1,4 +1,4 @@
-// Main exports for SmallClaw
+// Main exports for Wolverine
 
 // Configuration
 export { ConfigManager, getConfig, DEFAULT_CONFIG } from './config/config.js';

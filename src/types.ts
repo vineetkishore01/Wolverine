@@ -1,4 +1,4 @@
-// Core type definitions for SmallClaw
+// Core type definitions for Wolverine
 
 export type JobStatus = 'queued' | 'planning' | 'executing' | 'verifying' | 'completed' | 'failed' | 'needs_approval';
 export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
@@ -250,7 +250,7 @@ export interface AgentDefinition {
 
 // Config Types
 
-export interface SmallClawConfig {
+export interface WolverineConfig {
   version: string;
   gateway: {
     port: number;
@@ -267,6 +267,7 @@ export interface SmallClawConfig {
       llm_workers: number;
       tool_workers: number;
     };
+    thinking_enabled?: boolean;
   };
   models: {
     primary: string;
@@ -423,7 +424,7 @@ export interface SmallClawConfig {
 }
 
 // Backward-compatible alias while internals migrate.
-export type LocalClawConfig = SmallClawConfig;
+export type LocalClawConfig = WolverineConfig;
 
 // ─── Multi-Provider LLM Config ──────────────────────────────────────────────
 

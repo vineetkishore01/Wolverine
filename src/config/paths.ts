@@ -12,6 +12,8 @@ import fs from 'fs';
  * Default: ~/.wolverine/
  */
 const DATA_HOME = process.env.WOLVERINE_HOME
+    || process.env.WOLVERINE_DATA_DIR
+    || process.env.SMALLCLAW_DATA_DIR
     || path.join(os.homedir(), '.wolverine');
 
 /** Resolve any sub-path under the data home. Creates parent dirs if needed. */
@@ -42,15 +44,15 @@ export const PATHS = {
     user: () => resolveDataPath('workspace', 'USER.md'),
 } as const;
 
-// ── Legacy migration (.smallclaw/ → .wolverine/) ────────────────────────────
+// ── Legacy migration (.wolverine/ → .wolverine/) ────────────────────────────
 
-/** One-time migration: copy data from ~/.smallclaw/ to ~/.wolverine/ */
+/** One-time migration: copy data from ~/.wolverine/ to ~/.wolverine/ */
 export function migrateLegacyDataHome(): void {
     const legacy = path.join(os.homedir(), '.smallclaw');
     const target = DATA_HOME;
 
     if (!fs.existsSync(legacy) || legacy === target) return;
-    if (fs.existsSync(path.join(target, '.migrated-from-smallclaw'))) return;
+    if (fs.existsSync(path.join(target, '.migrated-from-wolverine'))) return;
 
     console.log(`[migration] Copying ${legacy} → ${target}`);
 
@@ -72,7 +74,7 @@ export function migrateLegacyDataHome(): void {
     try {
         copyRecursive(legacy, target);
         fs.writeFileSync(
-            path.join(target, '.migrated-from-smallclaw'),
+            path.join(target, '.migrated-from-wolverine'),
             `Migrated from ${legacy} on ${new Date().toISOString()}\n`,
         );
         console.log(`[migration] Done. Legacy data preserved at ${legacy}`);

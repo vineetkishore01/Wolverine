@@ -1,0 +1,26 @@
+{
+  "id": "e499ca7c-891e-4c46-983b-3578b9ab44ab",
+  "history": [
+    {
+      "role": "user",
+      "content": "open a browser and search about israel iran war updates from today",
+      "timestamp": 1772654148118
+    },
+    {
+      "role": "user",
+      "content": "search the web for latest Israel Iran war news today",
+      "timestamp": 1772654582388
+    },
+    {
+      "role": "assistant",
+      "content": "**Notable sources:**\n- Al Jazeera reports on US/Iranian military actions and Israel's evolving war aims\n- CNN coverage of Israeli strike operations\n- YouTube news channels from ILTV Israel News with multiple videos from the last 6 hours\n- Reuters and other international outlets covering the widening Middle East conflict\n\nThe situation appears to be escalating rapidly with direct US involvement and regional consequences extending beyond the immediate Israel-Iran confrontation.",
+      "timestamp": 1772654801359
+    }
+  ],
+  "workspace": "/Users/vineetkishore/SmallClawData/workspace",
+  "createdAt": 1772654102250,
+  "lastActiveAt": 1772654801360,
+  "pendingMemoryFlush": false,
+  "pendingCompaction": false,
+  "contextTokenEstimate": 190
+}
