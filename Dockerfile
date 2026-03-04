@@ -1,31 +1,50 @@
 # ============================================================
-# SmallClaw / LocalClaw – Dockerfile
+# Wolverine – Dockerfile
 # ============================================================
-# Multi-stage build:
-#   1. builder  – compiles TypeScript → dist/
-#   2. runtime  – lean production image with Playwright + Tesseract deps
+# Multi-stage build for a lean, production-ready image.
+# Supports full browser automation via Pinchtab + Google Chrome.
 
 # ── Stage 1: Builder ────────────────────────────────────────
-FROM node:22-slim AS builder
+FROM node:20-bookworm AS builder
+
+# Build-time dependencies for native modules (node-pty, better-sqlite3)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci
+# Copy dependency manifests
+COPY package.json ./
 
+# Install all dependencies (including devDeps for build)
+RUN npm install && npm cache clean --force
+
+# Copy source and config
 COPY tsconfig.json ./
 COPY src/ ./src/
 
+# Compile TypeScript to dist/
 RUN npm run build
 
 # ── Stage 2: Runtime ────────────────────────────────────────
-FROM node:22-slim AS runtime
+FROM node:20-bookworm-slim AS runtime
 
-# System deps: Playwright/Chromium + Tesseract OCR
+# Install system dependencies for Google Chrome & node-pty
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    gnupg \
     wget \
+    # node-pty runtime deps
+    python3 \
+    make \
+    g++ \
+    # Chrome dependencies
     fonts-liberation \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
@@ -53,61 +72,47 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxss1 \
     libxtst6 \
     xdg-utils \
-    tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Chromium (supports amd64 and arm64)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set binary path for Pinchtab
+ENV CHROME_PATH=/usr/bin/chromium
 
 WORKDIR /app
 
-# Production deps only
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+# Copy package files
+COPY package.json ./
 
-# Install Playwright browser binaries
-RUN npx playwright install chromium --with-deps 2>/dev/null || true
+# Install production dependencies only
+RUN npm install --omit=dev && npm cache clean --force
 
-# Compiled app from builder
+# Copy compiled app from builder
 COPY --from=builder /app/dist ./dist
 
-# Static web UI
+# Copy static assets (if any)
+# Note: if web-ui is managed as a separate build/dist, adjust this path.
 COPY web-ui/ ./web-ui/
 
-# Data directories (overridden by volumes in compose)
-RUN mkdir -p /data/workspace /data/logs /root/.localclaw
+# Create data directories (will be overridden by volume mounts)
+RUN mkdir -p /app/.wolverine /app/workspace
 
-# ── Environment defaults ─────────────────────────────────────
-# These are overridden by docker-compose.yml / -e flags.
-# Provider: ollama | lm_studio | llama_cpp | openai | openai_codex
+# ── Environment Configuration ────────────────────────────────
 ENV NODE_ENV=production \
-    SMALLCLAW_DATA_DIR=/data \
-    SMALLCLAW_WORKSPACE_DIR=/data/workspace \
+    WOLVERINE_DATA_DIR=/app/.wolverine \
+    WOLVERINE_WORKSPACE_DIR=/app/workspace \
     GATEWAY_PORT=18789 \
-    PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright \
-    \
-    # Active provider
-    SMALLCLAW_PROVIDER=ollama \
-    \
-    # Ollama
-    OLLAMA_HOST=http://ollama:11434 \
-    \
-    # LM Studio (host machine via host.docker.internal)
-    LM_STUDIO_ENDPOINT=http://host.docker.internal:1234 \
-    LM_STUDIO_API_KEY="" \
-    LM_STUDIO_MODEL="" \
-    \
-    # llama.cpp (host machine via host.docker.internal)
-    LLAMA_CPP_ENDPOINT=http://host.docker.internal:8080 \
-    LLAMA_CPP_MODEL="" \
-    \
-    # OpenAI
-    OPENAI_API_KEY="" \
-    OPENAI_MODEL=gpt-4o \
-    \
-    # OpenAI Codex OAuth (tokens live in mounted ~/.localclaw volume)
-    CODEX_MODEL=gpt-5.3-codex
+    OLLAMA_HOST=http://host.docker.internal:11434
 
 EXPOSE 18789
 
+# Healthcheck to verify the gateway is responding
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:18789/api/status || exit 1
 
-CMD ["node", "dist/cli/index.js", "gateway", "start"]
+# Start the gateway
+ENTRYPOINT ["node", "dist/cli/index.js"]
+CMD ["gateway", "start"]

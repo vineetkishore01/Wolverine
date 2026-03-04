@@ -19,10 +19,13 @@ workspace/
 .DS_Store
 Thumbs.db
 
-# Docs & screenshots (not needed at runtime)
-*.md
+# Docs & screenshots (but preserve agent identity files)
 *.png
 *.docx
+!BOOT.md
+!SOUL.md
+!IDENTITY.md
+!IDENTITY.json
 
 # IDE
 .vscode/
