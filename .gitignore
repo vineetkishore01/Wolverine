@@ -31,7 +31,7 @@ package/
 vendor_libs/
 
 # --- TESTS ---
-tests/
+!tests/
 
 # --- LOGS ---
 *.log
