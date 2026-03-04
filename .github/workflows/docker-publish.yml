@@ -101,9 +101,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # On ARM runners, we ONLY build ARM64 natively for absolute speed.
-          # If you need AMD64 as well, we can re-add it, but it will slow down.
-          platforms: linux/arm64
-          # Inline cache for maximum speed
+          # Building for BOTH architectures so it works on Mac AND your server
+          platforms: linux/amd64,linux/arm64
+          # Keep the fast caching!
           cache-from: type=gha
           cache-to: type=gha,mode=max
