@@ -57,7 +57,11 @@ jobs:
       always() && 
       (needs.test.result == 'success') &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
-    runs-on: ubuntu-latest
+    
+    # Use native ARM64 runner for 3x speed boost (Free for Public Repos)
+    # If the repo is private, standard ubuntu-latest is fine but emulated is slow.
+    runs-on: ubuntu-24.04-arm
+    
     permissions:
       contents: read
       packages: write
@@ -66,9 +70,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
+      # Buildx is built-in on ARM runners, but we set it up to be safe
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -88,9 +90,7 @@ jobs:
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=sha,format=long
-            # Production latest tag
             type=raw,value=latest
-            # The new automatic version tag
             type=raw,value=${{ needs.tag.outputs.new_tag }},enable=${{ needs.tag.outputs.new_tag != '' }}
 
       - name: Build and push Docker image
@@ -101,6 +101,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64,linux/arm64
+          # On ARM runners, we ONLY build ARM64 natively for absolute speed.
+          # If you need AMD64 as well, we can re-add it, but it will slow down.
+          platforms: linux/arm64
+          # Inline cache for maximum speed
           cache-from: type=gha
           cache-to: type=gha,mode=max
