@@ -51,3 +51,9 @@ desktop.ini
 # --- BUILD/CACHE ARTIFACTS ---
 .npm_cache/
 .tmp-study/
+tmp-study/
+# --- WORKSPACE LOGS ---
+.golden-progress.log
+# --- REPOSITORY ---
+.antigravity/
+.code/
