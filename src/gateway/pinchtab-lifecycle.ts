@@ -135,9 +135,10 @@ process.on('exit', () => {
 export function restartBrowser(): void {
     if (pinchtabProcess) {
         console.log('[Pinchtab] Force restarting browser bridge...');
-        pinchtabProcess.kill();
+        try { pinchtabProcess.kill('SIGKILL'); } catch { }
         pinchtabProcess = null;
     }
+    isStarting = false; // Reset so next ensureRunning() can start fresh
 }
 
 process.on('SIGINT', () => {

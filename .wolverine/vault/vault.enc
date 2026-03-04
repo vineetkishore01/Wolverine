@@ -9,10 +9,10 @@
       "expiresAt": 0
     },
     "channels.telegram.botToken": {
-      "enc": "4fe4a9fdba58efa8ba07bb2a79da8187863095ca1c72e57fcbd7a7ac9f23c85d52cac3edb688d03f892d7852ff75",
-      "iv": "a7b24c3c200d1434f9840055d1e2e62a",
-      "tag": "bbbfa7d4f8194210e7f93ffb3ea7dae4",
-      "createdAt": 1772626283414,
+      "enc": "5bf757de4b8391305b3303676d2a996bcc51670512b0b334aefcdf5544f5f047b3df716bb36b0c15bad1bebddcdb",
+      "iv": "a71874ec7b324c101218f4b832417e04",
+      "tag": "bcad58b1b7471f3fde3b295940cc5926",
+      "createdAt": 1772656555341,
       "expiresAt": 0
     }
   }

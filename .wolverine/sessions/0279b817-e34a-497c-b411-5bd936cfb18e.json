@@ -40,12 +40,22 @@
       "role": "user",
       "content": "open browser and search about israel iran war updates from today",
       "timestamp": 1772652000654
+    },
+    {
+      "role": "user",
+      "content": "who are you",
+      "timestamp": 1772655135795
+    },
+    {
+      "role": "assistant",
+      "content": "Error: Ollama chat failed at http://192.168.0.62:11434: fetch failed",
+      "timestamp": 1772655156600
     }
   ],
   "workspace": "/Users/vineetkishore/SmallClawData/workspace",
   "createdAt": 1772626211203,
-  "lastActiveAt": 1772652000655,
+  "lastActiveAt": 1772655156600,
   "pendingMemoryFlush": false,
   "pendingCompaction": false,
-  "contextTokenEstimate": 200
+  "contextTokenEstimate": 236
 }

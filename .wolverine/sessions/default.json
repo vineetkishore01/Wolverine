@@ -1,0 +1,16 @@
+{
+  "id": "default",
+  "history": [
+    {
+      "role": "user",
+      "content": "search the web for top 3 AI news headlines today",
+      "timestamp": 1772656301490
+    }
+  ],
+  "workspace": "/Users/vineetkishore/SmallClawData/workspace",
+  "createdAt": 1772656301490,
+  "lastActiveAt": 1772656301490,
+  "pendingMemoryFlush": false,
+  "pendingCompaction": false,
+  "contextTokenEstimate": 20
+}

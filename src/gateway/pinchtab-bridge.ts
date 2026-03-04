@@ -75,9 +75,14 @@ async function ptRequestWithRetry(path: string, body?: any): Promise<any> {
     try {
         return await ptRequest(path, body);
     } catch (err: any) {
-        if (err.message.includes('context canceled') || err.message.includes('target closed') || err.message.includes('no targets')) {
+        const msg = err.message || '';
+        if (msg.includes('context canceled') || msg.includes('target closed') || msg.includes('no targets') || msg.includes('HTTP 500')) {
             console.log('[Pinchtab] Retrying after restart...');
-            await sleep(2000); // Give Chrome time to restart
+            // Clear all stale tab mappings since Chrome is dead
+            sessionToTab.clear();
+            lastSnapshotCache.clear();
+            sessionState.clear();
+            await sleep(3000); // Give Chrome time to fully die and restart
             await ensureRunning();
             return await ptRequest(path, body);
         }

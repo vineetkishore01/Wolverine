@@ -1127,7 +1127,7 @@ function buildTools() {
       type: 'function' as const,
       function: {
         name: 'scratchpad_write',
-        description: 'Write or append notes, intermediate reasoning, and state to your persistent scratchpad. Use this to remember things during complex, multi-step tasks.',
+        description: 'THINK on paper before acting. Write your plan, reasoning, intermediate findings, and state here BEFORE taking action. Use this to plan multi-step tasks, track progress across browser pages, and avoid repeating mistakes. For any task with 2+ steps, write a plan here FIRST.',
         parameters: {
           type: 'object',
           required: ['content'],
@@ -4024,6 +4024,36 @@ RULES:
   sendSSE('info', { message: 'Thinking...' });
   console.log(`\n[v2] ── CHAT (native tools) ──`);
 
+  // ── AUTO-PLAN: Force scratchpad planning for multi-step tasks ──────────────
+  // Small models skip scratchpad planning even when instructed. Force it at code level.
+  const isMultiStepQuery = /\b(search|find|look up|latest|news|open|browse|navigate|create|build|make|edit|modify|summarize|compare|list|show me|analyze|check|research)\b/i.test(message)
+    && message.length > 15;
+  if (isMultiStepQuery && executionMode !== 'heartbeat') {
+    const planContent = `🎯 GOAL: ${message.slice(0, 200)}\n📋 PLAN: Executing now...`;
+    getBrainDB().writeScratchpad(sessionId, planContent);
+    console.log(`[v2] AUTO-PLAN: Injected planning scratchpad for session ${sessionId}`);
+    sendSSE('info', { message: 'Planning approach...' });
+    const planCallId = `autoplan_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+    // Inject the plan as context so the model sees it
+    messages.push({
+      role: 'assistant',
+      content: null,
+      tool_calls: [{
+        id: planCallId,
+        type: 'function',
+        function: {
+          name: 'scratchpad_write',
+          arguments: { content: planContent },
+        },
+      }],
+    });
+    messages.push({
+      role: 'tool',
+      tool_call_id: planCallId,
+      content: `Plan saved. Now you MUST use tools to accomplish the goal: "${message.slice(0, 100)}". Call web_search or browser_open RIGHT NOW. Do NOT just describe or summarize — use a tool.`,
+    });
+  }
+
   for (let round = 0; ; round++) {
     if (round >= MAX_TOOL_ROUNDS) {
       const allowExtendedFileOpLoop =
@@ -4772,16 +4802,48 @@ RULES:
         }
       }
 
-      // If model dumped massive reasoning with no usable reply, generate a fallback
       let finalText = sanitizeFinalReply(
         String(reply || rawAssistantText || ''),
         { preflightReason: preflightReasonForTurn },
       );
       if (!finalText || finalText.length < 5) {
         if (allToolResults.length > 0) {
-          // Summarize what tools actually did
+          // Check if we had meaningful tool results that deserve summarization
+          const hadSearchOrBrowser = allToolResults.some(r =>
+            r.name === 'web_search' || r.name === 'browser_open' || r.name === 'browser_snapshot' || r.name === 'web_fetch'
+          );
           const lastResult = allToolResults[allToolResults.length - 1];
-          finalText = lastResult.error ? `Tool failed: ${lastResult.result.slice(0, 200)}` : 'Done!';
+          if (hadSearchOrBrowser && !lastResult.error) {
+            // Re-prompt model to summarize findings instead of saying "Done!"
+            console.log('[v2] AUTO-SUMMARIZE: Model gave empty reply after search/browser. Re-prompting for summary...');
+            sendSSE('info', { message: 'Summarizing findings...' });
+            messages.push({
+              role: 'user',
+              content: 'You just completed tool calls but gave no summary. Based on the tool results above, provide a concise but comprehensive answer to the user\'s original question. Include key facts, sources, and findings.',
+            });
+            try {
+              const summaryResponse = await ollama.chatWithThinking(messages, 'executor', {
+                tools,
+                temperature: 0.3,
+                num_ctx: 4096,
+                num_predict: 2048,
+                think: false,
+              });
+              const summaryText = sanitizeFinalReply(
+                String(summaryResponse?.message?.content || summaryResponse?.thinking || ''),
+                { preflightReason: preflightReasonForTurn },
+              );
+              if (summaryText && summaryText.length > 10) {
+                finalText = summaryText;
+              } else {
+                finalText = lastResult.error ? `Tool failed: ${lastResult.result.slice(0, 200)}` : 'Task completed. Check the process log for details.';
+              }
+            } catch {
+              finalText = 'Task completed. Check the process log for details.';
+            }
+          } else {
+            finalText = lastResult.error ? `Tool failed: ${lastResult.result.slice(0, 200)}` : 'Done!';
+          }
         } else {
           finalText = 'Hey! How can I help?';
         }
