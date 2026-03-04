@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="screenshots/wolverine_primary_logo.png" alt="Wolverine logo" width="300" />
+  <img src="screenshots/wolverine_logo.png" alt="Wolverine logo" width="300" />
 </p>
 
 <h1 align="center">Wolverine 🐺</h1>
@@ -7,16 +7,12 @@
 <p align="center">
   Local-first AI agent framework built for small models, with optional hybrid cloud support.
   <br>
-# Wolverine v1.0.0
-**Current release:** `v1.0.0`
+# Wolverine v1.0.1
+**Current release:** `v1.0.1`
 
 ---
 
 ## What is Wolverine?
-
-<p align="center">
-  <img src="screenshots/wolverine_vs_cloud.png" alt="Wolverine vs Cloud LLMs" width="800" />
-</p>
 
 Wolverine is a chat-first AI agent that supports multiple providers for local-only or hybrid setups (Ollama, llama.cpp, LM Studio, OpenAI API, and OpenAI Codex OAuth). It gives your local model real tools — files, web search, browser automation, terminal commands — delivered through a clean web UI with no API costs, no data leaving your machine.
 
@@ -32,12 +28,10 @@ Wolverine is a chat-first AI agent that supports multiple providers for local-on
 - ✅ **Learning & Memory** — High-performance SQLite Brain Database with FTS5 search
 - ✅ **Context Engineer** — Dynamic per-turn prompt assembly for efficient token routing
 - ✅ **Persona Growth** — Agent continuously learns via USER.md, SOUL.md, and IDENTITY.md
+- ✅ **Industrial CI/CD** — Automated Docker builds with multi-arch support (ARM64/AMD64)
+- ✅ **Self-Versioning** — Automatic semantic versioning on every main pull
 
 ## Architecture
-
-<p align="center">
-  <img src="screenshots/wolverine_explained.png" alt="Wolverine Architecture Diagram" width="800" />
-</p>
 
 Wolverine is built around a single-pass chat handler. When you send a message, one LLM call decides whether to respond conversationally or call tools — no separate planning, execution, and verification agents.
 
@@ -67,7 +61,7 @@ Wolverine is built around a single-pass chat handler. When you send a message, o
 +------------------------+----------------------+
         |                 |                 |
         v                 v                 v
-   File Tools         Web Tools        Browser Tools
+    File Tools         Web Tools        Browser Tools
 (read/write/edit)   (search/fetch)     (Playwright)
 ```
 
@@ -81,13 +75,15 @@ Wolverine is built around a single-pass chat handler. When you send a message, o
    - OpenAI API key
    - OpenAI Codex OAuth (ChatGPT account)
 3. **At least 8GB RAM** (16GB recommended for coding tasks)
+4. **Docker** (Optional, for simplified deployment)
 
 ## Installation
 
+### Standard Setup
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/wolverine.git
-cd wolverine
+git clone https://github.com/vineetkishore01/Wolverine.git
+cd Wolverine
 
 # Install dependencies
 npm install
@@ -100,6 +96,13 @@ npm link
 
 # Initialize the project (Run Once)
 wolverine onboard
+```
+
+### Docker Deployment (Recommended for Servers)
+```bash
+docker pull ghcr.io/vineetkishore01/wolverine:latest
+# Or use the provided docker-compose.yml
+docker-compose up -d
 ```
 
 ## Quick Start
@@ -130,10 +133,6 @@ In the web UI, open Settings (⚙️ in the top bar):
 
 ## Workspace & Learning
 
-<p align="center">
-  <img src="screenshots/wolverine_mascot.png" alt="Wolverine Mascot" width="300" />
-</p>
-
 Your workspace (default: `~/WolverineData/workspace`) contains:
 
 - **SOUL.md** — Core personality/principles  
@@ -141,7 +140,7 @@ Your workspace (default: `~/WolverineData/workspace`) contains:
 - **IDENTITY.md** — Agent identity
 - **AGENTS.md** — Agent task definitions
 
-*Note: All factual memory, habits, and learned procedures are now stored in the encrypted SQLite Brain Database for performance and privacy.*
+*Note: All factual memory, habits, and learned procedures are now stored in the high-performance SQLite Brain Database for performance and privacy.*
 
 ## License
 
