@@ -672,7 +672,13 @@ export class TelegramChannel {
       return;
     }
 
-    // Send "typing" indicator
+
+    // Start persistent typing loop (Telegram "typing" only lasts ~5s)
+    const typingInterval = setInterval(() => {
+      this.apiCall('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => { });
+    }, 4000);
+
+    // Initial "typing" indicator
     await this.apiCall('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => { });
 
     // Route to handleChat
@@ -714,6 +720,8 @@ export class TelegramChannel {
     } catch (err: any) {
       console.error(`[Telegram] handleChat error:`, err.message);
       await this.sendMessage(chatId, `🐺 Error: ${err.message}`);
+    } finally {
+      clearInterval(typingInterval);
     }
   }
 

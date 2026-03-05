@@ -1798,22 +1798,52 @@ const DEFAULT_TIMEOUTS = {
 
 ---
 
-## 12. Phase 10: Industrial CI/CD & Infrastructure
+
+## 13. Phase 11: Proactive AGI Features
 
 ### Goal
-Moving from a hobbyist project to an enterprise-grade platform via professional automation and containerization.
+Moving from a reactive to a proactive agent that takes initiative, evolves its own capabilities, and provides a "living" sense of presence.
 
-### Components
-1. **GitHub Actions Workflow** (`.github/workflows/docker-publish.yml`)
-   - **Automated Versioning**: Pulling into `main` or `master` triggers `anothrNick/github-tag-action`.
-   - **Multi-Platform Build**: Native ARM64 runners (`ubuntu-24.04-arm`) + AMD64 via emulation.
-   - **Fast-Caching**: Layered cache (`type=gha`) for Docker builds.
-2. **Container Registry** (`ghcr.io`)
-   - Automatic posting of versioned images (e.g., `v1.0.1`) and tagging of `latest`.
-3. **Docker Strategy**
-   - Use of `Dockerfile.base` to reduce build times by pre-installing system dependencies (Chromium, Python, etc.).
+### Step 11.1: Asynchronous Step-Reflected Hooks (The Pulse)
+Implement a hidden background reflection loop that triggers every 2-3 tool calls. A secondary small model generates a one-sentence "Mission Update" broadcasted via SSE to the UI.
+- **Outcome:** Transparent execution progress without waiting for final turn completion.
 
-### Verification
-- [x] Successful multi-arch build on GitHub Actions.
-- [x] Automatic tag generation (`v1.0.1`).
-- [x] Docker Pull confirmed on Intel-based Home Server.
+### Step 11.2: Scout Protocol (Autonomous Skill Discovery)
+Update `HeartbeatRunner` to include a "Discovery Mode". Every 12-24 hours, the agent searches for one new technical capability (API/tool) relevant to the user's workspace history and attempts to implement it via `skill_create`.
+- **Outcome:** Self-evolving agent that gains new tools while the user is away.
+
+### Step 11.3: The Global Pulse (Live Activity Feed)
+Implement a "Ticker" or "Activity Feed" component in the Web UI that streams background events like CronJob results, memory prunings, and Scout Protocol discoveries.
+- **Outcome:** A persistent record of the agent's life and automated chores.
+
+---
+
+## Summary Checklist
+
+- [ ] **Phase 0.1:** Create `src/config/paths.ts` with `resolveDataPath()` and `PATHS` constants
+- [ ] **Phase 0.2:** Create `src/config/bootstrap.ts` for first-run data home setup
+- [ ] **Phase 0.3:** Rewire all ~20 scattered `os.homedir(), '.smallclaw'` references to use `PATHS`
+- [ ] **Phase 0.4:** Add legacy migration from `~/.smallclaw/` → `~/.wolverine/`
+- [ ] **Phase 0.5:** Update `.gitignore` and Docker config
+- [x] **Phase 1.1:** Create `src/db/brain.ts` with BrainDB class and schema
+- [x] **Phase 1.2:** Rewire `src/tools/memory.ts` executeMemoryWrite to use brain.db
+- [x] **Phase 1.3:** Rewire `src/tools/memory.ts` executeMemorySearch to use FTS5
+- [x] **Phase 1.4:** Rewire `src/gateway/memory-manager.ts` to route through brain.db
+- [x] **Phase 1.5:** Create `src/tools/procedures.ts` with procedure_save/list/get tools
+- [x] **Phase 1.6:** Register new tools in `server-v2.ts` buildTools() + execution routing
+- [x] **Phase 1.7:** Create `src/db/migrate-to-brain.ts` migration script
+- [x] **Phase 2.1:** Create `src/gateway/context-engineer.ts`
+- [x] **Phase 2.2:** Integrate context injection into `buildSystemPrompt()` in soul-loader.ts
+- [x] **Phase 2.3:** Call context engineer from `handleChat()` in server-v2.ts
+- [x] **Phase 2.4:** Adjust token budget in soul-loader.ts
+- [ ] **Phase 3.1:** Design and document SKILL.md v2 format
+- [ ] **Phase 3.2:** Create `src/tools/skill-create.ts`
+- [ ] **Phase 3.3:** Create `src/tools/skill-test.ts`
+- [ ] **Phase 3.4:** Add dynamic connector loading to `src/skills/connector.ts`
+- [ ] **Phase 3.5:** Create `src/skills/runtime.ts` for skill→tool registration
+- [ ] **Phase 4.1:** Create `src/gateway/reflection.ts`
+- [ ] **Phase 4.2:** Integrate reflection into server-v2.ts handleChat()
+- [ ] **Phase 4.3:** Auto-save task journal as procedures in task-runner.ts
+- [ ] **Phase 11.1:** Implement "Step-Reflector" Pulse SSE events
+- [ ] **Phase 11.2:** Implement "Scout Protocol" Discovery Heartbeats
+- [ ] **Phase 11.3:** Build "Global Pulse" UI Ticker
