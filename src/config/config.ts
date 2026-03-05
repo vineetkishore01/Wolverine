@@ -114,6 +114,11 @@ export const DEFAULT_CONFIG: WolverineConfig = {
       openai_codex: {
         model: process.env.CODEX_MODEL ?? 'gpt-5.3-codex',
       },
+      openrouter: {
+        api_key: process.env.OPENROUTER_API_KEY ? `env:OPENROUTER_API_KEY` : '',
+        model: process.env.OPENROUTER_MODEL ?? 'openai/gpt-4o-mini',
+        endpoint: 'https://openrouter.ai/api/v1',
+      },
     },
   } as any,
   models: {
@@ -287,6 +292,7 @@ const SECRET_FIELD_MAP: Array<[string[], string]> = [
   [['search', 'google_api_key'], 'search.google_api_key'],
   [['search', 'brave_api_key'], 'search.brave_api_key'],
   [['llm', 'providers', 'openai', 'api_key'], 'llm.openai.api_key'],
+  [['llm', 'providers', 'openrouter', 'api_key'], 'llm.openrouter.api_key'],
   [['llm', 'providers', 'lm_studio', 'api_key'], 'llm.lm_studio.api_key'],
   [['hooks', 'token'], 'hooks.token'],
 ];

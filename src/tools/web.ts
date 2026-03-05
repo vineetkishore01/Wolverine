@@ -468,7 +468,7 @@ function getSearchConfig(): {
       const data = JSON.parse(fs.readFileSync(cfg, 'utf-8'));
       const preferredRaw = String(data.search?.preferred_provider || 'tavily').toLowerCase();
       const preferred = (['tavily', 'google', 'brave', 'ddg'].includes(preferredRaw) ? preferredRaw : 'tavily') as 'tavily' | 'google' | 'brave' | 'ddg';
-      
+
       // Support both nested (search.tavily_api_key) and flat (tavily_api_key) configs
       let tavilyKey = data.search?.tavily_api_key || data.tavily_api_key;
       // Resolve vault references: "vault:search.tavily_api_key" -> actual value from vault
@@ -482,7 +482,7 @@ function getSearchConfig(): {
           }
         } catch { /* ignore vault errors */ }
       }
-      
+
       return {
         preferred,
         tavilyKey: tavilyKey,
@@ -663,22 +663,41 @@ async function searchDDGHtml(query: string, limit: number): Promise<ToolResult> 
   const html = await res.text();
   const results: Array<{ title: string; url: string; snippet: string }> = [];
 
-  const re = /<a class="result__a" href="([^"]+)"[^>]*>([^<]+)<\/a>[\s\S]*?<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+  // Primary regex for modern DDG results
+  const rePrimary = /<a class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+  // Fallback regex for simpler or changed markup
+  const reSecondary = /<a [^>]*href="([^"]+)"[^>]*class="[^"]*result__a[^"]*"[^>]*>([\s\S]*?)<\/a>/g;
+
   let m;
-  while ((m = re.exec(html)) !== null && results.length < limit) {
+  while ((m = rePrimary.exec(html)) !== null && results.length < limit) {
     const href = m[1];
     const realUrl = href.startsWith('/l/?') || href.startsWith('//duckduckgo.com/l/?')
       ? decodeURIComponent(href.replace(/.*uddg=/, ''))
       : href;
     results.push({
-      title: m[2].trim(),
+      title: m[2].replace(/<[^>]+>/g, '').trim(),
       url: realUrl,
       snippet: m[3].replace(/<[^>]+>/g, '').trim(),
     });
   }
 
   if (results.length === 0) {
-    return { success: false, error: 'No search results found. DDG may have changed its markup.' };
+    let m2;
+    while ((m2 = reSecondary.exec(html)) !== null && results.length < limit) {
+      const href = m2[1];
+      const realUrl = href.startsWith('/l/?') || href.startsWith('//duckduckgo.com/l/?')
+        ? decodeURIComponent(href.replace(/.*uddg=/, ''))
+        : href;
+      results.push({
+        title: m2[2].replace(/<[^>]+>/g, '').trim(),
+        url: realUrl,
+        snippet: 'No snippet available in fallback mode.',
+      });
+    }
+  }
+
+  if (results.length === 0) {
+    return { success: false, error: 'No search results found. DDG may have changed its markup or blocked the request.' };
   }
   const ranked = rankResults(query, results);
   const answer = buildDirectPriceAnswer(query, ranked);

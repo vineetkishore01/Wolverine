@@ -30,7 +30,7 @@ export const systemStatusTool: Tool = {
                 error: `System Status: 
 - Ollama: OFFLINE or UNREACHABLE at ${host}
 - Error: ${err.message}
-- Tip: Ensure Ollama is running and accessible at the configured host.`,
+- Tip: Ensure Ollama is running (check your Menu Bar on Mac) and accessible at the configured host. If Ollama is not installed, download it from https://ollama.com.`,
             };
         }
     },

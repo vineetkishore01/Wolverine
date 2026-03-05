@@ -45,7 +45,18 @@ export class OpenAICompatAdapter implements LLMProvider {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (auth) headers['Authorization'] = auth;
 
-    const url = `${this.config.endpoint.replace(/\/$/, '')}${path}`;
+    // OpenRouter suggests these headers
+    if (this.id === 'openrouter') {
+      headers['HTTP-Referer'] = 'https://github.com/WolverineAI/Wolverine';
+      headers['X-Title'] = 'Wolverine AI';
+    }
+
+    let baseUrl = this.config.endpoint.replace(/\/$/, '');
+    // If endpoint ends with /v1 and path starts with /v1, don't double up
+    if (baseUrl.endsWith('/v1') && path.startsWith('/v1')) {
+      baseUrl = baseUrl.slice(0, -3);
+    }
+    const url = `${baseUrl}${path}`;
     const response = await fetch(url, {
       method: 'POST',
       headers,
@@ -65,7 +76,16 @@ export class OpenAICompatAdapter implements LLMProvider {
     const headers: Record<string, string> = {};
     if (auth) headers['Authorization'] = auth;
 
-    const url = `${this.config.endpoint.replace(/\/$/, '')}${path}`;
+    if (this.id === 'openrouter') {
+      headers['HTTP-Referer'] = 'https://github.com/WolverineAI/Wolverine';
+      headers['X-Title'] = 'Wolverine AI';
+    }
+
+    let baseUrl = this.config.endpoint.replace(/\/$/, '');
+    if (baseUrl.endsWith('/v1') && path.startsWith('/v1')) {
+      baseUrl = baseUrl.slice(0, -3);
+    }
+    const url = `${baseUrl}${path}`;
     const response = await fetch(url, {
       headers,
       signal: AbortSignal.timeout(10_000),

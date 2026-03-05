@@ -3559,6 +3559,7 @@
             <option value="llama_cpp">llama.cpp (local)</option>
             <option value="lm_studio">LM Studio (local)</option>
             <option value="openai">OpenAI — API Key</option>
+            <option value="openrouter">OpenRouter (cloud) — API Key</option>
             <option value="openai_codex">OpenAI — GPT Plus / Codex (OAuth)</option>
           </select>
         </div>
@@ -3685,6 +3686,43 @@
               <div id="provider-status-msg-openai" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
             </div>
 
+            <!-- OpenRouter -->
+            <div id="prov-fields-openrouter" style="display:none">
+              <div class="right-section-title" style="margin-bottom:8px">OpenRouter API</div>
+              <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">API Key</label>
+              <input id="settings-openrouter-key" type="password" placeholder="sk-or-..."
+                style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;font-family:'IBM Plex Mono',monospace" />
+              <label style="display:block;font-size:12px;color:var(--muted);margin:10px 0 6px">Endpoint
+                (optional)</label>
+              <input id="settings-openrouter-endpoint" type="text" placeholder="https://openrouter.ai/api/v1"
+                style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;font-family:'IBM Plex Mono',monospace" />
+              <label style="display:block;font-size:12px;color:var(--muted);margin:10px 0 6px">Model</label>
+              <div style="display:flex;gap:8px">
+                <input id="settings-openrouter-model" type="text" placeholder="openai/gpt-4o-mini"
+                  style="flex:1;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;font-family:'IBM Plex Mono',monospace" />
+                <button class="btn btn-sm" onclick="refreshProviderModels()"
+                  style="background:#fff;border:1px solid var(--line);color:var(--text)">Load</button>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+                <div>
+                  <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">Context
+                    Length</label>
+                  <input id="settings-openrouter-num-ctx" type="number" placeholder="8192"
+                    style="width:100%;border:1px solid var(--line);border-radius:8px;padding:6px;font-size:12px" />
+                </div>
+                <div>
+                  <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">Max Tokens</label>
+                  <input id="settings-openrouter-num-predict" type="number" placeholder="4096"
+                    style="width:100%;border:1px solid var(--line);border-radius:8px;padding:6px;font-size:12px" />
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:8px">
+                <button class="btn btn-sm" onclick="testProviderConnection()"
+                  style="background:#fff;border:1px solid var(--line);color:var(--text)">Test Connection</button>
+              </div>
+              <div id="provider-status-msg-openrouter" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
+            </div>
+
             <!-- OpenAI Codex OAuth -->
             <div id="prov-fields-openai_codex" style="display:none">
               <div class="right-section-title" style="margin-bottom:8px">OpenAI — GPT Plus / Codex</div>
@@ -3738,6 +3776,7 @@
                   <option value="">— none —</option>
                   <option value="openai_codex">ChatGPT (OAuth)</option>
                   <option value="openai">OpenAI API</option>
+                  <option value="openrouter">OpenRouter API</option>
                   <option value="ollama">Ollama (local)</option>
                   <option value="llama_cpp">llama.cpp</option>
                   <option value="lm_studio">LM Studio</option>
@@ -6258,7 +6297,7 @@
 
     // --- Provider-aware Model Settings ------------------------------------------
 
-    const PROVIDER_IDS = ['ollama', 'llama_cpp', 'lm_studio', 'openai', 'openai_codex'];
+    const PROVIDER_IDS = ['ollama', 'llama_cpp', 'lm_studio', 'openai', 'openrouter', 'openai_codex'];
 
     function onProviderChange() {
       const provider = document.getElementById('settings-llm-provider').value;
@@ -6269,7 +6308,7 @@
       });
       if (provider === 'openai') {
         refreshOpenAIModels(true).catch(() => { });
-      } else if (['ollama', 'lm_studio', 'llama_cpp'].includes(provider)) {
+      } else if (['ollama', 'lm_studio', 'llama_cpp', 'openrouter'].includes(provider)) {
         refreshProviderModels().catch(() => { });
       }
       syncOrchPreemptControls();
@@ -6301,6 +6340,13 @@
         v('settings-lmstudio-num-predict', pc.lm_studio?.num_predict);
         v('settings-openai-key', pc.openai?.api_key);
         if (pc.openai?.model) { const s = document.getElementById('settings-openai-model'); if (s) s.value = pc.openai.model; }
+
+        v('settings-openrouter-key', pc.openrouter?.api_key);
+        v('settings-openrouter-endpoint', pc.openrouter?.endpoint);
+        v('settings-openrouter-model', pc.openrouter?.model);
+        v('settings-openrouter-num-ctx', pc.openrouter?.num_ctx);
+        v('settings-openrouter-num-predict', pc.openrouter?.num_predict);
+
         if (pc.openai_codex?.model) { const s = document.getElementById('settings-codex-model'); if (s) s.value = pc.openai_codex.model; }
 
         // Check Codex OAuth status
@@ -6310,7 +6356,7 @@
         if (prov === 'openai') await refreshOpenAIModels(true);
 
         // Auto-load model list for list-capable providers
-        if (['ollama', 'lm_studio', 'llama_cpp'].includes(prov)) await refreshProviderModels();
+        if (['ollama', 'lm_studio', 'llama_cpp', 'openrouter'].includes(prov)) await refreshProviderModels();
       } catch (e) {
         console.warn('loadModelSettings error:', e);
       }
@@ -6330,8 +6376,13 @@
           const sel = document.getElementById(selId);
           if (!sel) return;
           if (i === 0) {
+            const currentVal = sel.value;
             sel.innerHTML = models.map(m => `<option value="${escHtml(m)}">${escHtml(m)}</option>`).join('');
-            if (models.length) sel.value = models[0];
+            if (currentVal && models.includes(currentVal)) {
+              sel.value = currentVal;
+            } else if (models.length) {
+              sel.value = models[0];
+            }
           }
         });
         if (msg) msg.textContent = models.length ? `${models.length} model(s) found.` : 'No models found — is the server running?';
@@ -6342,7 +6393,14 @@
 
     async function testProviderConnection() {
       const provider = document.getElementById('settings-llm-provider').value;
-      const statusIds = { ollama: 'provider-status-msg', llama_cpp: 'provider-status-msg-llamacpp', lm_studio: 'provider-status-msg-lmstudio', openai: 'provider-status-msg-openai', openai_codex: 'codex-oauth-status' };
+      const statusIds = {
+        ollama: 'provider-status-msg',
+        llama_cpp: 'provider-status-msg-llamacpp',
+        lm_studio: 'provider-status-msg-lmstudio',
+        openai: 'provider-status-msg-openai',
+        openrouter: 'provider-status-msg-openrouter',
+        openai_codex: 'codex-oauth-status'
+      };
       const msgId = statusIds[provider] || 'provider-status-msg';
       const msg = document.getElementById(msgId);
       if (msg) msg.textContent = 'Testing…';
@@ -6421,6 +6479,13 @@
         num_predict: Number(document.getElementById('settings-lmstudio-num-predict')?.value || 4096)
       };
       providers.openai = { api_key: document.getElementById('settings-openai-key')?.value || '', model: document.getElementById('settings-openai-model')?.value || 'gpt-4o' };
+      providers.openrouter = {
+        api_key: document.getElementById('settings-openrouter-key')?.value || '',
+        endpoint: document.getElementById('settings-openrouter-endpoint')?.value || 'https://openrouter.ai/api/v1',
+        model: document.getElementById('settings-openrouter-model')?.value || 'openai/gpt-4o-mini',
+        num_ctx: Number(document.getElementById('settings-openrouter-num-ctx')?.value || 8192),
+        num_predict: Number(document.getElementById('settings-openrouter-num-predict')?.value || 4096)
+      };
       providers.openai_codex = { model: document.getElementById('settings-codex-model')?.value || 'gpt-5.3-codex' };
       return { provider, providers };
     }
@@ -7600,6 +7665,7 @@
     const SECONDARY_MODEL_DEFAULTS = {
       openai_codex: 'gpt-5.3-codex',
       openai: 'gpt-4o',
+      openrouter: 'openai/gpt-4o-mini',
       ollama: '',
       llama_cpp: '',
       lm_studio: '',
@@ -7608,6 +7674,7 @@
     const ORCH_STATIC_MODEL_OPTIONS = {
       openai_codex: ['gpt-5.3-codex', 'gpt-5.3-codex-spark', 'gpt-5.2-codex', 'gpt-5.1-codex-mini'],
       openai: ['gpt-4o', 'gpt-4o-mini', 'o4-mini', 'o3'],
+      openrouter: ['openai/gpt-4o-mini', 'anthropic/claude-3.5-sonnet', 'google/gemini-2.0-flash-001'],
     };
 
     function getSelectOptionValues(selectId) {
@@ -7667,7 +7734,7 @@
         models.push(...getSelectOptionValues('settings-openai-model'));
       } else if (provider === 'openai_codex') {
         models.push(...getSelectOptionValues('settings-codex-model'));
-      } else if (['ollama', 'llama_cpp', 'lm_studio'].includes(provider)) {
+      } else if (['ollama', 'llama_cpp', 'lm_studio', 'openrouter'].includes(provider)) {
         try {
           const llm = buildProviderPayload();
           llm.provider = provider;

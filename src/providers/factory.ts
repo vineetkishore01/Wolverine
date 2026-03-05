@@ -114,7 +114,7 @@ function buildProvider(id: ProviderID, providers: any): LLMProvider {
       const cfg = providers.llama_cpp || {};
       return new OpenAICompatAdapter({
         endpoint: cfg.endpoint || 'http://localhost:8080',
-        apiKey: cfg.api_key,   // usually not needed for local
+        apiKey: resolveSecret(cfg.api_key),
         providerId: 'llama_cpp',
       });
     }
@@ -123,19 +123,30 @@ function buildProvider(id: ProviderID, providers: any): LLMProvider {
       const cfg = providers.lm_studio || {};
       return new OpenAICompatAdapter({
         endpoint: cfg.endpoint || 'http://localhost:1234',
-        apiKey: cfg.api_key,   // LM Studio has optional key support
+        apiKey: resolveSecret(cfg.api_key),
         providerId: 'lm_studio',
       });
     }
 
     case 'openai': {
       const cfg = providers.openai || {};
-      const apiKey = resolveEnvKey(cfg.api_key);
+      const apiKey = resolveSecret(cfg.api_key);
       if (!apiKey) throw new Error('OpenAI API key not configured. Add it in Settings -> Models.');
       return new OpenAICompatAdapter({
         endpoint: 'https://api.openai.com',
         apiKey,
         providerId: 'openai',
+      });
+    }
+
+    case 'openrouter': {
+      const cfg = providers.openrouter || {};
+      const apiKey = resolveSecret(cfg.api_key);
+      if (!apiKey) throw new Error('OpenRouter API key not configured. Add it in Settings -> Models.');
+      return new OpenAICompatAdapter({
+        endpoint: cfg.endpoint || 'https://openrouter.ai/api/v1',
+        apiKey,
+        providerId: 'openrouter',
       });
     }
 
@@ -151,16 +162,16 @@ function buildProvider(id: ProviderID, providers: any): LLMProvider {
 }
 
 /**
- * Supports env-var references in config values.
- * e.g. api_key: "env:OPENAI_API_KEY" -> reads process.env.OPENAI_API_KEY
+ * Supports both env-var references ("env:KEY") and 
+ * vault references ("vault:KEY") in config values.
  */
-function resolveEnvKey(value: string | undefined): string | undefined {
+function resolveSecret(value: string | undefined): string | undefined {
   if (!value) return undefined;
   if (value.startsWith('env:')) {
     const envName = value.slice(4);
     return process.env[envName];
   }
-  return value;
+  return getConfig().resolveSecret(value);
 }
 
 /** Convenience: get the active model name for a given role. */

@@ -44,7 +44,7 @@ export const configSaveTool: Tool = {
 
             return {
                 success: true,
-                data: `Successfully updated config key "${key}" to "${typeof value === 'string' && value.length > 8 ? value.slice(0, 4) + '...' : value}".`
+                stdout: `Successfully updated config key "${key}" to "${typeof value === 'string' && value.length > 8 ? value.slice(0, 4) + '...' : value}".`
             };
         } catch (error: any) {
             return {

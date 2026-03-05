@@ -10,47 +10,47 @@ const API_KEY_PATTERNS: Array<{
     configPath: string;
     displayName: string;
 }> = [
-    {
-        pattern: /^tvly-[a-zA-Z0-9]{20,}$/,
-        configPath: 'search.tavily_api_key',
-        displayName: 'Tavily',
-    },
-    {
-        pattern: /^AIza[a-zA-Z0-9_-]{35,}$/,
-        configPath: 'search.google_api_key',
-        displayName: 'Google Search',
-    },
-    {
-        pattern: /^sk-[a-zA-Z0-9]{20,}$/,
-        configPath: 'providers.openai.api_key',
-        displayName: 'OpenAI',
-    },
-    {
-        pattern: /^sk-ant-[a-zA-Z0-9_-]{50,}$/,
-        configPath: 'providers.anthropic.api_key',
-        displayName: 'Anthropic',
-    },
-    {
-        pattern: /^Brave\.[a-zA-Z0-9_-]{20,}$/,
-        configPath: 'search.brave_api_key',
-        displayName: 'Brave Search',
-    },
-    {
-        pattern: /^(ghp_|github_pat_)[a-zA-Z0-9_]{36,}$/,
-        configPath: 'services.github.token',
-        displayName: 'GitHub',
-    },
-    {
-        pattern: /^[0-9]{8,10}:[a-zA-Z0-9_-]{35,}$/,
-        configPath: 'telegram.bot_token',
-        displayName: 'Telegram Bot',
-    },
-    {
-        pattern: /^M[TY][a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{6}\.[a-zA-Z0-9_-]{27,}$/,
-        configPath: 'discord.bot_token',
-        displayName: 'Discord Bot',
-    },
-];
+        {
+            pattern: /^tvly-[a-zA-Z0-9-]{20,}$/,
+            configPath: 'search.tavily_api_key',
+            displayName: 'Tavily',
+        },
+        {
+            pattern: /^AIza[a-zA-Z0-9_-]{35,}$/,
+            configPath: 'search.google_api_key',
+            displayName: 'Google Search',
+        },
+        {
+            pattern: /^sk-[a-zA-Z0-9]{20,}$/,
+            configPath: 'providers.openai.api_key',
+            displayName: 'OpenAI',
+        },
+        {
+            pattern: /^sk-ant-[a-zA-Z0-9_-]{50,}$/,
+            configPath: 'providers.anthropic.api_key',
+            displayName: 'Anthropic',
+        },
+        {
+            pattern: /^Brave\.[a-zA-Z0-9_-]{20,}$/,
+            configPath: 'search.brave_api_key',
+            displayName: 'Brave Search',
+        },
+        {
+            pattern: /^(ghp_|github_pat_)[a-zA-Z0-9_]{36,}$/,
+            configPath: 'services.github.token',
+            displayName: 'GitHub',
+        },
+        {
+            pattern: /^[0-9]{8,10}:[a-zA-Z0-9_-]{35,}$/,
+            configPath: 'telegram.bot_token',
+            displayName: 'Telegram Bot',
+        },
+        {
+            pattern: /^M[TY][a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{6}\.[a-zA-Z0-9_-]{27,}$/,
+            configPath: 'discord.bot_token',
+            displayName: 'Discord Bot',
+        },
+    ];
 
 export function detectApiKey(key: string): { configPath: string; displayName: string } | null {
     const trimmed = key.trim();
@@ -109,15 +109,15 @@ Supported: Tavily, Google, OpenAI, Anthropic, Brave, GitHub, Telegram, Discord.`
             if (!key) return { success: false, error: 'Missing "key" parameter' };
             const trimmedKey = key.trim();
             const detection = detectApiKey(trimmedKey);
-            
+
             if (!detection) {
                 return { success: false, error: `Unknown API key format: "${trimmedKey.slice(0, 10)}...". Use config_save with explicit path.` };
             }
-            
+
             if (action === 'detect') {
                 return { success: true, stdout: `Detected: ${detection.displayName} → ${detection.configPath}. Use action: "configure" to save.` };
             }
-            
+
             // Save key
             const configManager = getConfig();
             const config = configManager.getConfig();
@@ -129,10 +129,10 @@ Supported: Tavily, Google, OpenAI, Anthropic, Brave, GitHub, Telegram, Discord.`
             }
             obj[keys[keys.length - 1]] = trimmedKey;
             await configManager.saveConfig();
-            
+
             // Validate
             const validation = await validateApiKey(detection.displayName, trimmedKey);
-            
+
             return {
                 success: validation.valid,
                 stdout: `✅ ${detection.displayName} configured!

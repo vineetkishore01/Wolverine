@@ -87,4 +87,4 @@ export interface LLMProvider {
   readonly id: ProviderID;
 }
 
-export type ProviderID = 'ollama' | 'llama_cpp' | 'lm_studio' | 'openai' | 'openai_codex';
+export type ProviderID = 'ollama' | 'llama_cpp' | 'lm_studio' | 'openai' | 'openai_codex' | 'openrouter';

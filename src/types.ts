@@ -428,12 +428,13 @@ export type LocalClawConfig = WolverineConfig;
 
 // ─── Multi-Provider LLM Config ──────────────────────────────────────────────
 
-export type ProviderID = 'ollama' | 'llama_cpp' | 'lm_studio' | 'openai' | 'openai_codex';
+export type ProviderID = 'ollama' | 'llama_cpp' | 'lm_studio' | 'openai' | 'openai_codex' | 'openrouter';
 
 export interface OllamaProviderConfig { endpoint: string; model: string; num_ctx?: number; num_predict?: number; }
 export interface LlamaCppProviderConfig { endpoint: string; model: string; api_key?: string; num_ctx?: number; num_predict?: number; }
 export interface LMStudioProviderConfig { endpoint: string; model: string; api_key?: string; num_ctx?: number; num_predict?: number; }
 export interface OpenAIProviderConfig { api_key: string; model: string; }
+export interface OpenRouterProviderConfig { endpoint?: string; api_key: string; model: string; num_ctx?: number; num_predict?: number; }
 export interface OpenAICodexProviderConfig { model: string; } // token managed by auth/openai-oauth.ts
 
 export interface LLMConfig {
@@ -443,6 +444,7 @@ export interface LLMConfig {
     llama_cpp?: LlamaCppProviderConfig;
     lm_studio?: LMStudioProviderConfig;
     openai?: OpenAIProviderConfig;
+    openrouter?: OpenRouterProviderConfig;
     openai_codex?: OpenAICodexProviderConfig;
   };
 }

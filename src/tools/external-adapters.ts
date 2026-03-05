@@ -36,7 +36,16 @@ export const browserClickTool: Tool = {
     name: 'browser_click',
     description: 'Click an element using its [N] reference number.',
     execute: async (args, ctx) => {
-        const res = await browserClick(ctx?.sessionId || 'default', Number(args.ref || 0));
+        const sessionId = ctx?.sessionId || 'default';
+        let res = await browserClick(sessionId, Number(args.ref || 0));
+
+        // Handle stale node error with one auto-retry after refresh
+        if (res.includes('-32000') || res.includes('No node found')) {
+            console.log(`[browser_click] Stale node detected (ref: ${args.ref}). Refreshing snapshot and retrying...`);
+            await browserSnapshot(sessionId);
+            res = await browserClick(sessionId, Number(args.ref || 0));
+        }
+
         return { success: !res.startsWith('ERROR'), stdout: res };
     },
     schema: { ref: 'number' }
