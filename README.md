@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="screenshots/wolverine_logo.png" alt="Wolverine logo" width="300" />
+  <img src="screenshots/wolverine_logo.jpg" alt="Wolverine logo" width="300" />
 </p>
 
 <h1 align="center">Wolverine 🐺</h1>
@@ -7,8 +7,8 @@
 <p align="center">
   Local-first AI agent framework built for small models, with optional hybrid cloud support.
   <br>
-# Wolverine v1.0.1
-**Current release:** `v1.0.1`
+# Wolverine v1.0.2
+**Current release:** `v1.0.2`
 
 ---
 
@@ -30,6 +30,7 @@ Wolverine is a chat-first AI agent that supports multiple providers for local-on
 - ✅ **Persona Growth** — Agent continuously learns via USER.md, SOUL.md, and IDENTITY.md
 - ✅ **Industrial CI/CD** — Automated Docker builds with multi-arch support (ARM64/AMD64)
 - ✅ **Self-Versioning** — Automatic semantic versioning on every main pull
+- ✅ **Configurable LLM Params** — Adjust context length and max tokens per provider from the dashboard
 
 ## Architecture
 

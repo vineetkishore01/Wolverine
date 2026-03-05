@@ -1,7 +1,7 @@
 # Wolverine Implementation Blueprint 🐺
 
 > **Purpose:** Step-by-step instructions for any coding agent to implement Wolverine's self-teaching architecture.
-> **Last updated:** 2026-03-05
+> **Last updated:** 2026-03-05 (v1.0.2)
 > **Project Root:** `/Users/vineetkishore/FolderX/Wolverine/`
 
 ---
@@ -20,7 +20,7 @@
 - [ ] Phase 7: Comprehensive Telemetry & Logging (Diagnostics)
 - [ ] Phase 8: Context Compactor & Temporal Decay (Adaptive Memory)
 - [x] Phase 9: Pinchtab Browser Integration (Token Efficiency & Stealth) - **COMPLETE**
-- [x] Phase 10: Industrial CI/CD & Infrastructure (Docker/SemVer) - **COMPLETE**
+- [x] Phase 10: Industrial CI/CD & Infrastructure (Docker/SemVer/LLM Params) - **COMPLETE**
 - [ ] Far Future: Smart Routing & Inter-Agent Event Bus (Multi-GPU/Swarm)
 3. [Phase 1: Brain Database](#3-phase-1-brain-database)
 4. [Phase 2: Context Engineer](#4-phase-2-context-engineer)
@@ -44,9 +44,10 @@
 **Wolverine targets ultralight hardware (e.g., a single 1050ti 4GB GPU) running small, dumb, local models (qwen3.5:4b).** This is the USP. 
 
 - **Single Model Constraint:** We run *one* model sequentially. Multi-agent "Swarm" protocols are pushed to the far future because a 4GB GPU cannot handle multiple simultaneous sub-agents. We are a unified, hyperfast sequential system.
-- **We do NOT add multi-provider support** — Ollama-only, fully local, fully private.
+- **Multi-Provider Support:** While local-first, Wolverine supports Ollama, llama.cpp, LM Studio, and OpenAI (Key/OAuth) for maximum flexibility.
 - **The model is forgetful** — limited context window (4K-8K usable tokens).
 - **The SYSTEM compensates** — the architecture makes the model appear smart by intelligently paging data in and out of the prompt.
+- **Configurable Control:** Users can now tune `num_ctx` and `num_predict` per provider from the dashboard to optimize performance for their hardware.
 
 ### Core Innovations
 

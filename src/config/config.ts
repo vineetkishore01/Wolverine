@@ -64,7 +64,7 @@ const WORKSPACE_DIR =
   path.join(os.homedir(), 'WolverineData');
 
 export const DEFAULT_CONFIG: WolverineConfig = {
-  version: '1.0.1',
+  version: '1.0.2',
   gateway: {
     port: Number(process.env.GATEWAY_PORT || process.env.PORT || 18789),
     host: '0.0.0.0', // Listen on all interfaces in Docker/Local
@@ -90,15 +90,21 @@ export const DEFAULT_CONFIG: WolverineConfig = {
       ollama: {
         endpoint: process.env.OLLAMA_HOST ?? 'http://localhost:11434',
         model: 'qwen3.5:4b',
+        num_ctx: 8192,
+        num_predict: 4096,
       },
       lm_studio: {
         endpoint: process.env.LM_STUDIO_ENDPOINT ?? 'http://localhost:1234',
         model: process.env.LM_STUDIO_MODEL ?? '',
         api_key: process.env.LM_STUDIO_API_KEY ?? undefined,
+        num_ctx: 8192,
+        num_predict: 4096,
       },
       llama_cpp: {
         endpoint: process.env.LLAMA_CPP_ENDPOINT ?? 'http://localhost:8080',
         model: process.env.LLAMA_CPP_MODEL ?? '',
+        num_ctx: 8192,
+        num_predict: 4096,
       },
       openai: {
         // Supports inline value OR env: reference

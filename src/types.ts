@@ -430,9 +430,9 @@ export type LocalClawConfig = WolverineConfig;
 
 export type ProviderID = 'ollama' | 'llama_cpp' | 'lm_studio' | 'openai' | 'openai_codex';
 
-export interface OllamaProviderConfig { endpoint: string; model: string; }
-export interface LlamaCppProviderConfig { endpoint: string; model: string; api_key?: string; }
-export interface LMStudioProviderConfig { endpoint: string; model: string; api_key?: string; }
+export interface OllamaProviderConfig { endpoint: string; model: string; num_ctx?: number; num_predict?: number; }
+export interface LlamaCppProviderConfig { endpoint: string; model: string; api_key?: string; num_ctx?: number; num_predict?: number; }
+export interface LMStudioProviderConfig { endpoint: string; model: string; api_key?: string; num_ctx?: number; num_predict?: number; }
 export interface OpenAIProviderConfig { api_key: string; model: string; }
 export interface OpenAICodexProviderConfig { model: string; } // token managed by auth/openai-oauth.ts
 

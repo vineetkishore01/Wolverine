@@ -3364,9 +3364,21 @@
             <!-- Ollama -->
             <div id="prov-fields-ollama">
               <div class="right-section-title" style="margin-bottom:8px">Ollama Connection</div>
-              <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Endpoint</label>
               <input id="settings-ollama-endpoint" type="text" placeholder="http://localhost:11434"
                 style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;font-family:'IBM Plex Mono',monospace" />
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+                <div>
+                  <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">Context
+                    Length</label>
+                  <input id="settings-ollama-num-ctx" type="number" placeholder="8192"
+                    style="width:100%;border:1px solid var(--line);border-radius:8px;padding:6px;font-size:12px" />
+                </div>
+                <div>
+                  <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">Max Tokens</label>
+                  <input id="settings-ollama-num-predict" type="number" placeholder="4096"
+                    style="width:100%;border:1px solid var(--line);border-radius:8px;padding:6px;font-size:12px" />
+                </div>
+              </div>
               <div style="display:flex;gap:8px;margin-top:8px">
                 <button class="btn btn-sm" onclick="refreshProviderModels()"
                   style="background:#fff;border:1px solid var(--line);color:var(--text)">Refresh Models</button>
@@ -3387,10 +3399,21 @@
               <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Endpoint</label>
               <input id="settings-llamacpp-endpoint" type="text" placeholder="http://localhost:8080"
                 style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;font-family:'IBM Plex Mono',monospace" />
-              <label style="display:block;font-size:12px;color:var(--muted);margin:10px 0 6px">Model name <span
-                  style="color:var(--muted);font-weight:400">(type manually)</span></label>
               <input id="settings-llamacpp-model" type="text" placeholder="e.g. qwen2.5-7b"
                 style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;font-family:'IBM Plex Mono',monospace" />
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+                <div>
+                  <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">Context
+                    Length</label>
+                  <input id="settings-llamacpp-num-ctx" type="number" placeholder="8192"
+                    style="width:100%;border:1px solid var(--line);border-radius:8px;padding:6px;font-size:12px" />
+                </div>
+                <div>
+                  <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">Max Tokens</label>
+                  <input id="settings-llamacpp-num-predict" type="number" placeholder="4096"
+                    style="width:100%;border:1px solid var(--line);border-radius:8px;padding:6px;font-size:12px" />
+                </div>
+              </div>
               <div style="display:flex;gap:8px;margin-top:8px">
                 <button class="btn btn-sm" onclick="testProviderConnection()"
                   style="background:#fff;border:1px solid var(--line);color:var(--text)">Test Connection</button>
@@ -3407,9 +3430,21 @@
               <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Endpoint</label>
               <input id="settings-lmstudio-endpoint" type="text" placeholder="http://localhost:1234"
                 style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;font-family:'IBM Plex Mono',monospace" />
-              <label style="display:block;font-size:12px;color:var(--muted);margin:10px 0 6px">Model name</label>
               <input id="settings-lmstudio-model" type="text" placeholder="e.g. qwen2.5-7b-instruct"
                 style="width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;font-family:'IBM Plex Mono',monospace" />
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+                <div>
+                  <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">Context
+                    Length</label>
+                  <input id="settings-lmstudio-num-ctx" type="number" placeholder="8192"
+                    style="width:100%;border:1px solid var(--line);border-radius:8px;padding:6px;font-size:12px" />
+                </div>
+                <div>
+                  <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">Max Tokens</label>
+                  <input id="settings-lmstudio-num-predict" type="number" placeholder="4096"
+                    style="width:100%;border:1px solid var(--line);border-radius:8px;padding:6px;font-size:12px" />
+                </div>
+              </div>
               <div style="display:flex;gap:8px;margin-top:8px">
                 <button class="btn btn-sm" onclick="refreshProviderModels()"
                   style="background:#fff;border:1px solid var(--line);color:var(--text)">Detect Model</button>
@@ -5966,10 +6001,16 @@
         // Populate each provider's fields from saved config
         const v = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
         v('settings-ollama-endpoint', pc.ollama?.endpoint);
+        v('settings-ollama-num-ctx', pc.ollama?.num_ctx);
+        v('settings-ollama-num-predict', pc.ollama?.num_predict);
         v('settings-llamacpp-endpoint', pc.llama_cpp?.endpoint);
         v('settings-llamacpp-model', pc.llama_cpp?.model);
+        v('settings-llamacpp-num-ctx', pc.llama_cpp?.num_ctx);
+        v('settings-llamacpp-num-predict', pc.llama_cpp?.num_predict);
         v('settings-lmstudio-endpoint', pc.lm_studio?.endpoint);
         v('settings-lmstudio-model', pc.lm_studio?.model);
+        v('settings-lmstudio-num-ctx', pc.lm_studio?.num_ctx);
+        v('settings-lmstudio-num-predict', pc.lm_studio?.num_predict);
         v('settings-openai-key', pc.openai?.api_key);
         if (pc.openai?.model) { const s = document.getElementById('settings-openai-model'); if (s) s.value = pc.openai.model; }
         if (pc.openai_codex?.model) { const s = document.getElementById('settings-codex-model'); if (s) s.value = pc.openai_codex.model; }
@@ -6073,9 +6114,24 @@
     function buildProviderPayload() {
       const provider = document.getElementById('settings-llm-provider')?.value || 'ollama';
       const providers = {};
-      providers.ollama = { endpoint: document.getElementById('settings-ollama-endpoint')?.value || 'http://localhost:11434', model: document.getElementById('settings-primary-model')?.value || 'qwen3:4b' };
-      providers.llama_cpp = { endpoint: document.getElementById('settings-llamacpp-endpoint')?.value || 'http://localhost:8080', model: document.getElementById('settings-llamacpp-model')?.value || '' };
-      providers.lm_studio = { endpoint: document.getElementById('settings-lmstudio-endpoint')?.value || 'http://localhost:1234', model: document.getElementById('settings-lmstudio-model')?.value || '' };
+      providers.ollama = {
+        endpoint: document.getElementById('settings-ollama-endpoint')?.value || 'http://localhost:11434',
+        model: document.getElementById('settings-primary-model')?.value || 'qwen3:4b',
+        num_ctx: Number(document.getElementById('settings-ollama-num-ctx')?.value || 8192),
+        num_predict: Number(document.getElementById('settings-ollama-num-predict')?.value || 4096)
+      };
+      providers.llama_cpp = {
+        endpoint: document.getElementById('settings-llamacpp-endpoint')?.value || 'http://localhost:8080',
+        model: document.getElementById('settings-llamacpp-model')?.value || '',
+        num_ctx: Number(document.getElementById('settings-llamacpp-num-ctx')?.value || 8192),
+        num_predict: Number(document.getElementById('settings-llamacpp-num-predict')?.value || 4096)
+      };
+      providers.lm_studio = {
+        endpoint: document.getElementById('settings-lmstudio-endpoint')?.value || 'http://localhost:1234',
+        model: document.getElementById('settings-lmstudio-model')?.value || '',
+        num_ctx: Number(document.getElementById('settings-lmstudio-num-ctx')?.value || 8192),
+        num_predict: Number(document.getElementById('settings-lmstudio-num-predict')?.value || 4096)
+      };
       providers.openai = { api_key: document.getElementById('settings-openai-key')?.value || '', model: document.getElementById('settings-openai-model')?.value || 'gpt-4o' };
       providers.openai_codex = { model: document.getElementById('settings-codex-model')?.value || 'gpt-5.3-codex' };
       return { provider, providers };

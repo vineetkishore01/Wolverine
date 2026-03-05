@@ -4253,11 +4253,16 @@ RULES:
         )
       );
       const primaryThinkMode: boolean | 'high' | 'medium' | 'low' = (multiAgentActive && !isActiveAutomationOp) ? true : false;
+      const activeProvider = (getConfig().getConfig() as any).llm?.provider || 'ollama';
+      const providerCfg = (getConfig().getConfig() as any).llm?.providers?.[activeProvider] || {};
+      const configNumCtx = Number(providerCfg.num_ctx || 8192);
+      const configNumPredict = Number(providerCfg.num_predict || 4096);
+
       const generationPromise = ollama.chatWithThinking(messages, 'executor', {
         tools,
         temperature: 0.3,
-        num_ctx: 8192,
-        num_predict: 4096,
+        num_ctx: configNumCtx,
+        num_predict: configNumPredict,
         think: primaryThinkMode,
         model: String(modelOverride || '').trim() || undefined,
       });
@@ -4822,11 +4827,16 @@ RULES:
               content: 'You just completed tool calls but gave no summary. Based on the tool results above, provide a concise but comprehensive answer to the user\'s original question. Include key facts, sources, and findings.',
             });
             try {
+              const activeProvider = (getConfig().getConfig() as any).llm?.provider || 'ollama';
+              const providerCfg = (getConfig().getConfig() as any).llm?.providers?.[activeProvider] || {};
+              const configNumCtx = Number(providerCfg.num_ctx || 4096);
+              const configNumPredict = Number(providerCfg.num_predict || 2048);
+
               const summaryResponse = await ollama.chatWithThinking(messages, 'executor', {
                 tools,
                 temperature: 0.3,
-                num_ctx: 4096,
-                num_predict: 2048,
+                num_ctx: configNumCtx,
+                num_predict: configNumPredict,
                 think: false,
               });
               const summaryText = sanitizeFinalReply(
