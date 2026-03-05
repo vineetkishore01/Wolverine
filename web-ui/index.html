@@ -2000,6 +2000,7 @@
       text-overflow: ellipsis;
       display: -webkit-box;
       -webkit-line-clamp: 2;
+      line-clamp: 2;
       -webkit-box-orient: vertical;
     }
 
@@ -2612,6 +2613,183 @@
       gap: 8px;
       margin-top: 16px;
     }
+
+    .pulse-ticker {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 28px;
+      background: rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(8px);
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      z-index: 10000;
+      color: #94a3b8;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      pointer-events: none;
+      transition: all 0.3s ease;
+      opacity: 0;
+      transform: translateY(100%);
+    }
+
+    .pulse-ticker.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .pulse-icon {
+      margin-right: 8px;
+      filter: drop-shadow(0 0 4px rgba(76, 141, 255, 0.6));
+      animation: pulse-heart 2s infinite ease-in-out;
+      flex-shrink: 0;
+    }
+
+    @keyframes pulse-heart {
+      0% {
+        transform: scale(1);
+        opacity: 0.8;
+      }
+
+      50% {
+        transform: scale(1.1);
+        opacity: 1;
+      }
+
+      100% {
+        transform: scale(1);
+        opacity: 0.8;
+      }
+    }
+
+    .pulse-content {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .pulse-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      animation: slide-up-pulse 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes slide-up-pulse {
+      from {
+        transform: translateY(100%);
+        opacity: 0;
+      }
+
+      to {
+        transform: translateY(0);
+        opacity: 1;
+      }
+    }
+
+    .pulse-tag {
+      font-size: 8px;
+      text-transform: uppercase;
+      padding: 1px 4px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+
+    .pulse-tag.cron {
+      border-color: rgba(16, 185, 129, 0.4);
+      color: #10b981;
+    }
+
+    .pulse-tag.heartbeat {
+      border-color: rgba(76, 141, 255, 0.4);
+      color: #4c8dff;
+    }
+
+    .pulse-tag.telegram {
+      border-color: rgba(34, 197, 94, 0.4);
+      color: #22c55e;
+    }
+
+    .pulse-tag.system {
+      border-color: rgba(245, 158, 11, 0.4);
+      color: #f59e0b;
+    }
+
+    .pulse-time {
+      opacity: 0.4;
+      font-variant-numeric: tabular-nums;
+      font-size: 10px;
+    }
+
+    /* Typing Indicator */
+    .typing-indicator {
+      display: none;
+      align-items: center;
+      gap: 4px;
+      padding: 8px 16px;
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 600;
+      animation: fade-in 0.3s ease;
+    }
+
+    .typing-indicator.visible {
+      display: flex;
+    }
+
+    .typing-dot {
+      width: 4px;
+      height: 4px;
+      background: var(--muted);
+      border-radius: 50%;
+      animation: typing-bounce 1.4s infinite ease-in-out;
+    }
+
+    .typing-dot:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+
+    .typing-dot:nth-child(3) {
+      animation-delay: 0.4s;
+    }
+
+    @keyframes typing-bounce {
+
+      0%,
+      80%,
+      100% {
+        transform: translateY(0);
+        opacity: 0.4;
+      }
+
+      40% {
+        transform: translateY(-4px);
+        opacity: 1;
+      }
+    }
+
+    .job-item.thinking::after {
+      content: '';
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      width: 6px;
+      height: 6px;
+      background: var(--brand);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--brand);
+      animation: pulse-heart 1.5s infinite;
+    }
   </style>
 </head>
 
@@ -2682,6 +2860,7 @@
     <div id="sidebar-tabs">
       <button class="sidebar-tab active" id="tab-jobs" onclick="setSidebarTab('jobs')">Sessions</button>
       <button class="sidebar-tab" id="tab-skills" onclick="setSidebarTab('skills')">🧩 Skills</button>
+      <button class="sidebar-tab" id="tab-memory" onclick="setSidebarTab('memory')">🧠 Memory</button>
     </div>
 
     <!-- SESSIONS TAB -->
@@ -2699,14 +2878,36 @@
     </div>
 
     <!-- SKILLS TAB -->
-    <div id="sidebar-skills">
-      <div class="sidebar-section" style="border-top:none">
-        <span>Skills</span>
-        <button class="sidebar-action" onclick="openCreateSkillModal()">+ Create</button>
+    <div id="sidebar-skills" style="display:none">
+      <div class="sidebar-section">
+        <input id="skill-search-input" type="text" placeholder="Search ClawHub..." onkeyup="searchClawHub(event)">
       </div>
-      <div id="skills-list" style="flex:1;min-height:0;overflow-y:auto;padding:10px">
-        <div class="empty-state" style="padding:16px">Loading skills...</div>
+      <div id="skills-list"></div>
+    </div>
+
+    <!-- MEMORY TAB -->
+    <div id="sidebar-memory" style="display:none; flex-direction:column; flex:1; min-height:0;">
+      <div class="sidebar-section">
+        <span>Scratchpad</span>
+        <button class="sidebar-action" onclick="refreshScratchpad()">↻</button>
       </div>
+      <div id="scratchpad-viewer"
+        style="padding:10px; font-size:11px; background:var(--panel-2); border-bottom:1px solid var(--line); line-height:1.5; white-space:pre-wrap; max-height:150px; overflow-y:auto; color:var(--text); font-style:italic; border-radius:0 0 var(--radius-sm) var(--radius-sm);">
+        No local scratchpad content.
+      </div>
+      <div class="sidebar-section">
+        <span>Memories</span>
+        <div style="display:flex; gap:5px; flex:1; margin-left:10px;">
+          <input id="memory-search" type="text" placeholder="Search..."
+            onkeyup="if(event.key==='Enter')refreshMemories()"
+            style="font-size:11px; padding:4px 8px; border-radius:8px; border:1px solid var(--line); background:var(--panel-2); color:var(--text); width:100%;">
+        </div>
+        <button class="sidebar-action" onclick="refreshMemories()" style="margin-left:5px;">🔍</button>
+      </div>
+      <div id="memories-list" style="flex:1; overflow-y:auto; padding:8px;">
+        <div class="empty-state">No remembered facts yet.</div>
+      </div>
+    </div>
     </div>
   </aside>
 
@@ -2800,6 +3001,12 @@
             <button class="queued-clear-btn" onclick="clearQueuedPrompts()">Clear</button>
           </div>
           <div class="queued-prompts-list" id="queued-prompts-list"></div>
+        </div>
+        <div id="typing-indicator" class="typing-indicator">
+          <span>Agent is thinking</span>
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
         </div>
         <div class="chat-input-row">
           <textarea id="chat-input" placeholder="Type a message... (Enter to send, Shift+Enter for newline)" rows="1"
@@ -4288,6 +4495,16 @@
     </div>
   </div>
 
+  <!-- GLOBAL PULSE TICKER -->
+  <div id="global-pulse-ticker" class="pulse-ticker">
+    <div id="pulse-history" style="display:flex; flex-direction:column-reverse; gap:6px; pointer-events:auto;">
+      <div class="pulse-item">
+        <span class="pulse-tag system">System</span>
+        <span>Wolverine Scout Protocol Active. Standing by.</span>
+      </div>
+    </div>
+  </div>
+
   <script>
     const API = '';
     let ws = null;
@@ -4448,6 +4665,10 @@
       renderSessionsList();
       updateStats([]);
       loadAgentSessionContext();
+      if (sidebarTab === 'memory') {
+        refreshScratchpad();
+        refreshMemories();
+      }
     }
 
     function persistActiveChat() {
@@ -4718,9 +4939,65 @@
       sidebarTab = tab;
       document.getElementById('tab-jobs').classList.toggle('active', tab === 'jobs');
       document.getElementById('tab-skills').classList.toggle('active', tab === 'skills');
+      document.getElementById('tab-memory').classList.toggle('active', tab === 'memory');
       document.getElementById('sidebar-jobs').style.display = tab === 'jobs' ? 'flex' : 'none';
       document.getElementById('sidebar-skills').style.display = tab === 'skills' ? 'flex' : 'none';
+      document.getElementById('sidebar-memory').style.display = tab === 'memory' ? 'flex' : 'none';
       if (tab === 'skills') loadInstalledSkills();
+      if (tab === 'memory') {
+        refreshScratchpad();
+        refreshMemories();
+      }
+    }
+
+    async function refreshScratchpad() {
+      const viewer = document.getElementById('scratchpad-viewer');
+      if (!viewer) return;
+      try {
+        const sid = activeChatSessionId || 'default';
+        const res = await api('/api/scratchpad?sessionId=' + encodeURIComponent(sid));
+        viewer.textContent = res.content || 'Scratchpad is empty.';
+      } catch (err) {
+        viewer.textContent = 'Error loading scratchpad: ' + err.message;
+      }
+    }
+
+    async function refreshMemories() {
+      const list = document.getElementById('memories-list');
+      if (!list) return;
+      const q = document.getElementById('memory-search').value.trim();
+      list.innerHTML = '<div style="font-size:11px;color:var(--muted);padding:10px;">Loading memories...</div>';
+      try {
+        const sid = activeChatSessionId || '';
+        const res = await api(`/api/memories?q=${encodeURIComponent(q)}&sessionId=${encodeURIComponent(sid)}`);
+        const memories = res.memories || [];
+        if (memories.length === 0) {
+          list.innerHTML = '<div class="empty-state">No remembered facts yet.</div>';
+          return;
+        }
+        list.innerHTML = memories.map(m => `
+          <div class="job-item" style="padding:10px; margin-bottom:6px; cursor:default; border-radius:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:4px;">
+              <span class="badge badge-completed" style="font-size:9px; padding:2px 6px;">${escHtml(m.key)}</span>
+              <button onclick="deleteMemory('${m.id}')" style="background:none; border:none; color:var(--err); font-size:14px; cursor:pointer; opacity:0.6;">✕</button>
+            </div>
+            <div style="font-size:11px; line-height:1.4; color:var(--text);">${escHtml(m.content)}</div>
+            <div style="font-size:9px; color:var(--muted); margin-top:4px;">${new Date(m.created_at).toLocaleDateString()} • Importance: ${(m.importance * 10).toFixed(1)}/10</div>
+          </div>
+        `).join('');
+      } catch (err) {
+        list.innerHTML = `<div style="color:var(--err); font-size:11px; padding:10px;">Error: ${err.message}</div>`;
+      }
+    }
+
+    async function deleteMemory(id) {
+      if (!confirm('Delete this memory?')) return;
+      try {
+        await api(`/api/memories/${id}`, { method: 'DELETE' });
+        refreshMemories();
+      } catch (err) {
+        alert('Delete failed: ' + err.message);
+      }
     }
 
     // ---- Agent mode toggle ----
@@ -5832,8 +6109,19 @@
             sess.history = sess.history || [];
             sess.history.push({ role: 'assistant', content: msg.message || '' });
             saveChatSessions();
-            if (currentSessionId === msg.sessionId) renderMessages();
+            if (activeChatSessionId === msg.sessionId) renderChatMessages();
           }
+        }
+        // -- Pulse (Ticker) events --
+        if (msg.type === 'pulse') {
+          handlePulse(msg);
+        }
+        // -- Mirroring for external channels (Telegram) --
+        if (msg.type === 'chat_external_message') {
+          syncExternalChat(msg);
+        }
+        if (msg.type === 'chat_sse' && currentMode === 'chat') {
+          handleExternalSSE(msg);
         }
       };
       ws.onclose = () => setTimeout(connectWS, 2000);
@@ -7040,7 +7328,7 @@
       }
       const sorted = [...chatSessions].sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
       el.innerHTML = sorted.map(s => `
-    <div class="job-item ${s.id === activeChatSessionId ? 'active' : ''}" onclick="openSession('${s.id}')">
+    <div class="job-item ${s.id === activeChatSessionId ? 'active' : ''} ${s.thinking ? 'thinking' : ''}" onclick="openSession('${s.id}')">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
         <div class="job-item-title">${escHtml(s.title || 'New chat')}</div>
         ${sessionsEditMode ? `<button class="sidebar-action" style="padding:3px 8px;font-size:10px" onclick="deleteChatSession('${s.id}', event)">Delete</button>` : ''}
@@ -7874,11 +8162,13 @@
         if (stopIcon) stopIcon.style.display = '';
         btn.style.background = 'var(--err)';
         btn.title = 'Stop generation';
+        document.getElementById('typing-indicator')?.classList.add('visible');
       } else {
         if (sendIcon) sendIcon.style.display = '';
         if (stopIcon) stopIcon.style.display = 'none';
         btn.style.background = '';
         btn.title = 'Send';
+        document.getElementById('typing-indicator')?.classList.remove('visible');
       }
     }
 
@@ -9270,6 +9560,133 @@
         }
       } catch (err) { alert('Delete failed: ' + err.message); }
     }
+
+    // --- Global Pulse Ticker Logic ---
+    function handlePulse(data) {
+      const ticker = document.getElementById('global-pulse-ticker');
+      const history = document.getElementById('pulse-history');
+      if (!ticker || !history) return;
+
+      const time = new Date(data.timestamp || Date.now()).toLocaleTimeString('en-US', {
+        hour12: false,
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+      });
+
+      const item = document.createElement('div');
+      item.className = 'pulse-item';
+      item.style.opacity = '0';
+      item.style.transform = 'translateY(10px)';
+      item.style.transition = 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+
+      const category = data.category || 'system';
+      item.innerHTML = `
+        <span class="pulse-tag ${category}">${category.toUpperCase()}</span>
+        <span class="pulse-time">${time}</span>
+        <span style="flex:1">${escHtml(data.message)}</span>
+      `;
+
+      history.appendChild(item);
+
+      // Animate in
+      requestAnimationFrame(() => {
+        item.style.opacity = '1';
+        item.style.transform = 'translateY(0)';
+      });
+
+      // Show ticker container
+      ticker.classList.add('visible');
+
+      // Keep only last 5 items
+      while (history.children.length > 5) {
+        history.removeChild(history.firstChild);
+      }
+
+      // Auto-remove this specific item after 10 seconds
+      setTimeout(() => {
+        item.style.opacity = '0';
+        item.style.transform = 'translateX(20px)';
+        setTimeout(() => {
+          if (item.parentNode === history) {
+            history.removeChild(item);
+            if (history.children.length === 0) ticker.classList.remove('visible');
+          }
+        }, 300);
+      }, 10000);
+    }
+
+    function syncExternalChat(msg) {
+      let sess = chatSessions.find(s => s.id === msg.sessionId);
+      if (!sess) {
+        sess = {
+          id: msg.sessionId,
+          title: `📱 Telegram: ${msg.userName || 'User'}`,
+          history: [],
+          processLog: [],
+          createdAt: msg.at || Date.now(),
+          updatedAt: msg.at || Date.now(),
+          automated: true,
+          thinking: false
+        };
+        chatSessions.unshift(sess);
+      }
+
+      // Update history if not already there (simple dedupe by content/timestamp if needed)
+      const lastMsg = sess.history[sess.history.length - 1];
+      if (!lastMsg || lastMsg.content !== msg.content) {
+        sess.history.push({
+          role: msg.role === 'assistant' ? 'ai' : 'user',
+          content: msg.content
+        });
+        sess.updatedAt = msg.at || Date.now();
+
+        // Auto-switch to Telegram if we are in a blank default session
+        const currentSess = chatSessions.find(s => s.id === activeChatSessionId);
+        const isBlankDefault = currentSess && currentSess.history.length === 0 && currentSess.title === 'New chat';
+        if (isBlankDefault && msg.role === 'user') {
+          openSession(msg.sessionId);
+        }
+
+        if (activeChatSessionId === msg.sessionId) {
+          chatHistory = sess.history;
+          renderChatMessages();
+          if (msg.role === 'assistant') {
+            sess.thinking = false;
+            isThinking = false;
+            setButtonState(false);
+          }
+        }
+
+        saveChatSessions();
+        renderSessionsList();
+      }
+    }
+
+    function handleExternalSSE(msg) {
+      const sess = chatSessions.find(s => s.id === msg.sessionId);
+      const { event, data } = msg;
+
+      if (event === 'thinking') {
+        if (sess) { sess.thinking = true; renderSessionsList(); }
+        if (activeChatSessionId === msg.sessionId) {
+          isThinking = true;
+          streamingSessionId = msg.sessionId;
+          setButtonState(true);
+          renderChatMessages();
+        }
+      } else if (event === 'info' || event === 'tool_call' || event === 'tool_result') {
+        if (activeChatSessionId === msg.sessionId) {
+          if (event === 'info') addProcessEntry('info', data.message);
+          if (event === 'tool_call') addProcessEntry('tool', `Using ${data.action}...`, data.args);
+          if (event === 'tool_result') addProcessEntry(data.error ? 'error' : 'result', `Result for ${data.action}: ${String(data.result).slice(0, 150)}...`);
+          renderChatMessages();
+        }
+      }
+    }
+
+    // Initial show
+    setTimeout(() => {
+      document.getElementById('global-pulse-ticker')?.classList.add('visible');
+    }, 1000);
 
     setTimeout(refreshThinkingStatus, 2000);
   </script>

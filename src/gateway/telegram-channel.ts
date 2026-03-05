@@ -49,6 +49,7 @@ interface TelegramDeps {
   ) => void;
   getIsModelBusy: () => boolean;
   broadcast: (data: object) => void;
+  broadcastPulse?: (category: 'cron' | 'heartbeat' | 'telegram' | 'system', message: string) => void;
   getWorkspace?: (sessionId: string) => string | undefined;
 }
 
@@ -75,6 +76,14 @@ interface TelegramUpdate {
       width: number;
       height: number;
     }>;
+    reply_to_message?: {
+      message_id: number;
+      from?: { id: number; first_name: string; username?: string };
+      text?: string;
+      caption?: string;
+      document?: { file_name?: string };
+      photo?: any[];
+    };
   };
   callback_query?: {
     id: string;
@@ -503,7 +512,9 @@ export class TelegramChannel {
           ? msg.document.file_id
           : msg.photo![msg.photo!.length - 1].file_id;
         const fileName = msg.document?.file_name || `telegram_upload_${Date.now()}_${msg.document ? 'doc' : 'photo'}.${msg.document?.mime_type?.split('/')[1] || 'jpg'}`;
-        const destPath = path.join(this.workspaceRoot, fileName);
+        const uploadDir = path.join(this.workspaceRoot, 'uploads');
+        if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+        const destPath = path.join(uploadDir, fileName);
 
         await this.apiCall('sendChatAction', { chat_id: chatId, action: 'upload_document' }).catch(() => { });
         await this.downloadTelegramFile(fileId, destPath);
@@ -519,7 +530,30 @@ export class TelegramChannel {
 
     if (!text && !msg.document && !msg.photo) return;
 
+    // Handle Reply Context (swipe-to-reply)
+    if (msg.reply_to_message) {
+      const orig = msg.reply_to_message;
+      const origFrom = orig.from?.first_name || orig.from?.username || 'the bot';
+      let replyContext = '';
+
+      if (orig.text) {
+        replyContext = `[Replying to ${origFrom}: "${orig.text}"]\n`;
+      } else if (orig.caption) {
+        replyContext = `[Replying to ${origFrom}: "${orig.caption}"]\n`;
+      } else if (orig.document) {
+        replyContext = `[Replying to file: "${orig.document.file_name}"]\n`;
+      } else if (orig.photo) {
+        replyContext = `[Replying to a photo sent by ${origFrom}]\n`;
+      }
+
+      if (replyContext) {
+        text = `${replyContext}${text}`;
+        console.log(`[Telegram] Injected reply context: ${replyContext.trim()}`);
+      }
+    }
+
     console.log(`[Telegram] Message from ${userName} (${userId}): ${text.slice(0, 80)}`);
+    this.deps.broadcastPulse?.('telegram', `Message from ${userName}: ${text.slice(0, 50)}${text.length > 50 ? '...' : ''}`);
 
     // Check allowlist
     if (this.config.allowedUserIds.length > 0 && !this.config.allowedUserIds.includes(userId)) {
@@ -681,10 +715,46 @@ export class TelegramChannel {
     // Initial "typing" indicator
     await this.apiCall('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => { });
 
+
     // Route to handleChat
     const sessionId = `telegram_${userId}`;
     const events: Array<{ type: string; data: any }> = [];
-    const sendSSE = (type: string, data: any) => { events.push({ type, data }); };
+    let lastHandledInfoText = '';
+
+    // Mirror incoming message to Web UI IMMEDIATELY
+    this.deps.broadcast({
+      type: 'chat_external_message',
+      sessionId,
+      role: 'user',
+      content: text,
+      userName,
+      at: Date.now()
+    });
+
+    // Broadcast "thinking" state immediately
+    this.deps.broadcast({ type: 'chat_sse', sessionId, event: 'thinking', data: {} });
+
+    const sendSSE = (type: string, data: any) => {
+      events.push({ type, data });
+
+      // Mirror reasoning steps (thinking/info) to Web UI
+      this.deps.broadcast({ type: 'chat_sse', sessionId, event: type, data });
+
+      // Deliver important "Mission Updates" to Telegram in real-time
+      if (type === 'info' && data?.message) {
+        const textToMatch = String(data.message).trim().toLowerCase();
+        // Skip repetitive markers and simple "Thinking..." which is handled by the typing indicator
+        if (
+          textToMatch &&
+          textToMatch !== lastHandledInfoText &&
+          !textToMatch.includes('thinking') &&
+          !textToMatch.includes('...')
+        ) {
+          lastHandledInfoText = textToMatch;
+          this.sendMessage(chatId, `ℹ️ <i>${data.message}</i>`).catch(() => { });
+        }
+      }
+    };
 
     try {
       const isWin = process.platform === 'win32';
@@ -704,6 +774,15 @@ export class TelegramChannel {
       // (handleChat reads history internally, so we save after to avoid duplication)
       this.deps.addMessage(sessionId, { role: 'user', content: text, timestamp: Date.now() }, { disableMemoryFlushCheck: true });
       this.deps.addMessage(sessionId, { role: 'assistant', content: responseText, timestamp: Date.now() }, { disableMemoryFlushCheck: true });
+
+      // Mirror final assistant reply to Web UI
+      this.deps.broadcast({
+        type: 'chat_external_message',
+        sessionId,
+        role: 'assistant',
+        content: responseText,
+        at: Date.now()
+      });
 
       await this.sendMessage(chatId, responseText);
 

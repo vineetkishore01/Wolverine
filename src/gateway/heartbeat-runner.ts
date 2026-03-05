@@ -8,6 +8,9 @@
 import fs from 'fs';
 import path from 'path';
 
+// AGI: Heartbeat Introspection
+import { performIntrospection, formatIntrospectionResult } from '../agent/heartbeat-introspection';
+
 export interface HeartbeatRunnerConfig {
   enabled: boolean;
   intervalMinutes: number;
@@ -31,6 +34,7 @@ interface HeartbeatRunnerDeps {
   getMainSessionId: () => string;
   getIsModelBusy: () => boolean;
   broadcast?: (data: object) => void;
+  broadcastPulse?: (category: 'cron' | 'heartbeat' | 'telegram' | 'system', message: string) => void;
   deliverTelegram?: (text: string) => Promise<void>;
 }
 
@@ -162,6 +166,7 @@ export class HeartbeatRunner {
     }
 
     this.running = true;
+    this.deps.broadcastPulse?.('heartbeat', 'Starting proactive scout pulse...');
     const sessionId = mainSessionId || this.deps.getMainSessionId() || 'default';
     const rawPrompt = this.getHeartbeatPromptRaw();
     if (rawPrompt !== null && this.isHeartbeatContentEffectivelyEmpty(rawPrompt)) {
@@ -184,7 +189,7 @@ export class HeartbeatRunner {
         sendSSE,
         undefined,
         undefined,
-        'CONTEXT: Internal HEARTBEAT tick. Run checklist and reply HEARTBEAT_OK if nothing needs attention.',
+        'CONTEXT: This is an autonomous HEARTBEAT mission. You are in SELF-EVOLUTION mode. Audit the environment, optimize memory, and advance active goals. Do not ask for guidance. Report progress or HEARTBEAT_OK if stable.',
         undefined,
         'heartbeat',
       );
@@ -198,13 +203,39 @@ export class HeartbeatRunner {
           at: Date.now(),
         });
         if (this.deps.deliverTelegram) {
-          this.deps.deliverTelegram(`🫀 <b>Heartbeat</b>\n\n${text}`).catch(() => {});
+          this.deps.deliverTelegram(`🫀 <b>Heartbeat</b>\n\n${text}`).catch(() => { });
         }
+        this.deps.broadcastPulse?.('heartbeat', 'Scout Pulse: Observations reported.');
+      } else {
+        // No pulse broadcast for HEARTBEAT_OK - be silent as requested.
+        console.log('[HeartbeatRunner] System check: OK (Silent)');
       }
     } catch (err: any) {
       console.warn('[HeartbeatRunner] Execution failed:', err?.message || err);
     } finally {
       this.running = false;
+
+      // AGI: Run introspection after heartbeat
+      try {
+        const introspection = await performIntrospection();
+        const formatted = formatIntrospectionResult(introspection);
+        console.log('[HeartbeatRunner] Introspection complete:', {
+          errors: introspection.learnings.length,
+          improvements: introspection.improvements.length,
+          gaps: introspection.gaps_identified.length
+        });
+
+        // Log to heartbeat results
+        if (introspection.improvements.length > 0 || introspection.gaps_identified.length > 0) {
+          this.deps.broadcast?.({
+            type: 'introspection_result',
+            data: introspection
+          });
+        }
+      } catch (introspectionErr) {
+        console.warn('[HeartbeatRunner] Introspection failed:', introspectionErr);
+      }
+
       this.schedule();
     }
   }

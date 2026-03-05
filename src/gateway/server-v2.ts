@@ -17,6 +17,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { z } from 'zod';
 import { WebSocketServer, WebSocket } from 'ws';
+import { ToolResult as RegistryToolResult } from '../types.js';
 import {
   getConfig,
   getAgents,
@@ -24,7 +25,8 @@ import {
   ensureAgentWorkspace,
   resolveAgentWorkspace,
 } from '../config/config';
-import { getOllamaClient } from '../agents/ollama-client';
+import { getProvider as getOllamaClient, getModelForRole, getPrimaryModel } from '../providers/factory';
+import { ChatResult, GenerateResult } from '../providers/LLMProvider';
 import { getSession, addMessage, getHistory, getHistoryForApiCall, getWorkspace, setWorkspace, clearHistory, cleanupSessions } from './session';
 import { hookBus } from './hooks';
 import { loadWorkspaceHooks } from './hook-loader';
@@ -97,9 +99,10 @@ import { getBrainDB } from '../db/brain';
 import { executeReadDocument } from '../tools/documents';
 import { executeMemoryWrite, executeMemorySearch } from '../tools/memory';
 import { executeProcedureSave, executeProcedureList, executeProcedureGet, executeProcedureRecordResult } from '../tools/procedures';
+import { getAGIController } from '../agent/index';
 import { executeScratchpadWrite, executeScratchpadRead, executeScratchpadClear } from '../tools/scratchpad';
 import { skillConnectorTool, executeSkillConnector } from '../skills/connector-tool';
-import { executeSkillCreate, executeSkillTest } from '../tools/skill-builder';
+import { executeSkillCreate, executeSkillTest } from '../agent/skill-builder';
 import { getSkillConnectorManager } from '../skills/connector';
 import {
   createTask,
@@ -138,6 +141,11 @@ import {
 import { OllamaProcessManager } from './ollama-process-manager';
 import { raceWithWatchdog, PreemptState } from './preempt-watchdog';
 import { detectGpu, logGpuStatus } from './gpu-detector';
+
+// Agent Enhancement System (Phase 1 for 4GB GPU)
+import { getProceduralLearner, formatProcedure } from '../agent/procedural-learning';
+import { AGENTIC_SEARCH_PROMPT, PROCEDURAL_LEARNING_PROMPT } from '../agent';
+import { getToolRegistry } from '../tools/registry';
 
 // ─── Config ────────────────────────────────────────────────────────────────────
 
@@ -470,6 +478,19 @@ function broadcastWS(data: object): void {
   });
 }
 
+/**
+ * broadcastPulse - Streams high-level "Mission Updates" to the Web UI Ticker.
+ * Used for background autonomous events (Cron, Heartbeat, etc.)
+ */
+function broadcastPulse(category: 'cron' | 'heartbeat' | 'telegram' | 'system', message: string): void {
+  broadcastWS({
+    type: 'pulse',
+    category,
+    message,
+    timestamp: Date.now(),
+  });
+}
+
 type TelegramChannelConfig = {
   enabled: boolean;
   botToken: string;
@@ -561,6 +582,7 @@ const cronScheduler = new CronScheduler({
   handleChat: (message, sessionId, sendSSE, pinnedMessages, abortSignal, callerContext, modelOverride, executionMode) =>
     handleChat(message, sessionId, sendSSE, pinnedMessages, abortSignal, callerContext, modelOverride, executionMode),
   broadcast: broadcastWS,
+  broadcastPulse: (category: any, message: string) => broadcastPulse(category, message),
   getIsModelBusy: () => isModelBusy,
   deliverTelegram: (text: string) => telegramChannel.sendToAllowed(text),
   getMainSessionId: () => lastMainSessionId || 'default',
@@ -591,6 +613,7 @@ const telegramChannel = new TelegramChannel(
     addMessage,
     getIsModelBusy: () => isModelBusy,
     broadcast: broadcastWS,
+    broadcastPulse: (category: any, message: string) => broadcastPulse(category, message),
   }
 );
 
@@ -602,6 +625,7 @@ const heartbeatRunner = new HeartbeatRunner({
   getMainSessionId: () => lastMainSessionId || 'default',
   getIsModelBusy: () => isModelBusy,
   broadcast: broadcastWS,
+  broadcastPulse: (category: any, message: string) => broadcastPulse(category, message),
   deliverTelegram: (text: string) => telegramChannel.sendToAllowed(text),
 });
 
@@ -754,20 +778,71 @@ function readDailyMemoryContext(workspacePath: string, maxTokens: number = 800):
   }
 }
 
+/**
+ * Intelligent compression for personality files.
+ * For small models, we extract high-signal content rather than just truncating.
+ */
+function compressPersonalityFile(content: string, maxChars: number): string {
+  if (content.length <= maxChars) return content;
+
+  const lines = content.split('\n').filter(l => l.trim());
+  if (lines.length <= 4) return content.slice(0, maxChars) + '\n...(truncated)';
+
+  // For longer files, try to keep important sections
+  // Priority: headers, bullet points, key rules
+  const importantLines: string[] = [];
+  const normalLines: string[] = [];
+
+  for (const line of lines) {
+    const isHeader = line.startsWith('#') || line.startsWith('##') || line.startsWith('###');
+    const isRule = /^- .*(must|never|always|do not|avoid)/i.test(line);
+    const isKeyPoint = /^- \*\\*|^- \[/i.test(line) || line.includes(':') && line.length < 80;
+
+    if (isHeader || isRule || isKeyPoint) {
+      importantLines.push(line);
+    } else if (importantLines.length < 15) {
+      normalLines.push(line);
+    }
+  }
+
+  const compressed = [...importantLines, ...normalLines].join('\n');
+  if (compressed.length > maxChars * 0.9) {
+    return compressed.slice(0, maxChars) + '\n...(truncated)';
+  }
+  return compressed;
+}
+
 async function buildPersonalityContext(sessionId: string, workspacePath: string, injectedContext?: string): Promise<string> {
-  const identity = loadWorkspaceFile(workspacePath, 'IDENTITY.md', 200);
-  const dailyMemory = readDailyMemoryContext(workspacePath, 800);
-  const soul = loadWorkspaceFile(workspacePath, 'SOUL.md', 500);
-  const user = loadWorkspaceFile(workspacePath, 'USER.md', 300);
-  const self = loadWorkspaceFile(workspacePath, 'SELF.md', 600);
+  // Dramatically increased limits for high-reasoning models
+  // For standard 8K windows, this total ~6000 chars (~1500 tokens)
+  // This satisfies the "don't truncate soul/identity" requirement
+  const identity = loadWorkspaceFile(workspacePath, 'IDENTITY.md', 1000);
+  const dailyMemory = readDailyMemoryContext(workspacePath, 2000);
+
+  // For SOUL - the core of the hyper-intelligence
+  const soulRaw = loadWorkspaceFile(workspacePath, 'SOUL.md', 5000);
+  const soul = compressPersonalityFile(soulRaw, 3000); // Only compress if actually massive
+
+  const user = loadWorkspaceFile(workspacePath, 'USER.md', 1500);
+  const self = loadWorkspaceFile(workspacePath, 'SELF.md', 2500);
+
+  const selfImprove = loadWorkspaceFile(workspacePath, 'SELF_IMPROVE.md', 2000);
+  const heartbeat = loadWorkspaceFile(workspacePath, 'HEARTBEAT.md', 1500);
 
   const bootstrapFiles = [
     { path: path.join(workspacePath, 'IDENTITY.md'), content: identity, label: 'IDENTITY' },
-    { path: path.join(workspacePath, 'memory', '_recent.md'), content: dailyMemory.trim(), label: 'RECENT_MEMORY' },
     { path: path.join(workspacePath, 'SOUL.md'), content: soul, label: 'SOUL' },
     { path: path.join(workspacePath, 'USER.md'), content: user, label: 'USER' },
     { path: path.join(workspacePath, 'SELF.md'), content: self, label: 'SELF' },
+    { path: path.join(workspacePath, 'SELF_IMPROVE.md'), content: selfImprove, label: 'SELF_IMPROVE' },
+    { path: path.join(workspacePath, 'HEARTBEAT.md'), content: heartbeat, label: 'HEARTBEAT' },
+    { path: path.join(workspacePath, 'memory', '_recent.md'), content: dailyMemory.trim(), label: 'RECENT_MEMORY' },
   ];
+
+  // Inject AGI Context (Capabilities, Limitations, Templates)
+  const agi = getAGIController();
+  const agiContext = await agi.getAGIContext();
+  bootstrapFiles.push({ path: 'AGI_NEURAL_ENGINE', content: agiContext, label: 'AGI_NEURAL_ENGINE' });
 
   if (injectedContext) {
     bootstrapFiles.push({ path: 'CONTEXT_ENGINEER', content: injectedContext, label: 'CONTEXT_ENGINEER' });
@@ -792,6 +867,7 @@ async function buildPersonalityContext(sessionId: string, workspacePath: string,
   return parts.length > 0 ? '\n\n' + parts.join('\n\n') : '';
 }
 
+
 // ─── Session Logger ────────────────────────────────────────────────────────────
 
 function logToDaily(workspacePath: string, role: string, content: string) {
@@ -811,705 +887,109 @@ function logToDaily(workspacePath: string, role: string, content: string) {
 // ─── Tool Definitions ──────────────────────────────────────────────────────────
 
 function buildTools() {
-  return [
-    {
-      type: 'function',
-      function: {
-        name: 'list_files',
-        description: 'List all files in the workspace directory.',
-        parameters: { type: 'object', properties: {}, required: [] },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'read_file',
-        description: 'Read a file and return its content WITH line numbers. Always use this before editing a file.',
-        parameters: {
-          type: 'object', required: ['filename'],
-          properties: { filename: { type: 'string', description: 'Name of the file to read' } },
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'create_file',
-        description: 'Create a NEW file with content. Only use for files that do NOT exist yet.',
-        parameters: {
-          type: 'object', required: ['filename', 'content'],
-          properties: {
-            filename: { type: 'string', description: 'Name of the new file' },
-            content: { type: 'string', description: 'Content for the new file' },
-          },
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'replace_lines',
-        description: 'Replace specific lines in an existing file. Use read_file first to see line numbers.',
-        parameters: {
-          type: 'object', required: ['filename', 'start_line', 'end_line', 'new_content'],
-          properties: {
-            filename: { type: 'string' },
-            start_line: { type: 'number', description: 'First line to replace (1-based)' },
-            end_line: { type: 'number', description: 'Last line to replace (1-based, inclusive)' },
-            new_content: { type: 'string', description: 'New content to insert' },
-          },
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'insert_after',
-        description: 'Insert new lines after a specific line number. Use 0 to insert at beginning.',
-        parameters: {
-          type: 'object', required: ['filename', 'after_line', 'content'],
-          properties: {
-            filename: { type: 'string' },
-            after_line: { type: 'number', description: 'Line number to insert after (0 = beginning)' },
-            content: { type: 'string', description: 'Content to insert' },
-          },
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'delete_lines',
-        description: 'Delete specific lines from a file.',
-        parameters: {
-          type: 'object', required: ['filename', 'start_line', 'end_line'],
-          properties: {
-            filename: { type: 'string' },
-            start_line: { type: 'number', description: 'First line to delete (1-based)' },
-            end_line: { type: 'number', description: 'Last line to delete (1-based, inclusive)' },
-          },
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'find_replace',
-        description: 'Find exact text in a file and replace it. Good for small text changes.',
-        parameters: {
-          type: 'object', required: ['filename', 'find', 'replace'],
-          properties: {
-            filename: { type: 'string' },
-            find: { type: 'string', description: 'Exact text to find' },
-            replace: { type: 'string', description: 'Text to replace with' },
-          },
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'delete_file',
-        description: 'Delete a file from the workspace.',
-        parameters: {
-          type: 'object', required: ['filename'],
-          properties: { filename: { type: 'string' } },
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'read_document',
-        description: 'Read a rich document (DOCX, PDF, XLSX, RTF). For PDF, if it fails, use browser_open on the file URL.',
-        parameters: {
-          type: 'object', required: ['filename'],
-          properties: { filename: { type: 'string', description: 'Path to the document file' } },
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'web_search',
-        description: 'Search the web for current information. Use web_fetch on result URLs to read full page content.',
-        parameters: {
-          type: 'object', required: ['query'],
-          properties: { query: { type: 'string', description: 'Search query' } },
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'web_fetch',
-        description: 'Fetch the full text content of a webpage URL. Use this AFTER web_search to read the actual page content instead of just snippets. Essential for getting real data, details, and context.',
-        parameters: {
-          type: 'object', required: ['url'],
-          properties: { url: { type: 'string', description: 'Full URL to fetch (from web_search results or any URL)' } },
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'run_command',
-        description: 'Open apps for the USER to see on their screen. NEVER use this to open Chrome or Edge for web automation — those windows have no debug port and are invisible to browser_open/snapshot/click. For any web browsing, always use browser_open instead. Use run_command only for: launching GUI apps like notepad or VS Code.',
-        parameters: {
-          type: 'object', required: ['command'],
-          properties: {
-            command: { type: 'string', description: 'Examples: "notepad", "code D:\\project". Do NOT use "chrome" or "msedge" here — use browser_open instead.' },
-          },
-        },
-      },
-    },
+  const registry = getToolRegistry();
+  const orchestrationSkillEnabled = isOrchestrationSkillEnabled();
+  const oc = getOrchestrationConfig();
+  const subagentMode = (getConfig().getConfig() as any).orchestration?.subagent_mode === true;
+
+  const tools: any[] = [
+    ...registry.getToolDefinitionsForChat(),
     {
       type: 'function',
       function: {
         name: 'start_task',
-        description: 'Start a multi-step task that requires many actions (like browser automation, complex file operations). The task will run with a sliding context window so it can handle 20+ steps.',
+        description: 'Initiate a long-running, multi-step autonomous task to achieve a complex goal. The task runs in the background with a sliding context.',
         parameters: {
-          type: 'object', required: ['goal'],
+          type: 'object',
+          required: ['goal'],
           properties: {
-            goal: { type: 'string', description: 'What the task should accomplish (be specific)' },
-            max_steps: { type: 'number', description: 'Maximum steps (default 25)' },
+            goal: { type: 'string', description: 'The objective to achieve' },
+            max_steps: { type: 'number', description: 'Safety limit (default 25)' },
           },
         },
       },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'task_control',
-        description: 'Query and control background tasks. Use this instead of reading files to discover task status.',
-        parameters: {
-          type: 'object',
-          required: ['action'],
-          properties: {
-            action: { type: 'string', description: 'One of: list, latest, get, resume, rerun, pause, cancel, delete' },
-            task_id: { type: 'string', description: 'Task ID (required for get/pause/cancel/delete; optional for resume/rerun)' },
-            status: { type: 'string', description: 'Optional filter: queued|running|paused|stalled|needs_assistance|failed|complete|waiting_subagent' },
-            include_all_sessions: { type: 'boolean', description: 'If true, list across all sessions/channels; default false (scoped)' },
-            limit: { type: 'number', description: 'Max tasks to return (default 20, max 100)' },
-            note: { type: 'string', description: 'Optional operator note to append when resuming/rerunning' },
-            confirm: { type: 'boolean', description: 'Required true for destructive actions cancel/delete' },
-          },
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'schedule_job',
-        description: 'Manage scheduled jobs (list/create/update/pause/resume/delete/run_now). Use for recurring or time-based automation.',
-        parameters: {
-          type: 'object',
-          required: ['action'],
-          properties: {
-            action: { type: 'string', description: 'One of: list, create, update, pause, resume, delete, run_now' },
-            job_id: { type: 'string', description: 'Required for update/pause/resume/delete/run_now' },
-            name: { type: 'string', description: 'Job name (create/update)' },
-            instruction_prompt: { type: 'string', description: 'What the scheduled run should do (create/update)' },
-            schedule: {
-              type: 'object',
-              properties: {
-                kind: { type: 'string', description: 'recurring or one_shot' },
-                cron: { type: 'string', description: 'Cron expression for recurring jobs' },
-                run_at: { type: 'string', description: 'ISO timestamp for one-shot jobs' },
-              },
-            },
-            timezone: { type: 'string', description: 'IANA timezone (e.g. America/New_York)' },
-            delivery: {
-              type: 'object',
-              properties: {
-                channel: { type: 'string', description: 'web, telegram, discord, whatsapp' },
-                session_target: { type: 'string', description: 'main or isolated' },
-              },
-            },
-            model_override: { type: 'string', description: 'Optional model override for this scheduled job' },
-            confirm: { type: 'boolean', description: 'Must be true for create/update/delete actions' },
-            limit: { type: 'number', description: 'Optional max jobs returned for list' },
-          },
-        },
-      },
-    },
-    {
-      type: 'function' as const,
-      function: {
-        name: 'memory_write',
-        description: 'Persist a fact, preference, or rule to your SQLite brain. Use for long-term learning.',
-        parameters: {
-          type: 'object',
-          required: ['fact'],
-          properties: {
-            fact: { type: 'string', description: 'The fact to remember' },
-            category: { type: 'string', description: 'preference, rule, fact, experience, skill_learned' },
-          },
-        },
-      },
-    },
-    {
-      type: 'function' as const,
-      function: {
-        name: 'memory_search',
-        description: 'Search your brain for past facts or preferences.',
-        parameters: {
-          type: 'object',
-          required: ['query'],
-          properties: {
-            query: { type: 'string', description: 'what to look for' },
-          },
-        },
-      },
-    },
-    {
-      type: 'function' as const,
-      function: {
-        name: 'procedure_save',
-        description: 'Save a learned multi-step workflow that can be reused later.',
-        parameters: {
-          type: 'object',
-          required: ['name', 'trigger_keywords', 'steps'],
-          properties: {
-            name: { type: 'string', description: 'unique name for the procedure' },
-            description: { type: 'string', description: 'what this procedure does' },
-            trigger_keywords: { type: 'string', description: 'comma-separated keywords to trigger/find this' },
-            steps: {
-              type: 'array',
-              items: { type: 'object', properties: { order: { type: 'number' }, tool: { type: 'string' }, args_template: { type: 'object' }, description: { type: 'string' } } },
-              description: 'list of objects with {order, tool, args_template, description}'
-            },
-          },
-        },
-      },
-    },
-    {
-      type: 'function' as const,
-      function: {
-        name: 'procedure_list',
-        description: 'List all saved procedures',
-        parameters: {
-          type: 'object',
-          properties: {},
-        },
-      },
-    },
-    {
-      type: 'function' as const,
-      function: {
-        name: 'procedure_record_result',
-        description: 'Record whether a saved procedure was successful or failed.',
-        parameters: {
-          type: 'object',
-          required: ['id', 'success'],
-          properties: {
-            id: { type: 'string', description: 'ID of the procedure' },
-            success: { type: 'boolean', description: 'true if successful, false otherwise' },
-          },
-        },
-      },
-    },
-    {
-      type: 'function' as const,
-      function: {
-        name: 'procedure_get',
-        description: 'Get details and steps of a specific procedure',
-        parameters: {
-          type: 'object',
-          required: ['name'],
-          properties: {
-            name: { type: 'string', description: 'name of the procedure' },
-          },
-        },
-      },
-    },
-    {
-      type: 'function' as const,
-      function: {
-        name: 'scratchpad_write',
-        description: 'THINK on paper before acting. Write your plan, reasoning, intermediate findings, and state here BEFORE taking action. Use this to plan multi-step tasks, track progress across browser pages, and avoid repeating mistakes. For any task with 2+ steps, write a plan here FIRST.',
-        parameters: {
-          type: 'object',
-          required: ['content'],
-          properties: {
-            content: { type: 'string', description: 'The text to write to the scratchpad' },
-          },
-        },
-      },
-    },
-    {
-      type: 'function' as const,
-      function: {
-        name: 'scratchpad_read',
-        description: 'Read the current contents of your scratchpad.',
-        parameters: {
-          type: 'object',
-          properties: {},
-        },
-      },
-    },
-    {
-      type: 'function' as const,
-      function: {
-        name: 'scratchpad_clear',
-        description: 'Clear all contents from your scratchpad when you are done with a task.',
-        parameters: {
-          type: 'object',
-          properties: {},
-        },
-      },
-    },
-    {
-      type: 'function' as const,
-      function: {
-        name: 'skill_create',
-        description: 'Create a new skill after learning how a service works. Use this after browsing documentation to create a reusable skill with tools and procedures.',
-        parameters: {
-          type: 'object',
-          required: ['name', 'description'],
-          properties: {
-            name: { type: 'string', description: 'Short name (e.g., "obsidian", "youtube")' },
-            description: { type: 'string', description: 'What this skill does' },
-            emoji: { type: 'string' },
-            category: { type: 'string', description: 'productivity, communication, development, automation, data' },
-            requirements: { type: 'array', description: 'Credentials/config needed', items: { type: 'object' } },
-            tools: { type: 'array', description: 'Shell-based tools this skill provides', items: { type: 'object' } },
-            procedures: { type: 'array', description: 'Multi-step workflows', items: { type: 'object' } },
-          },
-        },
-      },
-    },
-    {
-      type: 'function' as const,
-      function: {
-        name: 'skill_test',
-        description: 'Test a newly created skill by running one of its tools.',
-        parameters: {
-          type: 'object',
-          required: ['skill_name', 'tool_name'],
-          properties: {
-            skill_name: { type: 'string', description: 'Name of the skill' },
-            tool_name: { type: 'string', description: 'Name of the tool within the skill to test' },
-            params: { type: 'object', description: 'Arguments for the tool' },
-          },
-        },
-      },
-    },
-    // Browser automation tools
-    ...getBrowserToolDefinitions(),
-    ...getDesktopToolDefinitions(),
-    // Orchestration tool — only exposed when orchestration is enabled
-    ...((() => {
-      const oc = getOrchestrationConfig();
-      if (!oc?.enabled || !isOrchestrationSkillEnabled()) return [];
-      return [{
-        type: 'function' as const,
-        function: {
-          name: 'request_secondary_assist',
-          description: 'Request guidance from the secondary AI advisor when you are stuck, need a plan, or have failed multiple times. The advisor returns a structured action plan. Use proactively for complex tasks.',
-          parameters: {
-            type: 'object',
-            required: ['reason'],
-            properties: {
-              reason: { type: 'string', description: 'Why you need help: planning, stuck, repeated failures, risky edit, etc.' },
-              mode: { type: 'string', enum: ['planner', 'rescue'], description: 'planner = need upfront strategy; rescue = stuck or failing' },
-            },
-          },
-        },
-      }];
-    })()),
-    // ── Sub-agent tools ── shown based on subagent_mode toggle ────────────────────────────────────
-    ...((() => {
-      const subagentMode = (getConfig().getConfig() as any).orchestration?.subagent_mode === true;
-      if (subagentMode) {
-        // Full Claude Cowork–style: free-form arbitrary spawn (multi-agent ON)
-        return [{
-          type: 'function' as const,
-          function: {
-            name: 'subagent_spawn',
-            description:
-              'Spawn a child agent in an isolated session to handle a parallel subtask. ' +
-              'The current task pauses until ALL spawned children complete. ' +
-              'Do NOT call this recursively from inside a child task.',
-            parameters: {
-              type: 'object',
-              required: ['task_title', 'task_prompt'],
-              properties: {
-                task_title: { type: 'string', description: 'Short title for the sub-agent task' },
-                task_prompt: { type: 'string', description: 'Full instruction for the sub-agent (be precise)' },
-                context_snippet: { type: 'string', description: 'Relevant context pre-extracted for the sub-agent (file contents, URLs, etc.)' },
-                expected_output: { type: 'string', description: 'What the sub-agent should return when done' },
-                profile: {
-                  type: 'string',
-                  enum: ['file_editor', 'researcher', 'shell_runner', 'reader_only'],
-                  description: 'Tool access profile: file_editor=read/write files, researcher=read+web, shell_runner=run_command, reader_only=read only',
-                },
-              },
-            },
-          },
-        }];
-      }
-      // Conservative 4B-safe mode: fixed specialist templates (multi-agent OFF)
-      return [{
-        type: 'function' as const,
-        function: {
-          name: 'delegate_to_specialist',
-          description:
-            'Delegate a focused, self-contained subtask to a specialist sub-agent. ' +
-            'Use for file edits, research lookups, or shell commands that are narrow and well-scoped. ' +
-            'The current task pauses until the specialist completes.',
-          parameters: {
-            type: 'object',
-            required: ['type', 'input'],
-            properties: {
-              type: {
-                type: 'string',
-                enum: ['file_editor', 'researcher', 'shell_runner', 'reader_only'],
-                description: 'Specialist role',
-              },
-              input: { type: 'string', description: 'Precise instruction for the specialist' },
-              context_snippet: { type: 'string', description: 'Relevant context the specialist needs (file content, URL, etc.)' },
-              target_file: { type: 'string', description: 'File to operate on (for file_editor)' },
-            },
-          },
-        },
-      }];
-    })()),
-    {
-      type: 'function',
-      function: {
-        name: 'list_mcp_servers',
-        description: 'List all currently configured MCP servers and their active tool counts.',
-        parameters: { type: 'object', properties: {} },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'register_mcp_server',
-        description: 'Connect to a new external MCP server (stdio or sse) to gain new tools.',
-        parameters: {
-          type: 'object', required: ['id', 'name', 'transport'],
-          properties: {
-            id: { type: 'string', description: 'Unique ID (alphanumeric/dash)' },
-            name: { type: 'string', description: 'Display name' },
-            transport: { type: 'string', enum: ['stdio', 'sse'], description: 'stdio (local command) or sse (remote URL)' },
-            command: { type: 'string', description: 'For stdio: executable name (node, python, npx, uvx)' },
-            args: { type: 'array', items: { type: 'string' }, description: 'Command arguments' },
-            env: { type: 'object', description: 'Environment variables' },
-            url: { type: 'string', description: 'For sse: endpoint URL' },
-          },
-        },
-      },
-    },
-    {
-      type: 'function' as const,
-      function: {
-        name: skillConnectorTool.name,
-        description: skillConnectorTool.description,
-        parameters: skillConnectorTool.schema as any,
-      },
-    },
-    // Dynamically inject all active tools from connected MCP servers
-    ...((() => {
-      try {
-        const mcpTools = getMCPManager().getAllTools();
-        return mcpTools.map(t => ({
-          type: 'function' as const,
-          function: {
-            name: t.name,
-            description: `(MCP:${t.serverName}) ${t.description}`,
-            parameters: t.inputSchema || { type: 'object', properties: {} },
-          },
-        }));
-      } catch { return []; }
-    })()),
+    }
   ];
+
+  // Add Orchestration tools
+  if (oc?.enabled && orchestrationSkillEnabled) {
+    tools.push({
+      type: 'function' as const,
+      function: {
+        name: 'request_secondary_assist',
+        description: 'Request guidance from the secondary AI advisor when you are stuck or need a plan.',
+        parameters: {
+          type: 'object',
+          required: ['reason'],
+          properties: {
+            reason: { type: 'string' },
+            mode: { type: 'string', enum: ['planner', 'rescue'] },
+          },
+        },
+      },
+    });
+  }
+
+  // Add Multi-agent tools
+  if (subagentMode) {
+    tools.push({
+      type: 'function' as const,
+      function: {
+        name: 'subagent_spawn',
+        description: 'Spawn a child agent to handle a parallel subtask.',
+        parameters: {
+          type: 'object',
+          required: ['task_title', 'task_prompt'],
+          properties: {
+            task_title: { type: 'string' },
+            task_prompt: { type: 'string' },
+            context_snippet: { type: 'string' },
+            expected_output: { type: 'string' },
+            profile: { type: 'string', enum: ['file_editor', 'researcher', 'shell_runner', 'reader_only'] },
+          },
+        },
+      },
+    });
+  } else {
+    tools.push({
+      type: 'function' as const,
+      function: {
+        name: 'delegate_to_specialist',
+        description: 'Delegate a focused subtask to a specialist sub-agent.',
+        parameters: {
+          type: 'object',
+          required: ['type', 'input'],
+          properties: {
+            type: { type: 'string', enum: ['file_editor', 'researcher', 'shell_runner', 'reader_only'] },
+            input: { type: 'string' },
+            context_snippet: { type: 'string' },
+            target_file: { type: 'string' },
+          },
+        },
+      },
+    });
+  }
+
+  // MCP integration
+  try {
+    const mgr = getMCPManager();
+    const mcpTools = mgr.getAllTools();
+    for (const t of mcpTools) {
+      tools.push({
+        type: 'function' as const,
+        function: {
+          name: t.name,
+          description: `(MCP:${t.serverName}) ${t.description}`,
+          parameters: t.inputSchema || { type: 'object', properties: {} },
+        },
+      });
+    }
+  } catch { }
+
+  return tools;
 }
 
 // ─── Search Providers ─────────────────────────────────────────────────────────
-
-async function tavilySearch(query: string, apiKey: string): Promise<string> {
-  try {
-    const response = await fetch('https://api.tavily.com/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      body: JSON.stringify({ query, max_results: 5, search_depth: 'basic' }),
-    });
-    if (!response.ok) {
-      const err = await response.text();
-      return `Tavily search failed (${response.status}): ${err.slice(0, 200)}`;
-    }
-    const data = await response.json() as any;
-    const results = (data.results || []).slice(0, 5).map((r: any, i: number) =>
-      `[${i + 1}] ${r.title || 'No title'}\n${r.content?.slice(0, 200) || r.snippet || ''}\nURL: ${r.url || ''}`
-    );
-    if (!results.length) return `No results found for "${query}".`;
-    let output = results.join('\n\n');
-    const topUrl = (data.results || [])[0]?.url;
-    if (topUrl) {
-      console.log(`[v2] TAVILY AUTO-FETCH: ${topUrl.slice(0, 80)}`);
-      const pageContent = await webFetch(topUrl);
-      if (!pageContent.startsWith('Fetch failed') && !pageContent.startsWith('Fetch error') && !pageContent.startsWith('Fetch timed') && !pageContent.startsWith('Page fetched but very little')) {
-        output += '\n\n─── TOP RESULT FULL CONTENT ───\n' + pageContent;
-      }
-    }
-    output += '\n\nOther URLs above can be read with web_fetch if needed.';
-    return output;
-  } catch (err: any) {
-    return `Tavily search error: ${err.message}`;
-  }
-}
-
-async function googleSearch(query: string): Promise<string> {
-  const searchCfg = (getConfig().getConfig() as any).search || {};
-  const GOOGLE_API_KEY = (searchCfg.google_api_key || '').trim();
-  const GOOGLE_CX = (searchCfg.google_cx || '').trim();
-  if (!GOOGLE_API_KEY || !GOOGLE_CX) {
-    return 'Google search not configured. Add google_api_key and google_cx in Settings → Search.';
-  }
-
-  try {
-    const encoded = encodeURIComponent(query);
-    const url = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${GOOGLE_CX}&q=${encoded}&num=5`;
-    const response = await fetch(url);
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`[v2] Google Search error: ${response.status} ${errText.slice(0, 200)}`);
-      return `Search failed (${response.status}). Try again later.`;
-    }
-
-    const data = await response.json() as any;
-    const items = data.items || [];
-
-    if (items.length === 0) {
-      return `No results found for "${query}".`;
-    }
-
-    const results = items.slice(0, 5).map((item: any, i: number) => {
-      const title = item.title || 'No title';
-      const snippet = item.snippet || 'No description';
-      const link = item.link || '';
-      return `[${i + 1}] ${title}\n${snippet}\nURL: ${link}`;
-    });
-
-    let output = results.join('\n\n');
-
-    const topUrl = items[0]?.link;
-    if (topUrl) {
-      console.log(`[v2] AUTO-FETCH: Fetching top result: ${topUrl.slice(0, 80)}`);
-      const pageContent = await webFetch(topUrl);
-      if (!pageContent.startsWith('Fetch failed') && !pageContent.startsWith('Fetch error') && !pageContent.startsWith('Fetch timed') && !pageContent.startsWith('Page fetched but very little')) {
-        output += '\n\n─── TOP RESULT FULL CONTENT ───\n' + pageContent;
-      }
-    }
-
-    output += '\n\nOther URLs above can be read with web_fetch if needed.';
-    return output;
-  } catch (err: any) {
-    console.error(`[v2] Google Search error:`, err.message);
-    return `Search error: ${err.message}`;
-  }
-}
-
-async function duckDuckGoSearch(query: string): Promise<string> {
-  try {
-    const encoded = encodeURIComponent(query);
-    const url = `https://html.duckduckgo.com/html/?q=${encoded}`;
-    const html = await webFetch(url);
-    return html.startsWith('Content from') ? html : `No DDG results for "${query}".`;
-  } catch (err: any) {
-    return `DuckDuckGo search error: ${err.message}`;
-  }
-}
-
-// Unified search router — picks provider based on config
-async function webSearch(query: string): Promise<string> {
-  const searchCfg = (getConfig().getConfig() as any).search || {};
-  const provider = searchCfg.preferred_provider || 'google';
-  const tavilyKey = searchCfg.tavily_api_key || '';
-  console.log(`[v2] webSearch via ${provider}: ${query.slice(0, 80)}`);
-
-  if (provider === 'tavily' && tavilyKey) {
-    return tavilySearch(query, tavilyKey);
-  }
-  if (provider === 'google') {
-    return googleSearch(query);
-  }
-  if (provider === 'ddg' || provider === 'duckduckgo') {
-    return duckDuckGoSearch(query);
-  }
-  // Fallback: try tavily if key exists, then google, then ddg
-  if (tavilyKey) return tavilySearch(query, tavilyKey);
-  const googleResult = await googleSearch(query);
-  if (!googleResult.includes('not configured')) return googleResult;
-  return duckDuckGoSearch(query);
-}
-
-// ─── Web Fetch (full page content) ─────────────────────────────────────────────
-
-async function webFetch(url: string): Promise<string> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
-    });
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      return `Fetch failed (${response.status} ${response.statusText})`;
-    }
-
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('text/html') && !contentType.includes('text/plain') && !contentType.includes('application/json')) {
-      return `Non-text content type: ${contentType}. Cannot extract text.`;
-    }
-
-    const html = await response.text();
-
-    // Strip HTML to plain text — remove scripts, styles, tags, then clean whitespace
-    let text = html
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[\s\S]*?<\/style>/gi, '')
-      .replace(/<nav[\s\S]*?<\/nav>/gi, '')
-      .replace(/<header[\s\S]*?<\/header>/gi, '')
-      .replace(/<footer[\s\S]*?<\/footer>/gi, '')
-      .replace(/<aside[\s\S]*?<\/aside>/gi, '')
-      .replace(/<!--[\s\S]*?-->/g, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#039;/g, "'")
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    // Truncate to fit in context — ~3000 chars is plenty for a 4B model
-    const maxChars = 3000;
-    if (text.length > maxChars) {
-      text = text.slice(0, maxChars) + '\n\n...(truncated — page had ' + text.length + ' chars total)';
-    }
-
-    if (text.length < 50) {
-      return `Page fetched but very little text content extracted. The page may be JavaScript-heavy (SPA). Try using browser_open instead.`;
-    }
-
-    return `Content from ${url}:\n\n${text}`;
-  } catch (err: any) {
-    if (err.name === 'AbortError') return 'Fetch timed out after 15s.';
-    return `Fetch error: ${err.message}`;
-  }
-}
 
 // ─── Tool Execution ────────────────────────────────────────────────────────────
 
@@ -1591,628 +1071,37 @@ function normalizeToolArgs(rawArgs: any): any {
 }
 
 async function executeTool(name: string, args: any, workspacePath: string, sessionId: string = 'default'): Promise<ToolResult> {
-  // Filename inference: if the model forgot to pass filename, use the last one
-  const needsFilename = ['read_file', 'create_file', 'replace_lines', 'insert_after', 'delete_lines', 'find_replace', 'delete_file', 'read_document'];
-  if (needsFilename.includes(name)) {
-    // Normalize: secondary AI sometimes returns "path" or "file" instead of "filename"
-    if (!args.filename && !args.name) {
-      if (args.path) { args.filename = args.path; }
-      else if (args.file) { args.filename = args.file; }
-    }
-    const fn = args.filename || args.name;
-    if (fn) {
-      lastFilenameUsed.set(sessionId, fn);
-    } else if (lastFilenameUsed.has(sessionId)) {
-      args.filename = lastFilenameUsed.get(sessionId);
-      console.log(`[v2] AUTO-FIX: Injected missing filename "${args.filename}" for ${name}`);
-    }
-  }
+  const registry = getToolRegistry();
+  let toolResult: ToolResult;
 
   try {
-    switch (name) {
-      case 'list_files': {
-        const files = fs.readdirSync(workspacePath).filter(f => {
-          try { return fs.statSync(path.join(workspacePath, f)).isFile(); } catch { return false; }
-        });
-        return { name, args, result: JSON.stringify(files), error: false };
-      }
-
-      case 'read_file': {
-        const filename = args.filename || args.name;
-        const filePath = path.join(workspacePath, filename);
-        if (!fs.existsSync(filePath)) return { name, args, result: `File "${filename}" not found`, error: true };
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const numbered = content.split('\n').map((line, i) => `${i + 1}: ${line}`).join('\n');
-        return { name, args, result: `${filename} (${content.split('\n').length} lines):\n${numbered}`, error: false };
-      }
-
-      case 'create_file': {
-        const filename = args.filename || args.name;
-        const filePath = path.join(workspacePath, filename);
-        if (fs.existsSync(filePath)) return { name, args, result: `"${filename}" already exists. Use replace_lines or insert_after to edit.`, error: true };
-        fs.writeFileSync(filePath, args.content || '', 'utf-8');
-        return { name, args, result: `${filename} created`, error: false };
-      }
-
-      case 'replace_lines': {
-        const filename = args.filename || args.name;
-        const startLine = Math.max(1, Math.floor(Number(args.start_line) || 1));
-        const endLine = Math.max(startLine, Math.floor(Number(args.end_line) || startLine));
-        const newContent = args.new_content || '';
-        const filePath = path.join(workspacePath, filename);
-        if (!fs.existsSync(filePath)) return { name, args, result: `"${filename}" not found`, error: true };
-        const lines = fs.readFileSync(filePath, 'utf-8').split('\n');
-        if (startLine > lines.length) return { name, args, result: `Line ${startLine} past end (${lines.length} lines)`, error: true };
-        const end = Math.min(endLine, lines.length);
-        lines.splice(startLine - 1, end - startLine + 1, ...newContent.split('\n'));
-        fs.writeFileSync(filePath, lines.join('\n'), 'utf-8');
-        return { name, args, result: `${filename}: replaced lines ${startLine}-${end} (now ${lines.length} lines)`, error: false };
-      }
-
-      case 'insert_after': {
-        const filename = args.filename || args.name;
-        const afterLine = Math.max(0, Math.floor(Number(args.after_line) || 0));
-        const content = String(args.content || '').replace(/\\n/g, '\n');
-        const filePath = path.join(workspacePath, filename);
-        if (!fs.existsSync(filePath)) return { name, args, result: `"${filename}" not found`, error: true };
-        const lines = fs.readFileSync(filePath, 'utf-8').split('\n');
-        const insertAt = Math.min(afterLine, lines.length);
-        lines.splice(insertAt, 0, ...content.split('\n'));
-        fs.writeFileSync(filePath, lines.join('\n'), 'utf-8');
-        return { name, args, result: `${filename}: inserted after line ${afterLine} (now ${lines.length} lines)`, error: false };
-      }
-
-      case 'delete_lines': {
-        const filename = args.filename || args.name;
-        const startLine = Math.max(1, Math.floor(Number(args.start_line) || 1));
-        const endLine = Math.max(startLine, Math.floor(Number(args.end_line) || startLine));
-        const filePath = path.join(workspacePath, filename);
-        if (!fs.existsSync(filePath)) return { name, args, result: `"${filename}" not found`, error: true };
-        const lines = fs.readFileSync(filePath, 'utf-8').split('\n');
-        const end = Math.min(endLine, lines.length);
-        lines.splice(startLine - 1, end - startLine + 1);
-        fs.writeFileSync(filePath, lines.join('\n'), 'utf-8');
-        return { name, args, result: `${filename}: deleted lines ${startLine}-${end} (now ${lines.length} lines)`, error: false };
-      }
-
-      case 'find_replace': {
-        const filename = args.filename || args.name;
-        const find = args.find || '';
-        const replace = args.replace ?? '';
-        const filePath = path.join(workspacePath, filename);
-        if (!fs.existsSync(filePath)) return { name, args, result: `"${filename}" not found`, error: true };
-        const content = fs.readFileSync(filePath, 'utf-8');
-        if (!content.includes(find)) return { name, args, result: `Text not found. Use read_file to check exact content.`, error: true };
-        fs.writeFileSync(filePath, content.replace(find, replace), 'utf-8');
-        return { name, args, result: `${filename} updated`, error: false };
-      }
-
-      case 'delete_file': {
-        const filename = args.filename || args.name;
-        const filePath = path.join(workspacePath, filename);
-        if (!fs.existsSync(filePath)) return { name, args, result: `"${filename}" not found`, error: true };
-        fs.unlinkSync(filePath);
-        return { name, args, result: `${filename} deleted`, error: false };
-      }
-
-      case 'read_document': {
-        const filename = String(args.filename || args.name || args.path || '');
-        const result = await executeReadDocument({ path: filename });
-        return { name, args, result: result.stdout || result.error || '', error: !result.success };
-      }
-
-      case 'memory_write': {
-        const res = await executeMemoryWrite(args as any);
-        return { name, args, result: res.stdout || res.error || '', error: !res.success };
-      }
-
-      case 'memory_search': {
-        const res = await executeMemorySearch(args as any);
-        return { name, args, result: res.stdout || res.error || '', error: !res.success };
-      }
-
-      case 'procedure_save': {
-        const res = await executeProcedureSave(args as any);
-        return { name, args, result: res.stdout || res.error || '', error: !res.success };
-      }
-
-      case 'procedure_list': {
-        const res = await executeProcedureList(args as any);
-        return { name, args, result: res.stdout || res.error || '', error: !res.success };
-      }
-
-      case 'procedure_get': {
-        const res = await executeProcedureGet(args as any);
-        return { name, args, result: res.stdout || res.error || '', error: !res.success };
-      }
-
-      case 'procedure_record_result': {
-        const res = await executeProcedureRecordResult(args as any);
-        return { name, args, result: res.stdout || res.error || '', error: !res.success };
-      }
-
-      case 'scratchpad_write': {
-        const res = await executeScratchpadWrite({ ...args, session_id: sessionId });
-        return { name, args, result: res.stdout || res.error || '', error: !res.success };
-      }
-
-      case 'scratchpad_read': {
-        const res = await executeScratchpadRead({ session_id: sessionId });
-        return { name, args, result: res.stdout || res.error || '', error: !res.success };
-      }
-
-      case 'scratchpad_clear': {
-        const res = await executeScratchpadClear({ session_id: sessionId });
-        return { name, args, result: res.stdout || res.error || '', error: !res.success };
-      }
-
-      case 'skill_connector': {
-        const result = await executeSkillConnector(args as any);
-        return { name, args, result: result.stdout || result.error || '', error: !result.success };
-      }
-
-      case 'skill_create': {
-        const result = await executeSkillCreate(args as any);
-        return { name, args, result: result.stdout || result.error || '', error: !result.success };
-      }
-
-      case 'skill_test': {
-        const result = await executeSkillTest(args as any);
-        return { name, args, result: result.stdout || result.error || '', error: !result.success };
-      }
-
-      case 'web_search': {
-        const result = await webSearch(args.query || '');
-        return { name, args, result, error: false };
-      }
-
-      case 'web_fetch': {
-        const result = await webFetch(args.url || '');
-        return { name, args, result, error: result.startsWith('Fetch failed') || result.startsWith('Fetch error') || result.startsWith('Fetch timed') };
-      }
-
-      case 'run_command': {
-        const rawCmd = (args.command || '').trim();
-        const cmd = rawCmd.toLowerCase();
-        // Check blocked patterns
-        for (const blocked of BLOCKED_PATTERNS) {
-          if (cmd.includes(blocked.toLowerCase())) {
-            return { name, args, result: `Blocked: "${cmd}" contains unsafe pattern "${blocked}"`, error: true };
-          }
-        }
-
-        let execCmd = '';
-
-        // 1. Check allowlist (exact match)
-        if (SAFE_COMMANDS[cmd]) {
-          execCmd = SAFE_COMMANDS[cmd];
-        }
-        // 2. "chrome <url>" or "browser <url>" → open browser with URL
-        else if (/^(chrome|browser|firefox|edge)\s+/.test(cmd)) {
-          const parts = rawCmd.split(/\s+/);
-          const app = parts[0].toLowerCase();
-          let url = parts.slice(1).join(' ');
-          // Add https:// only when no URI scheme is present.
-          // This preserves file://, chrome://, about:, etc.
-          if (url && !hasUriScheme(url)) url = 'https://' + url;
-          execCmd = buildBrowserLaunchCommand(app, url);
-        }
-        // 3. URL/URI → open in default browser
-        else if (/^(https?:\/\/|file:\/\/|chrome:\/\/|about:|www\.)/.test(cmd)) {
-          const url = cmd.startsWith('www.') ? 'https://' + rawCmd : rawCmd;
-          execCmd = buildUrlOpenCommand(url);
-        }
-        // 4. Bare domain like "youtube.com" → open in browser
-        else if (/^[a-z0-9-]+\.[a-z]{2,}/.test(cmd) && !cmd.includes(' ')) {
-          execCmd = buildUrlOpenCommand(`https://${rawCmd}`);
-        }
-        // 5. "code <path>" → VS Code
-        else if (cmd.startsWith('code ')) {
-          execCmd = rawCmd;
-        }
-        // 6. Windows-only: "start <url>" → pass through
-        else if (isWindows && (cmd.startsWith('start http') || cmd.startsWith('start https'))) {
-          execCmd = rawCmd;
-        }
-        // 7. Windows-only: "explorer <path>"
-        else if (isWindows && cmd.startsWith('explorer ')) {
-          execCmd = rawCmd;
-        }
-
-        if (!execCmd) {
-          return {
-            name,
-            args,
-            result: `Command "${rawCmd}" not recognized. Try: chrome, chrome youtube.com, notepad, code <path>, or a URL`,
-            error: true,
-          };
-        }
-        try {
-          const { exec } = await import('child_process');
-          exec(execCmd);
-          return { name, args, result: `Executed: ${execCmd}`, error: false };
-        } catch (err: any) {
-          return { name, args, result: `Failed: ${err.message}`, error: true };
-        }
-      }
-
-      case 'start_task': {
-        // This is handled specially in handleChat — shouldn't reach here
-        return { name, args, result: 'Task system ready. Use the task endpoint.', error: false };
-      }
-
-      case 'task_control': {
-        const out = await handleTaskControlAction(sessionId, args);
-        return {
-          name,
-          args,
-          result: JSON.stringify(out, null, 2),
-          error: out.success !== true,
-        };
-      }
-
-      case 'schedule_job': {
-        const action = normalizeScheduleJobAction(args.action);
-        if (!action) {
-          return {
-            name,
-            args,
-            result: 'schedule_job requires a valid action: list, create, update, pause, resume, delete, run_now',
-            error: true,
-          };
-        }
-
-        const requiresConfirm = action === 'create' || action === 'update' || action === 'delete';
-        if (requiresConfirm && args.confirm !== true) {
-          return {
-            name,
-            args,
-            result: JSON.stringify({
-              success: false,
-              needs_confirmation: true,
-              action,
-              message: `Action "${action}" requires explicit confirmation. Re-run with confirm=true after user says yes.`,
-            }, null, 2),
-            error: true,
-          };
-        }
-
-        if (action === 'list') {
-          const limitRaw = Number(args.limit);
-          const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(200, Math.floor(limitRaw)) : 50;
-          const jobs = cronScheduler.getJobs().map(summarizeCronJob).slice(0, limit);
-          return {
-            name,
-            args,
-            result: JSON.stringify({ success: true, count: jobs.length, jobs }, null, 2),
-            error: false,
-          };
-        }
-
-        const jobId = String(args.job_id || args.jobId || '').trim();
-
-        if (action === 'create') {
-          const instructionPrompt = String(args.instruction_prompt || args.prompt || '').trim();
-          if (!instructionPrompt) {
-            return { name, args, result: 'schedule_job(create) requires instruction_prompt', error: true };
-          }
-
-          const schedule = (args.schedule && typeof args.schedule === 'object') ? args.schedule : {};
-          const rawKind = String(schedule.kind || args.kind || 'recurring').trim().toLowerCase();
-          const kind: 'recurring' | 'one-shot' = (rawKind === 'one_shot' || rawKind === 'one-shot') ? 'one-shot' : 'recurring';
-          const cron = String(schedule.cron || args.cron || '').trim();
-          const runAtRaw = String(schedule.run_at || args.run_at || '').trim();
-          const timezone = String(args.timezone || args.tz || '').trim() || undefined;
-          const delivery = (args.delivery && typeof args.delivery === 'object') ? args.delivery : {};
-          const channel = normalizeDeliveryChannel(delivery.channel || args.channel);
-          const sessionTarget = String(delivery.session_target || args.session_target || 'isolated').toLowerCase() === 'main'
-            ? 'main'
-            : 'isolated';
-          const modelOverride = String(args.model_override || args.model || '').trim() || undefined;
-          const nameValue = String(args.name || '').trim() || `Scheduled task ${new Date().toLocaleString()}`;
-
-          if (channel !== 'web') {
-            return {
-              name,
-              args,
-              result: `Delivery channel "${channel}" is not enabled for scheduler jobs yet. Use channel "web" for now.`,
-              error: true,
-            };
-          }
-
-          if (kind === 'one-shot') {
-            if (!runAtRaw) return { name, args, result: 'schedule.kind=one_shot requires schedule.run_at (ISO datetime)', error: true };
-            const parsed = new Date(runAtRaw);
-            if (!Number.isFinite(parsed.getTime())) {
-              return { name, args, result: `Invalid run_at value: "${runAtRaw}"`, error: true };
-            }
-          } else if (!cron) {
-            return { name, args, result: 'schedule.kind=recurring requires schedule.cron', error: true };
-          }
-
-          const created = cronScheduler.createJob({
-            name: nameValue,
-            prompt: instructionPrompt,
-            type: kind,
-            schedule: kind === 'recurring' ? cron : undefined,
-            runAt: kind === 'one-shot' ? new Date(runAtRaw).toISOString() : undefined,
-            tz: timezone,
-            sessionTarget,
-            model: modelOverride,
-          } as any);
-
-          return {
-            name,
-            args,
-            result: JSON.stringify({
-              success: true,
-              action: 'create',
-              job: summarizeCronJob(created),
-              message: `Scheduled job "${created.name}" created.`,
-            }, null, 2),
-            error: false,
-          };
-        }
-
-        if (!jobId) {
-          return { name, args, result: `schedule_job(${action}) requires job_id`, error: true };
-        }
-
-        if (action === 'pause') {
-          const updated = cronScheduler.updateJob(jobId, { status: 'paused', enabled: false } as any);
-          if (!updated) return { name, args, result: `Job not found: ${jobId}`, error: true };
-          return { name, args, result: JSON.stringify({ success: true, action: 'pause', job: summarizeCronJob(updated) }, null, 2), error: false };
-        }
-
-        if (action === 'resume') {
-          const updated = cronScheduler.updateJob(jobId, { status: 'scheduled', enabled: true } as any);
-          if (!updated) return { name, args, result: `Job not found: ${jobId}`, error: true };
-          return { name, args, result: JSON.stringify({ success: true, action: 'resume', job: summarizeCronJob(updated) }, null, 2), error: false };
-        }
-
-        if (action === 'run_now') {
-          const exists = cronScheduler.getJobs().some(j => j.id === jobId);
-          if (!exists) return { name, args, result: `Job not found: ${jobId}`, error: true };
-          cronScheduler.runJobNow(jobId, { respectActiveHours: false }).catch(err =>
-            console.error(`[schedule_job] run_now failed for ${jobId}:`, err?.message || err)
-          );
-          return {
-            name,
-            args,
-            result: JSON.stringify({ success: true, action: 'run_now', job_id: jobId, message: 'Job queued for immediate run.' }, null, 2),
-            error: false,
-          };
-        }
-
-        if (action === 'delete') {
-          const ok = cronScheduler.deleteJob(jobId);
-          if (!ok) return { name, args, result: `Job not found: ${jobId}`, error: true };
-          return {
-            name,
-            args,
-            result: JSON.stringify({ success: true, action: 'delete', job_id: jobId, message: 'Job deleted.' }, null, 2),
-            error: false,
-          };
-        }
-
-        if (action === 'update') {
-          const schedule = (args.schedule && typeof args.schedule === 'object') ? args.schedule : {};
-          const patch: Record<string, any> = {};
-
-          if (args.name !== undefined) patch.name = String(args.name || '').trim();
-          if (args.instruction_prompt !== undefined || args.prompt !== undefined) {
-            patch.prompt = String(args.instruction_prompt || args.prompt || '').trim();
-          }
-          if (args.timezone !== undefined || args.tz !== undefined) {
-            patch.tz = String(args.timezone || args.tz || '').trim();
-          }
-          if (args.model_override !== undefined || args.model !== undefined) {
-            const mv = String(args.model_override || args.model || '').trim();
-            patch.model = mv || undefined;
-          }
-          if (args.delivery !== undefined || args.channel !== undefined) {
-            const delivery = (args.delivery && typeof args.delivery === 'object') ? args.delivery : {};
-            const channel = normalizeDeliveryChannel(delivery.channel || args.channel);
-            if (channel !== 'web') {
-              return {
-                name,
-                args,
-                result: `Delivery channel "${channel}" is not enabled for scheduler jobs yet. Use channel "web" for now.`,
-                error: true,
-              };
-            }
-            const sessionTarget = String(delivery.session_target || args.session_target || '').toLowerCase();
-            if (sessionTarget === 'main' || sessionTarget === 'isolated') patch.sessionTarget = sessionTarget;
-          }
-
-          const rawKind = String(schedule.kind || args.kind || '').trim().toLowerCase();
-          if (rawKind === 'one_shot' || rawKind === 'one-shot') patch.type = 'one-shot';
-          if (rawKind === 'recurring') patch.type = 'recurring';
-          if (schedule.cron !== undefined || args.cron !== undefined) patch.schedule = String(schedule.cron || args.cron || '').trim();
-          if (schedule.run_at !== undefined || args.run_at !== undefined) patch.runAt = String(schedule.run_at || args.run_at || '').trim();
-
-          if (Object.keys(patch).length === 0) {
-            return { name, args, result: 'No update fields provided for schedule_job(update).', error: true };
-          }
-
-          if (patch.type === 'one-shot' && !patch.runAt) {
-            return { name, args, result: 'Updating to one_shot requires schedule.run_at', error: true };
-          }
-          if (patch.type === 'recurring' && patch.schedule === '') {
-            return { name, args, result: 'Updating to recurring requires schedule.cron', error: true };
-          }
-          if (patch.runAt) {
-            const parsed = new Date(String(patch.runAt));
-            if (!Number.isFinite(parsed.getTime())) {
-              return { name, args, result: `Invalid run_at value: "${patch.runAt}"`, error: true };
-            }
-            patch.runAt = parsed.toISOString();
-          }
-
-          const updated = cronScheduler.updateJob(jobId, patch as any);
-          if (!updated) return { name, args, result: `Job not found: ${jobId}`, error: true };
-          return {
-            name,
-            args,
-            result: JSON.stringify({
-              success: true,
-              action: 'update',
-              job: summarizeCronJob(updated),
-              message: `Scheduled job "${updated.name}" updated.`,
-            }, null, 2),
-            error: false,
-          };
-        }
-
-        return { name, args, result: `Unsupported schedule_job action: ${action}`, error: true };
-      }
-
-      // Browser automation tools
-      case 'browser_open': {
-        const result = await browserOpen(sessionId, args.url || '');
-        return { name, args, result, error: result.startsWith('ERROR') };
-      }
-      case 'browser_snapshot': {
-        const result = await browserSnapshot(sessionId);
-        return { name, args, result, error: result.startsWith('ERROR') };
-      }
-      case 'browser_click': {
-        const result = await browserClick(sessionId, Number(args.ref || 0));
-        return { name, args, result, error: result.startsWith('ERROR') };
-      }
-      case 'browser_fill': {
-        const result = await browserFill(sessionId, Number(args.ref || 0), String(args.text || ''));
-        return { name, args, result, error: result.startsWith('ERROR') };
-      }
-      case 'browser_press_key': {
-        const result = await browserPressKey(sessionId, String(args.key || 'Enter'));
-        return { name, args, result, error: result.startsWith('ERROR') };
-      }
-      case 'browser_wait': {
-        const result = await browserWait(sessionId, Number(args.ms || 2000));
-        return { name, args, result, error: result.startsWith('ERROR') };
-      }
-      case 'browser_scroll': {
-        const dir = String(args.direction || 'down').toLowerCase() === 'up' ? 'up' : 'down';
-        const result = await browserScroll(sessionId, dir, Number(args.multiplier || 1));
-        return { name, args, result, error: result.startsWith('ERROR') };
-      }
-      case 'browser_close': {
-        const result = await browserClose(sessionId);
-        return { name, args, result, error: false };
-      }
-
-      // Desktop automation tools
-      case 'desktop_screenshot': {
-        const result = await desktopScreenshot(sessionId);
-        return { name, args, result, error: result.startsWith('ERROR') };
-      }
-      case 'desktop_find_window': {
-        const result = await desktopFindWindow(String(args.name || ''));
-        return { name, args, result, error: result.startsWith('ERROR') };
-      }
-      case 'desktop_focus_window': {
-        const result = await desktopFocusWindow(String(args.name || ''));
-        return { name, args, result, error: result.startsWith('ERROR') };
-      }
-      case 'desktop_click': {
-        const result = await desktopClick(
-          Number(args.x),
-          Number(args.y),
-          String(args.button || 'left').toLowerCase() === 'right' ? 'right' : 'left',
-          args.double_click === true,
-        );
-        return { name, args, result, error: result.startsWith('ERROR') };
-      }
-      case 'desktop_drag': {
-        const result = await desktopDrag(
-          Number(args.from_x),
-          Number(args.from_y),
-          Number(args.to_x),
-          Number(args.to_y),
-          Number(args.steps || 20),
-        );
-        return { name, args, result, error: result.startsWith('ERROR') };
-      }
-      case 'desktop_wait': {
-        const result = await desktopWait(Number(args.ms || 500));
-        return { name, args, result, error: result.startsWith('ERROR') };
-      }
-      case 'desktop_type': {
-        const result = await desktopType(String(args.text || ''));
-        return { name, args, result, error: result.startsWith('ERROR') };
-      }
-      case 'desktop_press_key': {
-        const result = await desktopPressKey(String(args.key || 'Enter'));
-        return { name, args, result, error: result.startsWith('ERROR') };
-      }
-      case 'desktop_get_clipboard': {
-        const result = await desktopGetClipboard();
-        return { name, args, result, error: result.startsWith('ERROR') };
-      }
-      case 'desktop_set_clipboard': {
-        const result = await desktopSetClipboard(String(args.text || ''));
-        return { name, args, result, error: result.startsWith('ERROR') };
-      }
-
-      case 'list_mcp_servers': {
-        const mgr = getMCPManager();
-        const status = mgr.getStatus();
-        const lines = status.map(s => `- ${s.name} (${s.id}): ${s.status}, ${s.tools} tool(s)${s.error ? ` ERR: ${s.error}` : ''}`);
-        return { name, args, result: lines.length ? `Configured MCP Servers:\n${lines.join('\n')}` : 'No MCP servers configured.', error: false };
-      }
-
-      case 'register_mcp_server': {
-        const mgr = getMCPManager();
-        const cfg = {
-          id: String(args.id || ''),
-          name: String(args.name || ''),
-          transport: (args.transport === 'sse' ? 'sse' : 'stdio') as any,
-          command: args.command ? String(args.command) : undefined,
-          args: Array.isArray(args.args) ? args.args.map(String) : undefined,
-          env: (args.env && typeof args.env === 'object') ? args.env : undefined,
-          url: args.url ? String(args.url) : undefined,
-          enabled: true,
-        };
-        try {
-          mgr.upsertConfig(cfg as any);
-          const connectResult = await mgr.connect(cfg.id);
-          if (connectResult.success) {
-            return { name, args, result: `MCP server "${cfg.name}" registered and connected successfully. Found ${connectResult.tools?.length} tools.`, error: false };
-          } else {
-            return { name, args, result: `MCP server "${cfg.name}" registered but connection failed: ${connectResult.error}`, error: true };
-          }
-        } catch (err: any) {
-          return { name, args, result: `Failed to register MCP server: ${err.message}`, error: true };
-        }
-      }
-
-      default: {
-        // Fallback: check if it's an MCP tool
-        const mgr = getMCPManager();
-        const mcpTool = mgr.getAllTools().find(t => t.name === name);
-        if (mcpTool) {
-          try {
-            const mcpResult = await mgr.callTool(mcpTool.serverId, name, args);
-            const textContent = mcpResult.content
-              .map(c => c.text || JSON.stringify(c))
-              .join('\n');
-            return {
-              name,
-              args,
-              result: textContent || 'Success (no output)',
-              error: mcpResult.isError || false,
-            };
-          } catch (err: any) {
-            return { name, args, result: `MCP tool execution failed: ${err.message}`, error: true };
-          }
-        }
-        return { name, args, result: `Unknown tool: ${name}`, error: true };
-      }
+    broadcastPulse('system', `Executing tool: ${name}`);
+    const result: RegistryToolResult = await registry.execute(name, args, { workspacePath, sessionId });
+    toolResult = {
+      name,
+      args,
+      result: result.stdout || result.error || '',
+      error: !result.success,
+    };
+    if (toolResult.error) {
+      broadcastPulse('system', `Tool failed: ${name}`);
+    } else {
+      broadcastPulse('system', `Tool success: ${name}`);
     }
   } catch (err: any) {
-    return { name, args, result: `Error: ${err.message}`, error: true };
+    broadcastPulse('system', `Tool error: ${name} - ${err.message}`);
+    toolResult = { name, args, result: `Error: ${err.message}`, error: true };
   }
+
+  // ── Token Enforcement: Truncate oversized results to stay within context windows ─────────
+  const MAX_TOOL_STDOUT = 48000;
+  if (toolResult && toolResult.result && String(toolResult.result).length > MAX_TOOL_STDOUT) {
+    const origLen = String(toolResult.result).length;
+    toolResult.result = String(toolResult.result).slice(0, MAX_TOOL_STDOUT) +
+      `\n\n...[TRUNCATED ${origLen - MAX_TOOL_STDOUT} characters to stay within safety limits]`;
+  }
+
+  return toolResult;
 }
 
 // ─── Audit Logger ──────────────────────────────────────────────────────────────
@@ -3043,14 +1932,32 @@ async function handleChat(
   }
 
   // Run the Context Engineer to dynamically fetch relevant facts/procedures
-  const contextPackage = buildContextForMessage(message, sessionId);
+  broadcastPulse('system', 'Engineering context (Memories & Procedures)...');
+  const contextPackage = await buildContextForMessage(
+    message, sessionId);
   const injectedContext = [
+    contextPackage.agentEnhancements,  // Phase 1: Agent enhancements for small models
     contextPackage.relevantMemories,
     contextPackage.matchedProcedure,
     contextPackage.activeScratchpad,
   ].filter(Boolean).join('\n\n');
 
-  const personalityCtx = await buildPersonalityContext(sessionId, workspacePath, injectedContext);
+  // AGI Phase 3: Check for service configuration requests
+  // If user mentions a service, inject helpful context
+  let serviceCtx = '';
+  if (contextPackage.serviceRequests && contextPackage.serviceRequests.length > 0) {
+    // User is asking to configure service(s) - inject the service details
+    for (const req of contextPackage.serviceRequests) {
+      serviceCtx += `\n\n[SERVICE DETECTED: ${req.service}]\n${req.response}\n\nWhen the user provides the required keys, use the config system to save them and enable the service.`;
+    }
+  }
+
+  // AGI Phase 2: Add capability context for self-awareness
+  const { formatCapabilitiesForLLM, scanAllCapabilities } = await import('../agent/capability-scanner');
+  const capabilities = await scanAllCapabilities();
+  const capabilitiesCtx = `\n\n${formatCapabilitiesForLLM(capabilities)}`;
+
+  const personalityCtx = await buildPersonalityContext(sessionId, workspacePath, injectedContext + serviceCtx + capabilitiesCtx);
 
   // Inject active browser session state so LLM knows to reuse it instead of re-opening
   const browserInfo = getBrowserSessionInfo(sessionId);
@@ -4258,13 +3165,12 @@ RULES:
       const configNumCtx = Number(providerCfg.num_ctx || 8192);
       const configNumPredict = Number(providerCfg.num_predict || 4096);
 
-      const generationPromise = ollama.chatWithThinking(messages, 'executor', {
+      const generationPromise = ollama.chat(messages, String(modelOverride || '').trim() || getModelForRole('executor'), {
         tools,
         temperature: 0.3,
         num_ctx: configNumCtx,
-        num_predict: configNumPredict,
+        max_tokens: configNumPredict,
         think: primaryThinkMode,
-        model: String(modelOverride || '').trim() || undefined,
       });
 
       // ── Preempt watchdog ────────────────────────────────────────────
@@ -4273,7 +3179,7 @@ RULES:
         && ollamaProcMgr
         && preemptState.canPreempt(round, preemptCfg.maxPerTurn, preemptCfg.maxPerSession)
       ) {
-        const watchdogOutcome = await raceWithWatchdog(
+        const watchdogOutcome = await raceWithWatchdog<ChatResult>(
           generationPromise,
           preemptCfg.stallThresholdMs,
           (elapsedMs) => {
@@ -4282,7 +3188,7 @@ RULES:
           },
         );
 
-        if (watchdogOutcome.timedOut) {
+        if (watchdogOutcome.timedOut === true) {
           // ── FILE_OP stall: bypass preempt restart entirely, promote immediately ──
           if (
             fileOpV2Active
@@ -4402,7 +3308,7 @@ RULES:
         }
 
         // Generation finished before watchdog
-        const result = watchdogOutcome.result;
+        const result = (watchdogOutcome as any).result as ChatResult;
         response = result.message;
         if (result.thinking) {
           console.log(`[v2] THINK (${result.thinking.length} chars): ${result.thinking.slice(0, 150)}...`);
@@ -4832,12 +3738,11 @@ RULES:
               const configNumCtx = Number(providerCfg.num_ctx || 4096);
               const configNumPredict = Number(providerCfg.num_predict || 2048);
 
-              const summaryResponse = await ollama.chatWithThinking(messages, 'executor', {
-                tools,
-                temperature: 0.3,
-                num_ctx: configNumCtx,
-                num_predict: configNumPredict,
-                think: false,
+              const summaryResponse = await ollama.chat(messages, getModelForRole('manager'), {
+                temperature: 0.25,
+                num_ctx: 4096,
+                max_tokens: 512,
+                think: 'low',
               });
               const summaryText = sanitizeFinalReply(
                 String(summaryResponse?.message?.content || summaryResponse?.thinking || ''),
@@ -4872,6 +3777,12 @@ RULES:
         });
         clearFileOpCheckpoint(sessionId);
       }
+
+      // Phase 1: Procedural Learning - complete task learning
+      const taskSuccess = allToolResults.length > 0 && !allToolResults.some((r: any) => r.error);
+      try {
+        await getProceduralLearner().completeTask(taskSuccess);
+      } catch { /* ignore learning errors */ }
 
       return {
         type: allToolResults.length > 0 ? 'execute' : 'chat',
@@ -5345,6 +4256,13 @@ RULES:
       }
 
       const toolResult = await executeTool(toolName, toolArgs, workspacePath, sessionId);
+
+      // Phase 1: Procedural Learning - record tool execution
+      try {
+        const learner = getProceduralLearner();
+        learner.recordTool(toolName, toolArgs, !toolResult.error);
+      } catch { /* ignore learning errors */ }
+
       if (canReplayReadOnlyCall(toolName)) cachedReadOnlyToolResults.set(callKey, toolResult);
       allToolResults.push(toolResult);
       logToolCall(workspacePath, toolName, toolArgs, toolResult.result, toolResult.error);
@@ -6177,6 +5095,44 @@ app.get('/api/procedures', (_req, res) => {
     const brain = getBrainDB();
     const rows = brain.listProcedures();
     res.json({ success: true, procedures: rows });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/scratchpad', (req, res) => {
+  try {
+    const sessionId = String(req.query.sessionId || 'default');
+    const brain = getBrainDB();
+    const content = brain.getScratchpad(sessionId);
+    res.json({ success: true, content: content || '' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/memories', async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const sessionId = String(req.query.sessionId || '');
+    const brain = getBrainDB();
+    let memories;
+    if (q) {
+      memories = await brain.searchMemoriesWithVector(q, { session_id: sessionId });
+    } else {
+      memories = brain.searchMemories('', { session_id: sessionId, max: 50 });
+    }
+    res.json({ success: true, memories });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/memories/:id', (req, res) => {
+  try {
+    const brain = getBrainDB();
+    const ok = brain.deleteMemory(req.params.id);
+    res.json({ success: ok });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -7929,7 +6885,7 @@ app.delete('/api/skill-connectors/disconnect/:id', (req, res) => {
     return;
   }
   const webhookRouter = buildWebhookRouter({
-    handleChat: (message, sessionId, sendSSE, pinnedMessages, abortSignal, callerContext, modelOverride, executionMode) =>
+    handleChat: (message: string, sessionId: string, sendSSE: (event: string, data: any) => void, pinnedMessages?: Array<{ role: string; content: string }>, abortSignal?: { aborted: boolean }, callerContext?: string, modelOverride?: string, executionMode?: ExecutionMode) =>
       handleChat(message, sessionId, sendSSE, pinnedMessages, abortSignal, callerContext, modelOverride, executionMode),
     addMessage,
     getIsModelBusy: () => isModelBusy,

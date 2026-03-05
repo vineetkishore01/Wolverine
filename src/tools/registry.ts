@@ -1,6 +1,8 @@
 import { ToolResult } from '../types.js';
 import { shellTool } from './shell.js';
-import { readTool, writeTool, editTool, listTool, deleteTool, renameTool, copyTool, mkdirTool, statTool, appendTool, applyPatchTool } from './files.js';
+import {
+  readTool, writeTool, editTool, listTool, deleteTool, renameTool, copyTool, mkdirTool, statTool, appendTool, applyPatchTool
+} from './files.js';
 import { webSearchTool, webFetchTool } from './web.js';
 import { memorySearchTool, memoryWriteTool } from './memory.js';
 import { skillListTool, skillSearchTool, skillInstallTool, skillRemoveTool, skillExecTool } from './skills.js';
@@ -10,27 +12,47 @@ import { readSourceTool, listSourceTool } from './source-access.js';
 import { proposeRepairTool } from './self-repair.js';
 import { personaReadTool, personaUpdateTool } from './persona.js';
 import { readDocumentTool } from './documents.js';
+import { configSaveTool } from './config-tool.js';
+import { apiKeyConfigTool } from './api-key-config.js';
+import { skillCreateTool, skillTestTool } from '../agent/skill-builder.js';
+import { skillConnectorTool } from '../skills/connector-tool.js';
+import { scratchpadWriteTool, scratchpadReadTool, scratchpadClearTool } from './scratchpad.js';
+import { procedureSaveTool, procedureListTool, procedureGetTool, procedureRecordResultTool } from './procedures.js';
+import {
+  browserOpenTool, browserSnapshotTool, browserClickTool, browserFillTool,
+  browserPressKeyTool, browserWaitTool, browserScrollTool, browserCloseTool,
+  desktopScreenshotTool, desktopFindWindowTool, desktopFocusWindowTool, desktopClickTool,
+  desktopDragTool, desktopWaitTool, desktopTypeTool, desktopPressKeyTool,
+  desktopGetClipboardTool, desktopSetClipboardTool
+} from './external-adapters.js';
+import { systemStatusTool, ollamaPullTool } from './diagnostics.js';
 
 export interface Tool {
   name: string;
   description: string;
-  execute: (args: any) => Promise<ToolResult>;
+  execute: (args: any, context?: { sessionId: string; workspacePath?: string }) => Promise<ToolResult>;
   schema: Record<string, string>;
   // Optional explicit OpenAPI-style JSON schema for native function-call parameters.
   // When provided, this is used instead of description-based type inference.
   jsonSchema?: Record<string, any>;
 }
 
-export type ToolProfile = 'minimal' | 'coding' | 'web' | 'full';
+export type ToolProfile = 'minimal' | 'coding' | 'web' | 'full' | 'desktop' | 'browser';
 
 const TOOL_PROFILE_TOOL_NAMES: Record<Exclude<ToolProfile, 'full'>, ReadonlySet<string>> = {
   minimal: new Set([
     'memory_search',
     'memory_write',
+    'scratchpad_read',
+    'scratchpad_write',
+    'scratchpad_clear',
     'time_now',
+    'system_status',
+    'ollama_pull',
+    'config_save',
   ]),
   coding: new Set([
-    'shell',
+    'run_command',
     'read',
     'write',
     'edit',
@@ -45,17 +67,60 @@ const TOOL_PROFILE_TOOL_NAMES: Record<Exclude<ToolProfile, 'full'>, ReadonlySet<
     'read_document',
     'memory_search',
     'memory_write',
+    'scratchpad_read',
+    'scratchpad_write',
+    'scratchpad_clear',
+    'procedure_save',
+    'procedure_list',
+    'procedure_get',
+    'procedure_record_result',
+    'skill_connector',
+    'skill_create',
+    'skill_test',
+    'system_status',
+    'ollama_pull',
+    'config_save',
   ]),
   web: new Set([
     'web_search',
     'web_fetch',
     'memory_search',
     'memory_write',
+    'scratchpad_read',
+    'scratchpad_write',
+    'scratchpad_clear',
+    'memory_write',
+    'browser_open',
+    'browser_snapshot',
+    'browser_click',
+    'browser_fill',
+  ]),
+  browser: new Set([
+    'browser_open',
+    'browser_snapshot',
+    'browser_click',
+    'browser_fill',
+    'browser_press_key',
+    'browser_wait',
+    'browser_scroll',
+    'browser_close',
+  ]),
+  desktop: new Set([
+    'desktop_screenshot',
+    'desktop_find_window',
+    'desktop_focus_window',
+    'desktop_click',
+    'desktop_drag',
+    'desktop_wait',
+    'desktop_type',
+    'desktop_press_key',
+    'desktop_get_clipboard',
+    'desktop_set_clipboard',
   ]),
 };
 
 function isToolProfile(value: string): value is ToolProfile {
-  return value === 'minimal' || value === 'coding' || value === 'web' || value === 'full';
+  return value === 'minimal' || value === 'coding' || value === 'web' || value === 'full' || value === 'desktop' || value === 'browser';
 }
 
 class ToolRegistry {
@@ -86,9 +151,31 @@ class ToolRegistry {
     this.registerSafe(statTool);
     this.registerSafe(appendTool);
     this.registerSafe(applyPatchTool);
+    this.registerSafe(systemStatusTool);
+    this.registerSafe(ollamaPullTool);
     // Web tools
     this.registerSafe(webSearchTool);
     this.registerSafe(webFetchTool);
+    // Browser tools
+    this.registerSafe(browserOpenTool);
+    this.registerSafe(browserSnapshotTool);
+    this.registerSafe(browserClickTool);
+    this.registerSafe(browserFillTool);
+    this.registerSafe(browserPressKeyTool);
+    this.registerSafe(browserWaitTool);
+    this.registerSafe(browserScrollTool);
+    this.registerSafe(browserCloseTool);
+    // Desktop tools
+    this.registerSafe(desktopScreenshotTool);
+    this.registerSafe(desktopFindWindowTool);
+    this.registerSafe(desktopFocusWindowTool);
+    this.registerSafe(desktopClickTool);
+    this.registerSafe(desktopDragTool);
+    this.registerSafe(desktopWaitTool);
+    this.registerSafe(desktopTypeTool);
+    this.registerSafe(desktopPressKeyTool);
+    this.registerSafe(desktopGetClipboardTool);
+    this.registerSafe(desktopSetClipboardTool);
     // Memory tools
     this.registerSafe(memoryWriteTool);
     this.registerSafe(memorySearchTool);
@@ -111,7 +198,24 @@ class ToolRegistry {
     this.registerSafe(personaUpdateTool);
     // Document intelligence
     this.registerSafe(readDocumentTool);
+    // Configuration management
+    this.registerSafe(configSaveTool);
+    this.registerSafe(apiKeyConfigTool);
+    // Scratchpad tools
+    this.registerSafe(scratchpadWriteTool);
+    this.registerSafe(scratchpadReadTool);
+    this.registerSafe(scratchpadClearTool);
+    // Skill tools
+    this.registerSafe(skillConnectorTool);
+    this.registerSafe(skillCreateTool);
+    this.registerSafe(skillTestTool);
+    // Procedure tools
+    this.registerSafe(procedureSaveTool);
+    this.registerSafe(procedureListTool);
+    this.registerSafe(procedureGetTool);
+    this.registerSafe(procedureRecordResultTool);
   }
+
 
   register(tool: Tool): void {
     this.tools.set(tool.name, tool);
@@ -136,25 +240,16 @@ class ToolRegistry {
     return isToolProfile(normalized) ? normalized : 'full';
   }
 
-  async execute(toolName: string, args: any): Promise<ToolResult> {
-    const tool = this.tools.get(toolName);
-
-    if (!tool) {
-      return {
-        success: false,
-        error: `Tool not found: ${toolName}. Available tools: ${Array.from(this.tools.keys()).join(', ')}`
-      };
-    }
-
+  public async execute(name: string, args: any, context?: { sessionId: string; workspacePath?: string }): Promise<ToolResult> {
+    const tool = this.tools.get(name);
+    if (!tool) throw new Error(`Tool not found: ${name}`);
     try {
-      return await tool.execute(args);
-    } catch (error: any) {
-      return {
-        success: false,
-        error: `Tool execution failed: ${error.message}`
-      };
+      return await tool.execute(args, context);
+    } catch (err: any) {
+      return { success: false, error: `Execution failed: ${err.message}` };
     }
   }
+
 
   getToolSchemas(profile: ToolProfile = 'full'): string {
     const tools = this.listByProfile(profile);

@@ -26,7 +26,7 @@ export async function executeProcedureSave(args: {
 
     try {
         const brain = getBrainDB();
-        const proc = brain.saveProcedure({
+        const proc = await brain.saveProcedure({
             name: args.name.trim(),
             description: args.description?.trim(),
             trigger_keywords: args.trigger_keywords?.trim() || '',

@@ -2,17 +2,17 @@
   "version": 1,
   "entries": {
     "search.tavily_api_key": {
-      "enc": "4e17222aa85450c8734e9cb54a05583374d24484f97c62c935eb957fd4f019b7cc12cae55c775c329846ecd590d986b09ed019810940d49483b6",
-      "iv": "06e529a200e1e7a3c68172fddebc955c",
-      "tag": "2bc35b72c2b8c9e1d671dd0f237ecf2b",
-      "createdAt": 1772625143380,
+      "enc": "bb002d93cba29983fd2026ac52906f7373b6c3f56c447d98dc708349a77404d90aeed52ebe8045a8fc135be7d75276f194655d5cf169860faa7b",
+      "iv": "dcc98b0b3b6fecc6363f9a830ebdca36",
+      "tag": "13ed9114b341d6a60a564e7b92e36708",
+      "createdAt": 1772737725086,
       "expiresAt": 0
     },
     "channels.telegram.botToken": {
-      "enc": "5bf757de4b8391305b3303676d2a996bcc51670512b0b334aefcdf5544f5f047b3df716bb36b0c15bad1bebddcdb",
-      "iv": "a71874ec7b324c101218f4b832417e04",
-      "tag": "bcad58b1b7471f3fde3b295940cc5926",
-      "createdAt": 1772656555341,
+      "enc": "1c86b4f9bbd23dd453d6ef04aab0accb43b9d47ebface5a59ff11dfe5fa6df28442bd516d12eca0ec79bd535160c",
+      "iv": "573b5eca12670f482c7bee237f241ffe",
+      "tag": "37a7dcb16a98e70b3562740183a5c663",
+      "createdAt": 1772739201981,
       "expiresAt": 0
     }
   }

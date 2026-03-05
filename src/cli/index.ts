@@ -8,7 +8,8 @@ import readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
 import { getConfig } from '../config/config';
 import { getDatabase } from '../db/database';
-import { getOllamaClient } from '../agents/ollama-client';
+import { getProvider as getOllamaClient, getPrimaryModel } from '../providers/factory';
+import { ModelInfo } from '../providers/LLMProvider';
 // AgentOrchestrator removed — legacy pipeline superseded by reactor + multi-agent orchestration
 
 const program = new Command();
@@ -410,7 +411,7 @@ gateway
         }
         return;
       }
-    } catch {}
+    } catch { }
     require('../gateway/server-v2');
   });
 
@@ -482,7 +483,7 @@ model.command('list').action(async () => {
     return;
   }
   console.log('Available models:');
-  models.forEach(m => console.log(`  - ${m}`));
+  models.forEach((m: ModelInfo) => console.log(`  - ${m.name}`));
 });
 
 model.command('set <n>').action((name: string) => {

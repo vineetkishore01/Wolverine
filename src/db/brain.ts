@@ -4,6 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import { randomUUID } from 'crypto';
 import { PATHS } from '../config/paths.js';
+import { generateEmbedding, cosineSimilarity } from './embeddings';
 
 const BRAIN_DB_PATH = PATHS.brainDb();
 
@@ -58,7 +59,7 @@ export class BrainDB {
 
     private initialize(): void {
         this.db.transaction(() => {
-            // 1. Memories Table
+            // 1. Memories Table - added embedding BLOB for semantic search
             this.db.prepare(`
         CREATE TABLE IF NOT EXISTS memories (
           id TEXT PRIMARY KEY,
@@ -76,9 +77,17 @@ export class BrainDB {
           session_id TEXT,
           scope TEXT DEFAULT 'global',
           expires_at TEXT,
-          actor TEXT DEFAULT 'agent'
+          actor TEXT DEFAULT 'agent',
+          embedding BLOB
         )
       `).run();
+
+            // Check if embedding column exists (for legacy databases)
+            const memoryTableInfo = this.db.prepare("PRAGMA table_info(memories)").all();
+            const hasMemoryEmbedding = memoryTableInfo.some((col: any) => col.name === 'embedding');
+            if (!hasMemoryEmbedding) {
+                this.db.prepare("ALTER TABLE memories ADD COLUMN embedding BLOB").run();
+            }
 
             // 2. FTS5 Virtual Table for Search
             // Note: We check if it exists first because FTS5 tables are special
@@ -112,7 +121,7 @@ export class BrainDB {
         `).run();
             }
 
-            // 4. Procedures Table
+            // 4. Procedures Table - added embedding BLOB
             this.db.prepare(`
         CREATE TABLE IF NOT EXISTS procedures (
           id TEXT PRIMARY KEY,
@@ -126,9 +135,17 @@ export class BrainDB {
           last_result TEXT,
           created_by TEXT DEFAULT 'agent',
           created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
+          updated_at TEXT NOT NULL,
+          embedding BLOB
         )
       `).run();
+
+            // Check if embedding column exists for procedures
+            const procTableInfo = this.db.prepare("PRAGMA table_info(procedures)").all();
+            const hasProcEmbedding = procTableInfo.some((col: any) => col.name === 'embedding');
+            if (!hasProcEmbedding) {
+                this.db.prepare("ALTER TABLE procedures ADD COLUMN embedding BLOB").run();
+            }
 
             // 5. Credentials Table
             this.db.prepare(`
@@ -162,7 +179,7 @@ export class BrainDB {
         // this.migrateLegacyMemory();
     }
 
-    private migrateLegacyMemory(): void {
+    private async migrateLegacyMemory(): Promise<void> {
         const workspaceDir = PATHS.workspace();
         const memoryMdPath = path.join(workspaceDir, 'MEMORY.md');
 
@@ -179,7 +196,7 @@ export class BrainDB {
                         const actorMatch = trimmed.match(/\[(agent|user|system)\]/);
 
                         if (factMatch) {
-                            this.upsertMemory({
+                            await this.upsertMemory({
                                 key: keyMatch ? keyMatch[1] : factMatch[1].slice(0, 80),
                                 content: factMatch[1],
                                 category: 'migrated',
@@ -199,15 +216,26 @@ export class BrainDB {
 
     // --- Memory Operations ---
 
-    public upsertMemory(input: Partial<Memory> & { key: string; content: string }): Memory {
+    public async upsertMemory(input: Partial<Memory> & { key: string; content: string }): Promise<Memory> {
         const now = new Date().toISOString();
-        const existing = this.db.prepare('SELECT id, created_at FROM memories WHERE key = ? OR content = ?')
-            .get(input.key, input.content) as { id: string; created_at: string } | undefined;
+        const existing = this.db.prepare('SELECT id, created_at, embedding FROM memories WHERE key = ? OR content = ?')
+            .get(input.key, input.content) as { id: string; created_at: string; embedding: Buffer | null } | undefined;
 
         const id = existing?.id || randomUUID();
         const created_at = existing?.created_at || now;
 
-        const memory: Memory = {
+        // Semantic: update embedding only if content is new or missing
+        let embedding: Buffer | null = existing?.embedding || null;
+        if (!embedding || input.content !== existing?.id) {
+            try {
+                const vec = await generateEmbedding(input.content);
+                if (vec.length > 0) {
+                    embedding = Buffer.from(new Float32Array(vec).buffer);
+                }
+            } catch { /* ignore embedding failures - fall back to FTS */ }
+        }
+
+        const memory: any = {
             id,
             category: input.category || 'fact',
             key: input.key,
@@ -223,23 +251,59 @@ export class BrainDB {
             session_id: input.session_id || null,
             scope: input.scope || 'global',
             expires_at: input.expires_at || null,
-            actor: input.actor || 'agent'
+            actor: input.actor || 'agent',
+            embedding
         };
 
         const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO memories (
         id, category, key, content, importance, access_count, last_accessed, 
-        created_at, updated_at, source, source_tool, source_ref, session_id, scope, expires_at, actor
+        created_at, updated_at, source, source_tool, source_ref, session_id, scope, expires_at, actor, embedding
       ) VALUES (
         @id, @category, @key, @content, @importance, 
         COALESCE((SELECT access_count FROM memories WHERE id = @id), 0),
         (SELECT last_accessed FROM memories WHERE id = @id),
-        @created_at, @updated_at, @source, @source_tool, @source_ref, @session_id, @scope, @expires_at, @actor
+        @created_at, @updated_at, @source, @source_tool, @source_ref, @session_id, @scope, @expires_at, @actor, @embedding
       )
     `);
 
         stmt.run(memory);
         return memory;
+    }
+
+    public async searchMemoriesWithVector(query: string, opts?: { category?: string; scope?: string; session_id?: string; max?: number }): Promise<Memory[]> {
+        const queryEmbedding = await generateEmbedding(query);
+        if (queryEmbedding.length === 0) {
+            // Fallback to basic search if embedding fails
+            return this.searchMemories(query, opts);
+        }
+
+        // Fetch all candidates (or filter by category/scope first to optimize)
+        let sql = "SELECT * FROM memories WHERE 1=1";
+        const params: any[] = [];
+
+        if (opts?.category) {
+            sql += " AND category = ?";
+            params.push(opts.category);
+        }
+        if (opts?.scope) {
+            sql += " AND scope = ?";
+            params.push(opts.scope);
+        }
+
+        const candidates = this.db.prepare(sql).all(...params) as any[];
+
+        // Rerank in memory (highly efficient for <1000 items)
+        const results = candidates.map(m => {
+            if (!m.embedding) return { ...m, score: 0 };
+            const mVec = Array.from(new Float32Array(m.embedding.buffer, m.embedding.byteOffset, m.embedding.byteLength / 4));
+            const score = (cosineSimilarity(queryEmbedding, mVec) * 0.7) + (m.importance * (m.importance || 0.5) * 0.3);
+            return { ...m, score };
+        });
+
+        return results
+            .sort((a, b) => b.score - a.score)
+            .slice(0, opts?.max || 10) as Memory[];
     }
 
     public searchMemories(query: string, opts?: { category?: string; scope?: string; session_id?: string; max?: number }): Memory[] {
@@ -299,7 +363,7 @@ export class BrainDB {
 
     // --- Procedure Operations ---
 
-    public saveProcedure(input: Partial<Procedure> & { name: string; steps: string }): Procedure {
+    public async saveProcedure(input: Partial<Procedure> & { name: string; steps: string }): Promise<Procedure> {
         const now = new Date().toISOString();
         const existing = this.db.prepare('SELECT id, created_at FROM procedures WHERE name = ?')
             .get(input.name) as { id: string; created_at: string } | undefined;
@@ -307,7 +371,17 @@ export class BrainDB {
         const id = existing?.id || randomUUID();
         const created_at = existing?.created_at || now;
 
-        const proc: Procedure = {
+        // Semantic matching for procedures: embed the name + description + triggers
+        let embedding: Buffer | null = null;
+        try {
+            const embedText = `${input.name} ${input.description || ''} ${input.trigger_keywords || ''}`;
+            const vec = await generateEmbedding(embedText);
+            if (vec.length > 0) {
+                embedding = Buffer.from(new Float32Array(vec).buffer);
+            }
+        } catch { /* ignore embedding failures */ }
+
+        const proc: any = {
             id,
             name: input.name,
             description: input.description || null,
@@ -319,20 +393,21 @@ export class BrainDB {
             last_result: null,
             created_by: input.created_by || 'agent',
             created_at,
-            updated_at: now
+            updated_at: now,
+            embedding
         };
 
         this.db.prepare(`
       INSERT OR REPLACE INTO procedures (
         id, name, description, trigger_keywords, steps, 
-        success_count, fail_count, last_used, last_result, created_by, created_at, updated_at
+        success_count, fail_count, last_used, last_result, created_by, created_at, updated_at, embedding
       ) VALUES (
         @id, @name, @description, @trigger_keywords, @steps,
         COALESCE((SELECT success_count FROM procedures WHERE id = @id), 0),
         COALESCE((SELECT fail_count FROM procedures WHERE id = @id), 0),
         (SELECT last_used FROM procedures WHERE id = @id),
         (SELECT last_result FROM procedures WHERE id = @id),
-        @created_by, @created_at, @updated_at
+        @created_by, @created_at, @updated_at, @embedding
       )
     `).run(proc);
 
@@ -351,14 +426,35 @@ export class BrainDB {
         return this.db.prepare('SELECT * FROM procedures ORDER BY last_used DESC').all() as Procedure[];
     }
 
-    public findProcedure(query: string): Procedure | null {
-        // Basic implementation: fetch all and do a substring match on keywords
-        // Could be optimized with FTS5 later if procedure count grows
-        const all = this.listProcedures();
-        const queryLower = query.toLowerCase();
+    public async findProcedure(query: string): Promise<Procedure | null> {
+        // High-Intelligence Semantic Match: prioritize vector similarity over substring
+        const queryEmbedding = await generateEmbedding(query);
+        const allProcs = this.db.prepare('SELECT * FROM procedures').all() as any[];
 
-        // Look for any procedure where query contains one of its keywords
-        for (const proc of all) {
+        if (queryEmbedding.length > 0) {
+            const scored = allProcs.map(p => {
+                let score = 0;
+                if (p.embedding) {
+                    const pVec = Array.from(new Float32Array(p.embedding.buffer, p.embedding.byteOffset, p.embedding.byteLength / 4));
+                    score = cosineSimilarity(queryEmbedding, pVec);
+                }
+
+                // Boost if keywords match explicitly
+                const keywords = (p.trigger_keywords || '').toLowerCase().split(',').map((k: string) => k.trim());
+                if (keywords.some((kw: string) => query.toLowerCase().includes(kw))) {
+                    score += 0.4;
+                }
+
+                return { ...p, score };
+            });
+
+            const top = scored.sort((a, b) => b.score - a.score)[0];
+            if (top && top.score > 0.6) return top;
+        }
+
+        // Fallback for keyword search if no embedding or low score
+        const queryLower = query.toLowerCase();
+        for (const proc of allProcs) {
             if (proc.trigger_keywords) {
                 const keywords = proc.trigger_keywords.split(',').map((k: string) => k.trim().toLowerCase()).filter(Boolean);
                 for (const kw of keywords) {

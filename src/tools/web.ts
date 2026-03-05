@@ -468,12 +468,27 @@ function getSearchConfig(): {
       const data = JSON.parse(fs.readFileSync(cfg, 'utf-8'));
       const preferredRaw = String(data.search?.preferred_provider || 'tavily').toLowerCase();
       const preferred = (['tavily', 'google', 'brave', 'ddg'].includes(preferredRaw) ? preferredRaw : 'tavily') as 'tavily' | 'google' | 'brave' | 'ddg';
+      
+      // Support both nested (search.tavily_api_key) and flat (tavily_api_key) configs
+      let tavilyKey = data.search?.tavily_api_key || data.tavily_api_key;
+      // Resolve vault references: "vault:search.tavily_api_key" -> actual value from vault
+      if (typeof tavilyKey === 'string' && tavilyKey.startsWith('vault:')) {
+        try {
+          const vaultPath = PATHS.config().replace('config.json', 'vault.json');
+          if (fs.existsSync(vaultPath)) {
+            const vault = JSON.parse(fs.readFileSync(vaultPath, 'utf-8'));
+            const vaultKey = tavilyKey.replace('vault:', '');
+            tavilyKey = vault[vaultKey] || undefined;
+          }
+        } catch { /* ignore vault errors */ }
+      }
+      
       return {
         preferred,
-        tavilyKey: data.search?.tavily_api_key,
-        googleKey: data.search?.google_api_key,
-        googleCx: data.search?.google_cx,
-        braveKey: data.search?.brave_api_key,
+        tavilyKey: tavilyKey,
+        googleKey: data.search?.google_api_key || data.google_api_key,
+        googleCx: data.search?.google_cx || data.google_cx,
+        braveKey: data.search?.brave_api_key || data.brave_api_key,
       };
     }
   } catch { }

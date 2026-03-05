@@ -13,7 +13,7 @@ export interface ShellToolArgs {
 // Uses proper path.resolve + path.relative — immune to case, trailing-slash,
 // and "../" traversal bypasses that defeat simple startsWith() checks.
 function isPathInsideDir(base: string, target: string): boolean {
-  const resolvedBase   = path.resolve(base);
+  const resolvedBase = path.resolve(base);
   const resolvedTarget = path.resolve(target);
   if (resolvedBase === resolvedTarget) return true;
   const rel = path.relative(resolvedBase, resolvedTarget);
@@ -124,8 +124,8 @@ export async function executeShell(args: ShellToolArgs): Promise<ToolResult> {
 }
 
 export const shellTool = {
-  name: 'shell',
-  description: 'Execute terminal commands in the workspace',
+  name: 'run_command',
+  description: 'Execute terminal commands in the workspace. Use this for running shell scripts, installing dependencies, or launching GUI apps like notepad or VS Code. NEVER use this to open Chrome or Edge for web automation — those windows have no debug port and are invisible to browser_open/snapshot/click. For any web browsing, always use browser_open instead.',
   execute: executeShell,
   schema: {
     command: 'string (required) - The command to execute',

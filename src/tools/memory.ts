@@ -24,7 +24,7 @@ export async function executeMemoryWrite(args: {
     const source_tool = args.source_tool ? sanitizeMemoryText(args.source_tool) : undefined;
     const key = args.key ? sanitizeMemoryText(args.key) : fact.slice(0, 80);
 
-    const memory = brain.upsertMemory({
+    const memory = await brain.upsertMemory({
       key,
       content: fact,
       category: args.category || 'fact',
@@ -76,7 +76,7 @@ export async function executeMemorySearch(args: {
     const sessionId = String(args?.session_id || '').trim() || undefined;
     const max = Math.min(Math.max(Number(args?.max ?? 5), 1), 25);
 
-    const matches = brain.searchMemories(query, {
+    const matches = await brain.searchMemoriesWithVector(query, {
       session_id: sessionId,
       category: args.category,
       max

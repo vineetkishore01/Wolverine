@@ -683,3 +683,158 @@ export const applyPatchTool = {
     check: 'boolean (optional) - Validate patch only without applying it',
   }
 };
+
+// ── LEGACY COMPATIBILITY TOOLS ──────────────────────────────────────────────
+
+export const listFilesTool = {
+  name: 'list_files',
+  description: 'List all files in the workspace directory.',
+  execute: async () => {
+    const workspacePath = getConfig().getConfig().workspace.path;
+    const files = fsSync.readdirSync(workspacePath).filter(f => {
+      try { return fsSync.statSync(path.join(workspacePath, f)).isFile(); } catch { return false; }
+    });
+    return { success: true, stdout: JSON.stringify(files) };
+  },
+  schema: {}
+};
+
+export const readFileTool = {
+  name: 'read_file',
+  description: 'Read a file and return its content WITH line numbers. Always use this before editing a file.',
+  execute: async (args: { filename: string }) => {
+    const filename = args.filename;
+    const workspacePath = getConfig().getConfig().workspace.path;
+    const filePath = path.join(workspacePath, filename);
+    if (!fsSync.existsSync(filePath)) return { success: false, error: `File "${filename}" not found` };
+    const content = fsSync.readFileSync(filePath, 'utf-8');
+    const numbered = content.split('\n').map((line, i) => `${i + 1}: ${line}`).join('\n');
+    return { success: true, stdout: `${filename} (${content.split('\n').length} lines):\n${numbered}` };
+  },
+  schema: { filename: 'string (required) - Name of the file to read' }
+};
+
+export const createFileTool = {
+  name: 'create_file',
+  description: 'Create a NEW file with content. Only use for files that do NOT exist yet.',
+  execute: async (args: { filename: string; content: string }) => {
+    const filename = args.filename;
+    const workspacePath = getConfig().getConfig().workspace.path;
+    const filePath = path.join(workspacePath, filename);
+    if (fsSync.existsSync(filePath)) return { success: false, error: `"${filename}" already exists. Use replace_lines or insert_after to edit.` };
+    fsSync.writeFileSync(filePath, args.content || '', 'utf-8');
+    return { success: true, stdout: `${filename} created` };
+  },
+  schema: {
+    filename: 'string (required) - Name of the new file',
+    content: 'string (required) - Content for the new file'
+  }
+};
+
+export const replaceLinesTool = {
+  name: 'replace_lines',
+  description: 'Replace specific lines in an existing file. Use read_file first to see line numbers.',
+  execute: async (args: { filename: string; start_line: number; end_line: number; new_content: string }) => {
+    const filename = args.filename;
+    const startLine = Math.max(1, Math.floor(Number(args.start_line) || 1));
+    const endLine = Math.max(startLine, Math.floor(Number(args.end_line) || startLine));
+    const newContent = args.new_content || '';
+    const workspacePath = getConfig().getConfig().workspace.path;
+    const filePath = path.join(workspacePath, filename);
+    if (!fsSync.existsSync(filePath)) return { success: false, error: `"${filename}" not found` };
+    const lines = fsSync.readFileSync(filePath, 'utf-8').split('\n');
+    if (startLine > lines.length) return { success: false, error: `Line ${startLine} past end (${lines.length} lines)` };
+    const end = Math.min(endLine, lines.length);
+    lines.splice(startLine - 1, end - startLine + 1, ...newContent.split('\n'));
+    fsSync.writeFileSync(filePath, lines.join('\n'), 'utf-8');
+    return { success: true, stdout: `${filename}: replaced lines ${startLine}-${end} (now ${lines.length} lines)` };
+  },
+  schema: {
+    filename: 'string (required)',
+    start_line: 'number (required) - First line to replace (1-based)',
+    end_line: 'number (required) - Last line to replace (1-based, inclusive)',
+    new_content: 'string (required) - New content to insert'
+  }
+};
+
+export const insertAfterTool = {
+  name: 'insert_after',
+  description: 'Insert new lines after a specific line number. Use 0 to insert at beginning.',
+  execute: async (args: { filename: string; after_line: number; content: string }) => {
+    const filename = args.filename;
+    const afterLine = Math.max(0, Math.floor(Number(args.after_line) || 0));
+    const content = String(args.content || '').replace(/\\n/g, '\n');
+    const workspacePath = getConfig().getConfig().workspace.path;
+    const filePath = path.join(workspacePath, filename);
+    if (!fsSync.existsSync(filePath)) return { success: false, error: `"${filename}" not found` };
+    const lines = fsSync.readFileSync(filePath, 'utf-8').split('\n');
+    const insertAt = Math.min(afterLine, lines.length);
+    lines.splice(insertAt, 0, ...content.split('\n'));
+    fsSync.writeFileSync(filePath, lines.join('\n'), 'utf-8');
+    return { success: true, stdout: `${filename}: inserted after line ${afterLine} (now ${lines.length} lines)` };
+  },
+  schema: {
+    filename: 'string (required)',
+    after_line: 'number (required) - Line number to insert after (0 = beginning)',
+    content: 'string (required) - Content to insert'
+  }
+};
+
+export const deleteLinesTool = {
+  name: 'delete_lines',
+  description: 'Delete specific lines from a file.',
+  execute: async (args: { filename: string; start_line: number; end_line: number }) => {
+    const filename = args.filename;
+    const startLine = Math.max(1, Math.floor(Number(args.start_line) || 1));
+    const endLine = Math.max(startLine, Math.floor(Number(args.end_line) || startLine));
+    const workspacePath = getConfig().getConfig().workspace.path;
+    const filePath = path.join(workspacePath, filename);
+    if (!fsSync.existsSync(filePath)) return { success: false, error: `"${filename}" not found` };
+    const lines = fsSync.readFileSync(filePath, 'utf-8').split('\n');
+    const end = Math.min(endLine, lines.length);
+    lines.splice(startLine - 1, end - startLine + 1);
+    fsSync.writeFileSync(filePath, lines.join('\n'), 'utf-8');
+    return { success: true, stdout: `${filename}: deleted lines ${startLine}-${end} (now ${lines.length} lines)` };
+  },
+  schema: {
+    filename: 'string (required)',
+    start_line: 'number (required) - First line to delete (1-based)',
+    end_line: 'number (required) - Last line to delete (1-based, inclusive)'
+  }
+};
+
+export const findReplaceTool = {
+  name: 'find_replace',
+  description: 'Find exact text in a file and replace it. Good for small text changes.',
+  execute: async (args: { filename: string; find: string; replace: string }) => {
+    const filename = args.filename;
+    const find = args.find || '';
+    const replace = args.replace ?? '';
+    const workspacePath = getConfig().getConfig().workspace.path;
+    const filePath = path.join(workspacePath, filename);
+    if (!fsSync.existsSync(filePath)) return { success: false, error: `"${filename}" not found` };
+    const content = fsSync.readFileSync(filePath, 'utf-8');
+    if (!content.includes(find)) return { success: false, error: `Text not found. Use read_file to check exact content.` };
+    fsSync.writeFileSync(filePath, content.replace(find, replace), 'utf-8');
+    return { success: true, stdout: `${filename} updated` };
+  },
+  schema: {
+    filename: 'string (required)',
+    find: 'string (required)',
+    replace: 'string (required)'
+  }
+};
+
+export const deleteFileTool = {
+  name: 'delete_file',
+  description: 'Delete a file from the workspace.',
+  execute: async (args: { filename: string }) => {
+    const filename = args.filename;
+    const workspacePath = getConfig().getConfig().workspace.path;
+    const filePath = path.join(workspacePath, filename);
+    if (!fsSync.existsSync(filePath)) return { success: false, error: `"${filename}" not found` };
+    fsSync.unlinkSync(filePath);
+    return { success: true, stdout: `${filename} deleted` };
+  },
+  schema: { filename: 'string (required)' }
+};

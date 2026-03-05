@@ -1,0 +1,31 @@
+{
+  "id": "c10c3390-cb6b-4ff5-96ed-2a0857f7587d",
+  "history": [
+    {
+      "role": "user",
+      "content": "Run system_status to check if you are connected correctly.",
+      "timestamp": 1772711699776
+    },
+    {
+      "role": "assistant",
+      "content": "Hey! How can I help?",
+      "timestamp": 1772711755136
+    },
+    {
+      "role": "user",
+      "content": "Check your system status.",
+      "timestamp": 1772711837773
+    },
+    {
+      "role": "assistant",
+      "content": "Hey! How can I help?",
+      "timestamp": 1772711892452
+    }
+  ],
+  "workspace": "/Users/vineetkishore/SmallClawData/workspace",
+  "createdAt": 1772711581159,
+  "lastActiveAt": 1772711892452,
+  "pendingMemoryFlush": false,
+  "pendingCompaction": false,
+  "contextTokenEstimate": 61
+}

@@ -7,7 +7,8 @@ export { ConfigManager, getConfig, DEFAULT_CONFIG } from './config/config.js';
 export { JobDatabase, getDatabase } from './db/database.js';
 
 // Agents
-export { OllamaClient, getOllamaClient } from './agents/ollama-client.js';
+export { LLMProvider, ChatMessage, ChatResult, ModelInfo } from './providers/LLMProvider.js';
+export { getProvider as getOllamaClient, getPrimaryModel, getModelForRole } from './providers/factory.js';
 
 // Tools
 export { getToolRegistry } from './tools/registry.js';

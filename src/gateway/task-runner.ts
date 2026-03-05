@@ -10,7 +10,7 @@
  * This enables 20-30 step workflows on a 4B model with 8K context.
  */
 
-import { getOllamaClient } from '../agents/ollama-client';
+import { getProvider as getOllamaClient, getPrimaryModel } from '../providers/factory';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -124,11 +124,11 @@ export class TaskRunner {
       // Call model
       let response: any;
       try {
-        const result = await ollama.chatWithThinking(messages, 'executor', {
-          tools: this.tools,
+        const result = await ollama.chat(messages, getPrimaryModel(), {
+          tools: this.tools as any,
           temperature: 0.2,     // low temp for task execution
           num_ctx: 8192,
-          num_predict: 2048,
+          max_tokens: 2048,
           think: false,
         });
         response = result.message;
@@ -334,17 +334,17 @@ ${this.systemContext ? '\n' + this.systemContext : ''}`,
   private isTaskComplete(text: string): boolean {
     const lower = text.toLowerCase();
     return lower.includes('task_complete') ||
-           lower.includes('task complete') ||
-           lower.includes('successfully completed') ||
-           (lower.includes('done') && lower.includes('all steps'));
+      lower.includes('task complete') ||
+      lower.includes('successfully completed') ||
+      (lower.includes('done') && lower.includes('all steps'));
   }
 
   private isTaskFailed(text: string): boolean {
     const lower = text.toLowerCase();
     return lower.includes('task_failed') ||
-           lower.includes('task failed') ||
-           lower.includes('cannot complete') ||
-           lower.includes('unable to complete');
+      lower.includes('task failed') ||
+      lower.includes('cannot complete') ||
+      lower.includes('unable to complete');
   }
 }
 

@@ -1,41 +1,64 @@
 # Wolverine Implementation Blueprint 🐺
 
 > **Purpose:** Step-by-step instructions for any coding agent to implement Wolverine's self-teaching architecture.
-> **Last updated:** 2026-03-05 (v1.0.2)
+> **Last updated:** 2026-03-05 (v1.0.3)
 > **Project Root:** `/Users/vineetkishore/FolderX/Wolverine/`
+
+---
+
+## Priority Roadmap (TL;DR)
+
+### P0 - CRITICAL (Current Focus)
+- [x] **P0.1:** Fix personality file character limits (SOUL 500→1200 with smart compression)
+- [x] **P0.2:** Rewrite system prompt with thinking protocols
+- [x] **P0.3:** Compact personality files for 8K context efficiency
+
+### P1 - HIGH (Next Sprint)
+- [ ] **P1.1:** Add structured memory sections (Active Context, Durable Facts)
+- [ ] **P1.2:** Implement thinking tags (XML format for reasoning traces)
+- [ ] **P1.3:** Compress tool definitions for smaller context footprint
+- [ ] **P1.4:** Add memory distillation (periodic compression)
+
+### P2 - MEDIUM (This Quarter)
+- [ ] **P2.1:** Phase 3 - Skill Framework v2 (self-creating skills)
+- [ ] **P2.2:** Phase 4 - Reflection & Learning Loop
+- [ ] **P2.3:** Add self-verification prompts
+
+### P3 - LOW (Future)
+- [ ] **P3.1:** Phase 5 - SHIELD.md Security
+- [ ] **P3.2:** Phase 6 - Infinite Scratchpad
+- [ ] **P3.3:** Phase 7 - Telemetry & Logging
+
+### COMPLETED ✅
+- [x] Phase 0: Program vs Workspace Separation
+- [x] Phase 1: Brain Database (SQLite)
+- [x] Phase 2: Context Engineer
+- [x] Phase 9: Pinchtab Browser Integration
+- [x] Phase 10: CI/CD & Infrastructure
+- [x] **P0.x:** Hyper-Intelligence Upgrade (v1.0.3)
 
 ---
 
 ## Table of Contents
 
 1. [Project USP & Philosophy](#1-project-usp--philosophy)
-2. [Current Architecture Map](#2-current-architecture-map)
-- [x] Phase 0: Program vs Workspace Separation (Foolproof)
-- [x] Phase 1: Brain Database (SQLite Memory Engine) - **COMPLETE**
-- [x] Phase 2: Context Engineer (Dynamic Context Assembly) - **COMPLETE**
-- [ ] Phase 3: The Teacher (Procedure Learning & Self-Correction)
-- [ ] Phase 4: Reflection & Learning Loop
-- [ ] Phase 5: SHIELD.md Sandbox Enforcement (Highest Priority Security)
-- [ ] Phase 6: The "Infinite" Scratchpad (Reasoning Aid)
-- [ ] Phase 7: Comprehensive Telemetry & Logging (Diagnostics)
-- [ ] Phase 8: Context Compactor & Temporal Decay (Adaptive Memory)
-- [x] Phase 9: Pinchtab Browser Integration (Token Efficiency & Stealth) - **COMPLETE**
-- [x] Phase 10: Industrial CI/CD & Infrastructure (Docker/SemVer/LLM Params) - **COMPLETE**
-- [ ] Far Future: Smart Routing & Inter-Agent Event Bus (Multi-GPU/Swarm)
-3. [Phase 1: Brain Database](#3-phase-1-brain-database)
-4. [Phase 2: Context Engineer](#4-phase-2-context-engineer)
-5. [Phase 3: Skill Framework v2](#5-phase-3-skill-framework-v2)
-6. [Phase 4: Reflection & Learning Loop](#6-phase-4-reflection--learning-loop)
-7. [Phase 5: SHIELD.md Enforcement Engine](#7-phase-5-shieldmd-enforcement-engine)
-8. [Phase 6: The Infinite Scratchpad](#8-phase-6-the-infinite-scratchpad)
-9. [Phase 7: Telemetry & Logging](#9-phase-7-telemetry--logging)
-10. [Phase 8: Context Compactor](#10-phase-8-context-compactor)
-11. [Phase 9: Pinchtab Integration](#11-phase-9-pinchtab-integration)
-12. [Phase 10: Industrial CI/CD & Infrastructure](#12-phase-10-industrial-ci/cd--infrastructure)
-13. [Far Future: Swarm Event Bus](#13-far-future-swarm-event-bus)
-14. [Verification Plan](#14-verification-plan)
-15. [Migration Guide](#15-migration-guide)
-16. [Reference: Competitor Study Files](#16-reference-competitor-study-files)
+2. [Priority Roadmap](#priority-roadmap-tldr)
+3. [Current Architecture Map](#2-current-architecture-map)
+4. [P0: Hyper-Intelligence Upgrade (COMPLETE)](#4-p0-hyper-intelligence-upgrade-complete)
+5. [P1: Context Optimization](#5-p1-context-optimization)
+6. [Phase 1: Brain Database](#6-phase-1-brain-database)
+7. [Phase 2: Context Engineer](#7-phase-2-context-engineer)
+8. [Phase 3: Skill Framework v2](#8-phase-3-skill-framework-v2)
+9. [Phase 4: Reflection & Learning Loop](#9-phase-4-reflection--learning-loop)
+10. [Phase 5: SHIELD.md Enforcement Engine](#10-phase-5-shieldmd-enforcement-engine)
+11. [Phase 6: The Infinite Scratchpad](#11-phase-6-the-infinite-scratchpad)
+12. [Phase 7: Telemetry & Logging](#12-phase-7-telemetry--logging)
+13. [Phase 8: Context Compactor](#13-phase-8-context-compactor)
+14. [Phase 9: Pinchtab Integration](#14-phase-9-pinchtab-integration)
+15. [Phase 10: Industrial CI/CD](#15-phase-10-industrial-cicd)
+16. [Phase 11: Proactive AGI Features](#16-phase-11-proactive-agi-features)
+17. [Far Future: Swarm Event Bus](#17-far-future-swarm-event-bus)
+18. [Summary Checklist](#summary-checklist)
 
 ---
 
@@ -58,10 +81,108 @@
 | **Procedure Storage** | Learned multi-step workflows in SQLite | Cron jobs work because steps are in DB, not in model's head |
 | **Skill Framework v2** | Agent creates its own SKILL.md files | Self-teaching: learn from browser, ask for creds, create tools |
 | **Shifting Context Trick** | Pre-compaction memory flush (already exists) | Nothing is truly forgotten — flushed to brain.db before eviction |
+| **Intelligent Prompt Compression** | Extracts high-signal content from personality files | Small models get focused context, not noise |
 
 ---
 
-## 2. Current Architecture Map
+## 3. P0: Hyper-Intelligence Upgrade (COMPLETE) ✅
+
+*Released in v1.0.3*
+
+### Problem
+Small models (4B-8B) with 8K context need focused, high-signal prompts. Generic prompts with 500-char limits on personality files were gutting Wolverine's intelligence.
+
+### Solution Implemented
+
+#### 3.1 Fixed Character Limits (server-v2.ts)
+- **Before:** IDENTITY=200, SOUL=500, USER=300, SELF=600
+- **After:** IDENTITY=300, SOUL=1200 (intelligently compressed), USER=500, SELF=800
+
+#### 3.2 Smart Compression Algorithm
+Added `compressPersonalityFile()` function that:
+- Prioritizes headers, rules, and key bullet points
+- Preserves high-signal content over prose
+- Falls back to truncation only when necessary
+
+#### 3.3 Rewrote System Prompt (src/prompts/system.ts)
+New system prompt includes:
+- **Reasoning Protocol:** ANALYZE → VERIFY → PLAN → EXECUTE
+- **Anti-Hallucination Rules:** Verify before asserting
+- **Tool Selection Guide:** Think before using tools
+- **Response Length Guide:** Match depth to complexity
+
+#### 3.4 Compacted Personality Files
+- SOUL.md: 139 → ~80 lines (concise but rich)
+- SELF.md: 216 → ~50 lines (essentials only)
+- AGENTS.md: 47 → ~25 lines
+
+### Token Budget (8K Context)
+
+| Component | Tokens (Approx) |
+|-----------|-----------------|
+| Static system prompt | ~300 (Ollama-cached) |
+| Personality files | ~600 |
+| Conversation history | ~2000 |
+| Scratchpad/memory | ~500 |
+| User message | ~500 |
+| **Total** | **~3900** |
+
+Leaves ~4100 tokens for model reasoning and tool results.
+
+---
+
+## 4. P1: Context Optimization (Next Sprint)
+
+### 4.1 Structured Memory Sections
+
+Add to MEMORY.md format:
+
+```markdown
+# MEMORY.md — Long-Term Memory
+
+## Active Context
+Current situation, what you're working on right now.
+
+## Durable Facts
+Key-value facts that persist:
+- user_name: John
+- project_wolverine: main focus
+
+## Recent History
+Last 3-7 days of significant events.
+
+## Learned Patterns
+What works, what doesn't, recurring themes.
+```
+
+### 4.2 Thinking Tags
+Add XML-style thinking prompts to system prompt:
+
+```
+<thinking>
+Analyze the request. What is the goal? What do I know? What do I need?
+</thinking>
+```
+
+Benefits:
+- Forces explicit reasoning trace
+- Small models benefit from structured thinking prompts
+- Can be stripped from final output
+
+### 4.3 Tool Definition Compression
+Current tool docs are verbose. Compress to:
+- Name + one-line purpose + critical parameters only
+- Full docs in separate reference file
+
+### 4.4 Memory Distillation
+Implement periodic memory compression:
+- Every N sessions, compress old memories into distilled summaries
+- Keep key facts, drop redundant details
+- Prevent memory bloat
+
+---
+
+## 5. Current Architecture Map
 
 ### Critical Files & Their Roles
 
@@ -166,7 +287,7 @@ PROMPT_BUDGET_FULL:
 
 ---
 
-## 3. Phase 1: Brain Database (SQLite Memory Engine) - COMPLETE ✅
+## 6. Phase 1: Brain Database (SQLite Memory Engine) - COMPLETE ✅
 
 ### Goal
 Replace flat MEMORY.md + facts.json with a single SQLite database that supports full-text search, categorized memories, and stored procedures.
@@ -607,7 +728,7 @@ case 'procedure_get':
 
 ---
 
-## 4. Phase 2: Context Engineer - COMPLETE ✅
+## 7. Phase 2: Context Engineer - COMPLETE ✅
 
 ### Goal
 Build a module that assembles the optimal prompt for each turn by querying brain.db, matching procedures, and respecting token budgets.
@@ -762,7 +883,7 @@ const PROMPT_BUDGET_FULL = {
 
 ---
 
-## 5. Phase 3: Skill Framework v2
+## 8. Phase 3: Skill Framework v2
 
 ### Goal
 Enable the agent to create new skills by learning from documentation, asking for credentials, and generating SKILL.md files that register real tools.
@@ -955,7 +1076,7 @@ function buildTools() {
 
 ---
 
-## 6. Phase 3.5: Pre-generation Research Phase
+## 9. Phase 3.5: Pre-generation Research Phase
 
 ### Goal
 Before Wolverine generates code for a complex new task (like using a new library or connecting to an unknown MCP server), force it into an information-gathering loop to reduce hallucinations.
@@ -971,7 +1092,7 @@ Once the research loop satisfies the agent's uncertainty, it summarizes its find
 
 ---
 
-## 6. Phase 4: Reflection & Learning Loop
+## 10. Phase 4: Reflection & Learning Loop
 
 ### Goal
 After completing multi-step tasks, the agent reflects on what it did and saves successful patterns as procedures.
@@ -1056,7 +1177,7 @@ if (this.state.status === 'complete' && this.state.journal.length >= 3) {
 
 ---
 
-## 7. Verification Plan
+## 11. Verification Plan
 
 ### Automated Tests
 
@@ -1114,7 +1235,7 @@ npx tsx src/db/brain.test.ts
 
 ---
 
-## 8. Migration Guide
+## 12. Migration Guide
 
 ### Running the Migration
 
@@ -1150,7 +1271,7 @@ If brain.db has issues:
 
 ---
 
-## 9. Reference: Competitor Study Files
+## 13. Reference: Competitor Study Files
 
 The following repos were studied and are available in the project for reference:
 
@@ -1185,7 +1306,7 @@ The following repos were studied and are available in the project for reference:
 
 ---
 
-## 7. Phase 5: SHIELD.md Enforcement Engine
+## 14. Phase 5: SHIELD.md Enforcement Engine
 
 ### Goal
 Implement 5-layer security through a runtime `SHIELD.md` file that defines unbreakable behavioral boundaries, malware protection, and rate limiting. Since Wolverine aims to self-learn and execute procedures on a local machine, absolute security is the highest priority.
@@ -1198,7 +1319,7 @@ Hook the `SHIELD` engine directly into the shell execution modules. Before execu
 
 ---
 
-## 8. Phase 6: The Infinite Scratchpad
+## 15. Phase 6: The Infinite Scratchpad
 
 ### Goal
 Provide Wolverine with a "Live Canvas" or persistent scratchpad. Small local models struggle to reason through complex problems entirely within their constrained context window. The scratchpad allows them to "show their work" and dump intermediate state.
@@ -1214,7 +1335,7 @@ Update `src/gateway/context-engineer.ts` to automatically inject the contents of
 
 ---
 
-## 9. Phase 7: Telemetry & Logging
+## 16. Phase 7: Telemetry & Logging
 
 ### Goal
 Implement a structured JSON logging system that records granular details of agent execution—such as tool inputs/outputs, model latency, context token utilization, and specific error stack traces—and visualize them on a new "Diagnostics" tracking tab on the website.
@@ -1227,7 +1348,7 @@ Implement a new REST endpoint `GET /api/logs/diagnostics` that queries `system_l
 
 ---
 
-## 10. Phase 8: Context Compactor
+## 17. Phase 8: Context Compactor
 
 ### Goal
 Implement a 4-layer context compaction pipeline to keep the small context window hyper-efficient. Transform the Brain Database into a 3-layer system: episodic (history logs), semantic (FTS5 facts), and temporal decay (older/unused facts lose importance automatically).
@@ -1240,7 +1361,7 @@ When the session approaches the 4k context window limit, spin up a background ta
 
 ---
 
-## 11. Phase 9: Pinchtab Integration
+## 18. Phase 9: Pinchtab Integration
 
 **Goal**: Replace Playwright (200MB SDK) with Pinchtab (12MB Go Binary) to optimize token usage for 4B models and enable stealth automation.
 
@@ -1258,7 +1379,7 @@ When the session approaches the 4k context window limit, spin up a background ta
 
 ---
 
-## 12. Far Future: Swarm Event Bus
+## 19. Far Future: Swarm Event Bus
 
 ### Goal
 Distribute cognitive load efficiently using an Inter-Agent Event Bus.
@@ -1799,7 +1920,7 @@ const DEFAULT_TIMEOUTS = {
 ---
 
 
-## 13. Phase 11: Proactive AGI Features
+## 20. Phase 11: Proactive AGI Features
 
 ### Goal
 Moving from a reactive to a proactive agent that takes initiative, evolves its own capabilities, and provides a "living" sense of presence.
@@ -1820,11 +1941,26 @@ Implement a "Ticker" or "Activity Feed" component in the Web UI that streams bac
 
 ## Summary Checklist
 
+### P0: Hyper-Intelligence Upgrade (v1.0.3) ✅ COMPLETE
+- [x] **P0.1:** Fix personality file character limits in server-v2.ts (SOUL 500→1200)
+- [x] **P0.2:** Add compressPersonalityFile() function for intelligent truncation
+- [x] **P0.3:** Rewrite system prompt in src/prompts/system.ts with thinking protocols
+- [x] **P0.4:** Compact SOUL.md, SELF.md, AGENTS.md for 8K context
+
+### P1: Context Optimization (Next Sprint)
+- [ ] **P1.1:** Add structured memory sections to MEMORY.md format
+- [ ] **P1.2:** Implement XML thinking tags in system prompt
+- [ ] **P1.3:** Compress tool definitions
+- [ ] **P1.4:** Add memory distillation system
+
+### Phase 0: Workspace Separation
 - [ ] **Phase 0.1:** Create `src/config/paths.ts` with `resolveDataPath()` and `PATHS` constants
 - [ ] **Phase 0.2:** Create `src/config/bootstrap.ts` for first-run data home setup
 - [ ] **Phase 0.3:** Rewire all ~20 scattered `os.homedir(), '.smallclaw'` references to use `PATHS`
 - [ ] **Phase 0.4:** Add legacy migration from `~/.smallclaw/` → `~/.wolverine/`
 - [ ] **Phase 0.5:** Update `.gitignore` and Docker config
+
+### Phase 1: Brain Database ✅ COMPLETE
 - [x] **Phase 1.1:** Create `src/db/brain.ts` with BrainDB class and schema
 - [x] **Phase 1.2:** Rewire `src/tools/memory.ts` executeMemoryWrite to use brain.db
 - [x] **Phase 1.3:** Rewire `src/tools/memory.ts` executeMemorySearch to use FTS5
@@ -1832,18 +1968,26 @@ Implement a "Ticker" or "Activity Feed" component in the Web UI that streams bac
 - [x] **Phase 1.5:** Create `src/tools/procedures.ts` with procedure_save/list/get tools
 - [x] **Phase 1.6:** Register new tools in `server-v2.ts` buildTools() + execution routing
 - [x] **Phase 1.7:** Create `src/db/migrate-to-brain.ts` migration script
+
+### Phase 2: Context Engineer ✅ COMPLETE
 - [x] **Phase 2.1:** Create `src/gateway/context-engineer.ts`
 - [x] **Phase 2.2:** Integrate context injection into `buildSystemPrompt()` in soul-loader.ts
 - [x] **Phase 2.3:** Call context engineer from `handleChat()` in server-v2.ts
 - [x] **Phase 2.4:** Adjust token budget in soul-loader.ts
+
+### Phase 3: Skill Framework v2
 - [ ] **Phase 3.1:** Design and document SKILL.md v2 format
 - [ ] **Phase 3.2:** Create `src/tools/skill-create.ts`
 - [ ] **Phase 3.3:** Create `src/tools/skill-test.ts`
 - [ ] **Phase 3.4:** Add dynamic connector loading to `src/skills/connector.ts`
 - [ ] **Phase 3.5:** Create `src/skills/runtime.ts` for skill→tool registration
+
+### Phase 4: Reflection & Learning Loop
 - [ ] **Phase 4.1:** Create `src/gateway/reflection.ts`
 - [ ] **Phase 4.2:** Integrate reflection into server-v2.ts handleChat()
 - [ ] **Phase 4.3:** Auto-save task journal as procedures in task-runner.ts
+
+### Phase 11: Proactive AGI
 - [ ] **Phase 11.1:** Implement "Step-Reflector" Pulse SSE events
 - [ ] **Phase 11.2:** Implement "Scout Protocol" Discovery Heartbeats
 - [ ] **Phase 11.3:** Build "Global Pulse" UI Ticker

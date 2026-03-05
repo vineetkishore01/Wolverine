@@ -165,6 +165,7 @@ interface SchedulerDeps {
   deliverTelegram?: (text: string) => Promise<void>; // optional telegram delivery
   getMainSessionId?: () => string;
   injectSystemEvent?: (sessionId: string, text: string, job: CronJob) => void;
+  broadcastPulse?: (category: 'cron' | 'heartbeat' | 'telegram' | 'system', message: string) => void;
 }
 
 export class CronScheduler {
@@ -202,11 +203,11 @@ export class CronScheduler {
       const parsed = JSON.parse(raw);
       const jobs = Array.isArray(parsed.jobs)
         ? parsed.jobs.map((j: any) => ({
-            ...j,
-            sessionTarget: j?.sessionTarget === 'main' ? 'main' : 'isolated',
-            payloadKind: j?.payloadKind === 'systemEvent' ? 'systemEvent' : 'agentTurn',
-            lastOutputSessionId: j?.lastOutputSessionId ?? j?.sessionId ?? null,
-          }))
+          ...j,
+          sessionTarget: j?.sessionTarget === 'main' ? 'main' : 'isolated',
+          payloadKind: j?.payloadKind === 'systemEvent' ? 'systemEvent' : 'agentTurn',
+          lastOutputSessionId: j?.lastOutputSessionId ?? j?.sessionId ?? null,
+        }))
         : [];
       return {
         heartbeat: { ...this.defaultStore().heartbeat, ...(parsed.heartbeat || {}) },
@@ -302,10 +303,10 @@ export class CronScheduler {
       nextRun: normalizedType === 'one-shot' && partial.runAt
         ? partial.runAt
         : applyDeterministicStagger(
-            getNextRun(partial.schedule || null, now, partial.tz).toISOString(),
-            id,
-            partial.schedule || null
-          ),
+          getNextRun(partial.schedule || null, now, partial.tz).toISOString(),
+          id,
+          partial.schedule || null
+        ),
       status: 'scheduled',
       lastOutputSessionId: null,
       createdAt: now.toISOString(),
@@ -332,10 +333,10 @@ export class CronScheduler {
       job.nextRun = job.type === 'one-shot' && job.runAt
         ? job.runAt
         : applyDeterministicStagger(
-            getNextRun(job.schedule, new Date(), job.tz).toISOString(),
-            job.id,
-            job.schedule
-          );
+          getNextRun(job.schedule, new Date(), job.tz).toISOString(),
+          job.id,
+          job.schedule
+        );
     }
     this.saveStore();
     this.broadcastUpdate();
@@ -449,6 +450,7 @@ export class CronScheduler {
     this.saveStore();
     this.deps.broadcast({ type: 'tasks_update', jobs: this.store.jobs, config: this.store.heartbeat });
     this.deps.broadcast({ type: 'task_running', jobId: job.id, jobName: job.name });
+    this.deps.broadcastPulse?.('cron', `Starting job: ${job.name}`);
 
     // Fake sessionId for the cron call — isolated from user sessions
     const mainSessionId = this.deps.getMainSessionId?.() || 'default';
@@ -594,6 +596,7 @@ export class CronScheduler {
       jobs: this.store.jobs,
       config: this.store.heartbeat,
     });
+    this.deps.broadcastPulse?.('cron', `Job complete: ${job.name} (${runStatus})`);
   }
 
   // ─── Broadcast Helper ─────────────────────────────────────────────────────────
