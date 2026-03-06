@@ -38,7 +38,10 @@ export function bootstrapDataHome(): void {
                 // Recursively copy subdirectories (e.g. skel/skills/)
                 copyDirRecursive(srcPath, destPath);
             } else if (!fs.existsSync(destPath)) {
-                fs.copyFileSync(srcPath, destPath);
+                // Copy file, removing .template extension if present
+                const finalDestPath = destPath.replace('.template', '');
+                fs.copyFileSync(srcPath, finalDestPath);
+                console.log(`[bootstrap] Created: ${path.basename(finalDestPath)}`);
             }
         }
         console.log(`[bootstrap] Copied ${entries.length} template(s) from skel/`);
@@ -47,7 +50,7 @@ export function bootstrapDataHome(): void {
     }
 
     // Create standard subdirectories
-    for (const dir of ['downloads']) {
+    for (const dir of ['downloads', 'memory']) {
         fs.mkdirSync(path.join(workspace, dir), { recursive: true });
     }
 
@@ -64,7 +67,9 @@ function copyDirRecursive(src: string, dest: string): void {
         if (entry.isDirectory()) {
             copyDirRecursive(srcPath, destPath);
         } else if (!fs.existsSync(destPath)) {
-            fs.copyFileSync(srcPath, destPath);
+            // Remove .template extension if present
+            const finalDestPath = destPath.replace('.template', '');
+            fs.copyFileSync(srcPath, finalDestPath);
         }
     }
 }

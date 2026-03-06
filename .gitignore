@@ -3,7 +3,7 @@
 # ============================================================
 
 # --- INTERNAL DEVELOPMENT DOCS (NEVER COMMIT) ---
-WOLVERINE-BLUEPRINT.md
+WOLVERINE_BLUEPRINT.md
 SECURITY-AUDIT.md
 SECURITY-CHANGES.md
 SELF-REPAIR.md

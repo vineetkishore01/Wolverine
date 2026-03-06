@@ -153,8 +153,13 @@ export class OllamaAdapter implements LLMProvider {
       }
     }
 
+    // Ensure we use accumulated content: streaming chunks may not populate finalMessage.content
+    // (e.g. thinking models like Qwen 3.5, or Ollama API quirks)
+    const msg = finalMessage || { role: 'assistant', content: '', tool_calls: [] };
+    const effectiveContent = String(msg.content || content || '').trim();
+
     return {
-      message: finalMessage || { role: 'assistant', content },
+      message: { ...msg, content: effectiveContent, tool_calls: msg.tool_calls || [] },
       thinking: thinking || undefined,
       usage: {
         prompt_tokens: promptEvalCount,

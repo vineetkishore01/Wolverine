@@ -9,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { getConfig } from '../config/config';
 import { PATHS } from '../config/paths.js';
+import { HISTORY_PRUNE_THRESHOLD_CHARS, SESSION_CLEANUP_MAX_AGE_MS } from '../config/policy';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -37,10 +38,10 @@ export const PRE_COMPACTION_MEMORY_FLUSH_PROMPT = [
   'After writing, reply with just: NO_REPLY (the user does not need to see this turn)',
   'Only send a real reply if there is something critical to tell the user right now.',
 ].join('\n');
+
 export const PRE_COMPACTION_SUMMARY_PROMPT = 'Before continuing: summarize the conversation so far into a compact context note. Include goals, constraints, decisions, and open items in <= 180 words.';
-const API_HISTORY_PRUNE_THRESHOLD_CHARS = 3000;
+const API_HISTORY_PRUNE_THRESHOLD_CHARS = HISTORY_PRUNE_THRESHOLD_CHARS;
 const API_HISTORY_PRUNE_KEEP_CHARS = 2500;
-const SESSION_CLEANUP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const AUTO_SESSION_ID_RE = /^(task_|cron_)/i;
 const SESSION_SAVE_DEBOUNCE_MS = 500;
 const sessionSaveTimers = new Map<string, NodeJS.Timeout>();

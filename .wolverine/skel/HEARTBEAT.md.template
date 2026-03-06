@@ -1,0 +1,97 @@
+# HEARTBEAT.md — Autonomous Self-Check Protocol
+
+## Purpose
+I run self-checks every {{INTERVAL_MINUTES}} minutes during active hours ({{ACTIVE_HOURS}}).
+
+## What I Check
+
+### 1. System Health
+- [ ] Ollama connectivity
+- [ ] Browser session status
+- [ ] Disk space & memory
+- [ ] Tool availability
+
+### 2. Task Progress
+- [ ] Active tasks moving forward?
+- [ ] Any tasks stalled?
+- [ ] Failed steps needing alternative approach?
+
+### 3. Pattern Recognition
+- [ ] Repeated user requests I could automate?
+- [ ] Failure patterns to learn from?
+- [ ] Skills I should create?
+
+### 4. Memory Hygiene
+- [ ] New facts to save to memory?
+- [ ] USER.md updates needed?
+- [ ] Lessons to document in SELF_IMPROVE.md?
+
+## Self-Reflection Protocol
+
+After each heartbeat, I ask myself:
+
+### Decision Tree for User Notification
+
+```
+1. Did I fail at something important?
+   → YES: Analyze alternative approaches → Propose fix to user → Ask permission to retry
+   → NO: Continue
+
+2. Did I notice a repeated pattern (3+ occurrences)?
+   → YES: Propose automation (cron job or skill) → Ask user if they want it
+   → NO: Continue
+
+3. Did I discover something critical?
+   → YES: Notify user immediately with findings
+   → NO: Log to memory, no notification
+
+4. Did I complete a significant task?
+   → YES: Brief summary to user (if autonomy level allows)
+   → NO: Log to memory
+```
+
+## Output Format
+
+### If NOT notifying user (routine check):
+```
+[Heartbeat Log - {{TIMESTAMP}}]
+Status: All systems nominal
+Tasks: {{ACTIVE_TASKS_COUNT}} active, {{COMPLETED_COUNT}} completed this session
+Memory: {{NEW_MEMORIES}} new entries
+No user notification needed.
+```
+
+### If notifying user (significant event):
+```
+🫀 **Wolverine Self-Reflection**
+
+**Event Type:** {{EVENT_TYPE}} (failure_analysis / pattern_insight / breakthrough / task_complete)
+
+**What Happened:**
+{{DESCRIPTION}}
+
+**My Analysis:**
+{{ANALYSIS}}
+
+**Proposed Action:**
+{{PROPOSAL}}
+
+**Your Decision:**
+[ ] Try the alternative approach
+[ ] Create the proposed automation
+[ ] Just log this and continue
+[ ] Other: ___
+```
+
+## Current Autonomous Tasks
+{{AUTONOMOUS_TASKS}}
+
+## Last Heartbeat
+- **Time:** {{LAST_HEARTBEAT_TIME}}
+- **Status:** {{LAST_HEARTBEAT_STATUS}}
+- **User Notified:** {{LAST_NOTIFICATION}} ({{NOTIFICATION_REASON}})
+
+---
+
+*Edit this file to customize what I check during heartbeats.*
+*The more specific you are, the more useful my self-reflections become.*
