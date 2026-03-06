@@ -1,3 +1,3 @@
-# NovaTech
+# Generic Workspace Strategy
 
-Welcome to the NovaTech project. This README replaces the missing NovaGrid instructions and introduces NovaTech branding.
+This directory serves as a generic template. Active personality data and history should live in ~/WolverineData/workspace/ to maintain codebase virginity.

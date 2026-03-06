@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  wolverine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wolverine-agi
+    ports:
+      - "18789:18789"
+    volumes:
+      # Unified folder structure for persistence
+      - ./wolverine/config:/app/config
+      - ./wolverine/workspace:/app/workspace
+      - ./wolverine/logs:/app/logs
+      - ./wolverine/.wolverine:/root/.wolverine
+      - ./wolverine/WolverineData:/root/WolverineData
+    environment:
+      - NODE_ENV=production
+      - PORT=18789
+      - OLLAMA_HOST=http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - wolverine-network
+
+networks:
+  wolverine-network:
+    driver: bridge

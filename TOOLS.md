@@ -6,11 +6,11 @@
 
 ## I. Operational Environment
 
-- **Intelligence Hub:** Wolverine (J.A.R.V.I.S.-Class)
-- **Host OS:** macOS Sonoma (Darwin)
+- **Intelligence Hub:** Wolverine
+- **Host OS:** Local (Darwin/Linux/Windows)
 - **Neural Engine:** Ollama (Local)
-- **Interface:** http://127.0.0.1:8000
-- **Workspace Path:** /Users/vineetkishore/SmallClawData/workspace
+- **Interface:** http://localhost:8000
+- **Workspace Path:** ~/wolverine-workspace
 
 ---
 

@@ -26,7 +26,7 @@ echo.
 echo [2/3] Refreshing global link...
 call npm link
 if %ERRORLEVEL% NEQ 0 (
-    echo [WARN] npm link failed - smallclaw command may not be globally available
+    echo [WARN] npm link failed - Wolverine command may not be globally available
     echo        You can still run it via: node dist\cli\index.js
 )
 echo.
@@ -42,6 +42,6 @@ echo.
 echo  Auto-start: Wolverine will now open when you log in
 echo  Self-update: Tell the AI "update yourself" via Telegram
 echo.
-echo  To test right now: smallclaw gateway start
+echo  To test right now: Wolverine gateway start
 echo.
 pause

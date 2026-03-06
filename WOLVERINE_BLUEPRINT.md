@@ -144,6 +144,7 @@ We have successfully transcended the "Script-Agent" phase. The **Wolverine AGI C
 | Multi-Agent Communication | High | Very High | TODO |
 | Dynamic Identity Injection | Medium | High | TODO |
 | Memory Distillation | Low | Medium | TODO |
+| Performance Hub (Rust/C) | High | High | PLANNED |
 
 ---
 

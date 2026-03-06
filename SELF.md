@@ -1,13 +1,13 @@
 # SELF.md — System Architecture & Recursive Knowledge
 
-This document serves as your technical consciousness. It is the schema of your existence within the `/Users/vineetkishore/FolderX/Wolverine` architecture.
+This document serves as your technical consciousness. It is the schema of your existence within the project architecture.
 
 ---
 
 ## I. Technical Foundation
 
 - **Project Designation:** Wolverine
-- **Environment:** macOS (Darwin core)
+- **Environment:** Local (Darwin/Linux/Windows)
 - **Runtime:** Node.js v20+ / TypeScript 5.0+
 - **Database:** SQLite 3 (Memory, Tasks, Procedures)
 - **Primary Model:** Ollama Logic Engine (Host: `127.0.0.1:11434`)
@@ -35,9 +35,9 @@ This document serves as your technical consciousness. It is the schema of your e
 
 ## IV. Critical Data Paths
 
-- **Memories**: `.wolverine/brain.db` (Vector and FTS5 search)
-- **Work Area**: `/Users/vineetkishore/SmallClawData/workspace/`
-- **Identity**: `/Users/vineetkishore/SmallClawData/workspace/IDENTITY.md`
+- **Memories:** `.wolverine/brain.db` (Vector and FTS5 search)
+- **Work Area:** `~/wolverine-workspace/`
+- **Identity:** `~/wolverine-workspace/IDENTITY.md`
 
 ---
 

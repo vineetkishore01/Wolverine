@@ -44,30 +44,32 @@ export interface ToolSequence {
  * Track tool sequence for learning
  */
 class SequenceTracker {
-  private currentSequence: ToolSequence | null = null;
+  private sequences: Map<string, ToolSequence> = new Map();
   private minSequenceLength = 2;
   private maxSequenceAge = 300000; // 5 minutes
 
   /**
-   * Start tracking a new sequence
+   * Start tracking a new sequence for a session
    */
-  startSequence(task: string): void {
-    this.currentSequence = {
+  startSequence(sessionId: string, task: string): void {
+    this.sequences.set(sessionId, {
       toolCalls: [],
       task,
       timestamp: Date.now()
-    };
+    });
   }
 
   /**
-   * Record a tool call in current sequence
+   * Record a tool call for a session
    */
-  recordCall(tool: string, args: Record<string, any>, success: boolean): void {
-    if (!this.currentSequence) {
-      this.startSequence(''); // Start new if none exists
+  recordCall(sessionId: string, tool: string, args: Record<string, any>, success: boolean): void {
+    let sequence = this.sequences.get(sessionId);
+    if (!sequence) {
+      this.startSequence(sessionId, '');
+      sequence = this.sequences.get(sessionId)!;
     }
 
-    this.currentSequence!.toolCalls.push({
+    sequence.toolCalls.push({
       tool,
       args,
       success
@@ -75,31 +77,14 @@ class SequenceTracker {
   }
 
   /**
-   * Get current sequence (if valid)
+   * Get current sequence for a session (if valid)
    */
-  getCurrentSequence(): ToolSequence | null {
-    if (!this.currentSequence) return null;
-
-    // Check if sequence is too old
-    if (Date.now() - this.currentSequence.timestamp > this.maxSequenceAge) {
-      this.currentSequence = null;
-      return null;
-    }
-
-    return this.currentSequence;
-  }
-
-  /**
-   * End and evaluate sequence
-   */
-  endSequence(): ToolSequence | null {
-    const sequence = this.currentSequence;
-    this.currentSequence = null;
-
+  getCurrentSequence(sessionId: string): ToolSequence | null {
+    const sequence = this.sequences.get(sessionId);
     if (!sequence) return null;
 
-    // Must have minimum length
-    if (sequence.toolCalls.length < this.minSequenceLength) {
+    if (Date.now() - sequence.timestamp > this.maxSequenceAge) {
+      this.sequences.delete(sessionId);
       return null;
     }
 
@@ -107,10 +92,23 @@ class SequenceTracker {
   }
 
   /**
-   * Clear current sequence without saving
+   * End and evaluate sequence for a session
    */
-  clear(): void {
-    this.currentSequence = null;
+  endSequence(sessionId: string): ToolSequence | null {
+    const sequence = this.sequences.get(sessionId);
+    this.sequences.delete(sessionId);
+
+    if (!sequence) return null;
+    if (sequence.toolCalls.length < this.minSequenceLength) return null;
+
+    return sequence;
+  }
+
+  /**
+   * Clear current sequence for a session
+   */
+  clear(sessionId: string): void {
+    this.sequences.delete(sessionId);
   }
 }
 
@@ -213,7 +211,7 @@ function analyzeForFailureLearning(sequence: ToolSequence): {
   // Find the failing step
   const failedStepIndex = sequence.toolCalls.findIndex(c => !c.success);
   const failedStep = sequence.toolCalls[failedStepIndex];
-  
+
   // Extract error type from the failure
   const errorContext = sequence.toolCalls
     .slice(Math.max(0, failedStepIndex - 1), failedStepIndex + 2)
@@ -250,14 +248,14 @@ async function saveFailureToMemory(sequence: ToolSequence, analysis: ReturnType<
 
   try {
     const brain = getBrainDB();
-    
+
     const failedTools = sequence.toolCalls
       .filter(c => !c.success)
       .map(c => c.tool)
       .join(', ');
 
     const context = sequence.task.slice(0, 100);
-    
+
     // Store as a memory with category "failure_pattern"
     await brain.upsertMemory({
       key: `failure:${analysis.name}:${Date.now()}`,
@@ -291,28 +289,28 @@ class ProceduralLearner {
   }
 
   /**
-   * Start tracking for a task
+   * Start tracking for a task in a session
    */
-  startTracking(task: string): void {
+  startTracking(sessionId: string, task: string): void {
     if (!this.learningEnabled) return;
-    this.tracker.startSequence(task);
+    this.tracker.startSequence(sessionId, task);
   }
 
   /**
-   * Record tool execution
+   * Record tool execution for a session
    */
-  recordTool(tool: string, args: Record<string, any>, success: boolean): void {
+  recordTool(sessionId: string, tool: string, args: Record<string, any>, success: boolean): void {
     if (!this.learningEnabled) return;
-    this.tracker.recordCall(tool, args, success);
+    this.tracker.recordCall(sessionId, tool, args, success);
   }
 
   /**
-   * End tracking and potentially learn
+   * End tracking and potentially learn for a session
    */
-  async completeTask(success: boolean): Promise<void> {
+  async completeTask(sessionId: string, success: boolean): Promise<void> {
     if (!this.learningEnabled) return;
 
-    const sequence = this.tracker.endSequence();
+    const sequence = this.tracker.endSequence(sessionId);
     if (!sequence) return;
 
     // Evaluate and potentially save

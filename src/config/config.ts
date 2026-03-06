@@ -24,16 +24,20 @@ function migrateLegacyDir(legacyDir: string, targetDir: string): void {
 }
 
 function migrateLegacyData(): void {
-  const projectLegacy = path.join(__dirname, '..', '..', '.smallclaw');
-  const projectTarget = path.join(__dirname, '..', '..', '.wolverine');
-  const homeLegacy = path.join(os.homedir(), '.smallclaw');
+  const projectLegacy = path.join(__dirname, '..', '..', '.Wolverine');
   const homeTarget = PATHS.dataHome();
 
-  if (process.env.WOLVERINE_HOME || process.env.SMALLCLAW_HOME) return;
+  if (process.env.WOLVERINE_HOME || process.env.Wolverine_HOME) return;
 
-  // Local-to-local migration
-  if (fs.existsSync(projectLegacy) && !fs.existsSync(projectTarget)) {
-    migrateLegacyDir(projectLegacy, projectTarget);
+  // Codebase-to-User migration: If legacy data exists in the repository root, 
+  // move it to the user's home directory to ensure the codebase remains "virgin".
+  if (fs.existsSync(projectLegacy) && !fs.existsSync(homeTarget)) {
+    console.log(`[Config] Codebase migration: Moving project-local ${projectLegacy} -> ${homeTarget}`);
+    migrateLegacyDir(projectLegacy, homeTarget);
+    // After moving, delete the repo-local version to maintain virginity
+    try {
+      fs.rmSync(projectLegacy, { recursive: true, force: true });
+    } catch { /* best-effort cleanup */ }
   }
 }
 
@@ -41,20 +45,17 @@ migrateLegacyData();
 
 // ── Config & workspace directory resolution ──────────────────────────────────
 // Priority:
-//   1. WOLVERINE_HOME / SMALLCLAW_DATA_DIR env var
-//   2. .wolverine/ next to the project root
-//   3. ~/.wolverine in the user's home directory
+//   1. WOLVERINE_HOME / Wolverine_DATA_DIR env var
+//   2. ~/.wolverine in the user's home directory
 const PROJECT_CONFIG = path.join(__dirname, '..', '..', '.wolverine');
 const HOME_CONFIG = PATHS.dataHome();
 
-const ENV_DATA_DIR = process.env.WOLVERINE_HOME || process.env.WOLVERINE_DATA_DIR || process.env.SMALLCLAW_DATA_DIR;
+const ENV_DATA_DIR = process.env.WOLVERINE_HOME || process.env.WOLVERINE_DATA_DIR || process.env.Wolverine_DATA_DIR;
 
 const CONFIG_DIR =
   ENV_DATA_DIR
     ? ENV_DATA_DIR as string
-    : fs.existsSync(PROJECT_CONFIG)
-      ? PROJECT_CONFIG
-      : HOME_CONFIG;
+    : HOME_CONFIG;
 
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
