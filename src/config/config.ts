@@ -24,6 +24,9 @@ function migrateLegacyDir(legacyDir: string, targetDir: string): void {
 }
 
 function migrateLegacyData(): void {
+  // Disabled: Templates now live stay in src/config/skel/ permanently.
+  return;
+
   const projectLegacy = path.join(__dirname, '..', '..', '.Wolverine');
   const homeTarget = PATHS.dataHome();
 
@@ -44,25 +47,12 @@ function migrateLegacyData(): void {
 migrateLegacyData();
 
 // ── Config & workspace directory resolution ──────────────────────────────────
-// Priority:
-//   1. WOLVERINE_HOME / Wolverine_DATA_DIR env var
-//   2. ~/.wolverine in the user's home directory
-const PROJECT_CONFIG = path.join(__dirname, '..', '..', '.wolverine');
-const HOME_CONFIG = PATHS.dataHome();
-
-const ENV_DATA_DIR = process.env.WOLVERINE_HOME || process.env.WOLVERINE_DATA_DIR || process.env.Wolverine_DATA_DIR;
-
-const CONFIG_DIR =
-  ENV_DATA_DIR
-    ? ENV_DATA_DIR as string
-    : HOME_CONFIG;
-
+// Everything lives in ~/WolverineData/ (or WOLVERINE_HOME env var)
+const CONFIG_DIR = PATHS.dataHome();
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
-// Workspace: env var → home-relative default (WolverineData)
-const WORKSPACE_DIR =
-  process.env.WOLVERINE_WORKSPACE_DIR ??
-  path.join(os.homedir(), 'WolverineData');
+// Workspace is inside WolverineData (unified structure)
+const WORKSPACE_DIR = PATHS.workspace();
 
 export const DEFAULT_CONFIG: WolverineConfig = {
   version: '1.0.2',

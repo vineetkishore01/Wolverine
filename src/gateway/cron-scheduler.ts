@@ -408,11 +408,11 @@ export class CronScheduler {
     if (!this.store.heartbeat.enabled) return;
     if (this.runningJobId) return; // one at a time
     if (this.deps.getIsModelBusy()) {
-      console.log('[CronScheduler] Tick skipped — model is busy with user chat');
+      this.deps.broadcastPulse?.('cron', 'Tick skipped — model is busy with user chat');
       return;
     }
     if (!this.isWithinActiveHours()) {
-      console.log('[CronScheduler] Tick skipped — outside active hours');
+      this.deps.broadcastPulse?.('cron', 'Tick skipped — outside active hours');
       return;
     }
 

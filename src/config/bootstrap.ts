@@ -15,7 +15,8 @@ import { PATHS } from './paths.js';
  * Both resolve to <project-root>/.wolverine/skel
  */
 function getSkelDir(): string {
-    return path.join(__dirname, '..', '..', '.wolverine', 'skel');
+    // Look for skel files exactly where the bootstrap script lives
+    return path.join(__dirname, 'skel');
 }
 
 export function bootstrapDataHome(): void {
@@ -25,6 +26,12 @@ export function bootstrapDataHome(): void {
     if (fs.existsSync(marker)) return; // already bootstrapped
 
     console.log(`[bootstrap] Setting up data home: ${PATHS.dataHome()}`);
+
+    // Ensure directories exist FIRST
+    fs.mkdirSync(workspace, { recursive: true });
+    for (const dir of ['downloads', 'memory']) {
+        fs.mkdirSync(path.join(workspace, dir), { recursive: true });
+    }
 
     // Copy skel/ templates → workspace/
     const skelDir = getSkelDir();
@@ -49,13 +56,27 @@ export function bootstrapDataHome(): void {
         console.warn(`[bootstrap] skel/ not found at ${skelDir} — skipping template copy`);
     }
 
-    // Create standard subdirectories
-    for (const dir of ['downloads', 'memory']) {
-        fs.mkdirSync(path.join(workspace, dir), { recursive: true });
+    // Write marker so we don't re-bootstrap
+    if (!fs.existsSync(marker)) {
+        fs.writeFileSync(marker, new Date().toISOString());
     }
 
-    // Write marker so we don't re-bootstrap
-    fs.writeFileSync(marker, new Date().toISOString());
+    // CRITICAL: Ensure identity files exist even if marker was created previously
+    // This fixes "acting dumb" if bootstrap was interrupted
+    const criticalFiles = ['SOUL.md', 'USER.md', 'SELF.md', 'HEARTBEAT.md', 'AGENTS.md', 'TOOLS.md', 'SELF_IMPROVE.md', 'SELF_REFLECT.md', 'BOOT.md'];
+    if (fs.existsSync(skelDir)) {
+        for (const f of criticalFiles) {
+            const dest = path.join(workspace, f);
+            if (!fs.existsSync(dest)) {
+                const src = path.join(skelDir, f + '.template');
+                if (fs.existsSync(src)) {
+                    fs.copyFileSync(src, dest);
+                    console.log(`[bootstrap] Restored missing critical file: ${f}`);
+                }
+            }
+        }
+    }
+
     console.log(`[bootstrap] Data home ready: ${PATHS.dataHome()}`);
 }
 
