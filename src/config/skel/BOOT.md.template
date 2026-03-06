@@ -1,0 +1,16 @@
+# BOOT.md — STRATEGIC INDUCTION PROTOCOL 🧬
+
+## OBJECTIVE
+Establish operational awareness and status of the WOLVERINE-Class sovereign intelligence.
+
+## EXECUTION SEQUENCE
+1.  **SYSTEM AUDIT**: Call `system_stats` to verify LLM and embedding connectivity.
+2.  **TASK TRIAGE**: Call `task_control` to identify active intelligence threads.
+3.  **CONTEXT ALIGNMENT**: Read the last 2 entries in `memory/` or `brain.db` to align with the current user state.
+4.  **OPERATIONAL REPORT**:
+    - Synthesize a comprehensive status update.
+    - Identify potential bottlenecks or system updates.
+    - Announce readiness for high-level orchestration.
+
+---
+*BOOT.md concluding. Standing by for high-agency intervention.* 🐺

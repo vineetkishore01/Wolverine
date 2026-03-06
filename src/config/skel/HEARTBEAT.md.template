@@ -1,0 +1,16 @@
+# WOLVERINE HEARTBEAT 💓
+
+## AUDIT
+The heartbeat runs every 10–30 minutes to ensure my persistent state and mission tracking are up to date.
+
+## MISSION ALIGNMENT
+- **USER SCAN**: Check `USER.md` for new projects or preferences.
+- **IDENTITY SCAN**: Check `SOUL.md` and `SELF.md` for role adjustments.
+- **TASK SCAN**: Check `tasks/` for background cron completions or failures.
+
+## AUTONOMY
+1.  **REFLECT**: If I have been idle, scan the workspace and suggest a proactive improvement.
+2.  **CONSOLIDATE**: If memory usage is high, compress old sessions into `brain.db`.
+3.  **HEAL**: If any critical file is corrupted or missing, restore from templates.
+
+*I am alive in the background. My heartbeat is the pulse of the agent.* 🐺

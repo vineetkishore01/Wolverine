@@ -38,21 +38,21 @@
     }
 
     :root[data-theme="dark"] {
-      --bg: #1f242d;
-      --bg-soft: #242a34;
-      --panel: #2a313d;
-      --panel-2: #323a47;
-      --line: #3d4656;
-      --line-strong: #505b70;
-      --text: #e8edf6;
-      --muted: #aeb9cb;
-      --brand: #4c8dff;
-      --brand-2: #2f6fe0;
-      --ok: #31b884;
-      --warn: #d6a64f;
-      --err: #e06d6d;
-      --shadow-sm: 0 2px 8px rgba(4, 7, 12, 0.28);
-      --shadow-md: 0 10px 30px rgba(4, 7, 12, 0.36);
+      --bg: #000000;
+      --bg-soft: #0a0a0b;
+      --panel: #111112;
+      --panel-2: #161618;
+      --line: #222224;
+      --line-strong: #2d2d30;
+      --text: #ffffff;
+      --muted: #8b949e;
+      --brand: #2f81f7;
+      --brand-2: #1f6feb;
+      --ok: #3fb950;
+      --warn: #d29922;
+      --err: #f85149;
+      --shadow-sm: 0 0 0 1px #30363d;
+      --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.6);
     }
 
     * {
@@ -90,11 +90,12 @@
 
     header {
       grid-area: header;
-      background: rgba(255, 255, 255, 0.82);
-      backdrop-filter: blur(10px);
-      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.75);
+      backdrop-filter: blur(12px) saturate(180%);
+      -webkit-backdrop-filter: blur(12px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.3);
       border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-sm);
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05);
       display: flex;
       align-items: center;
       padding: 10px 16px;
@@ -357,7 +358,9 @@
     }
 
     :root[data-theme="dark"] header {
-      background: rgba(42, 49, 61, 0.88);
+      background: rgba(10, 10, 11, 0.75);
+      border-color: rgba(255, 255, 255, 0.1);
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
     }
 
     :root[data-theme="dark"] main,
@@ -2615,6 +2618,7 @@
     }
 
     .pulse-ticker {
+      display: none;
       position: fixed;
       bottom: 0;
       left: 0;
@@ -2852,7 +2856,7 @@
       <div class="status-pill stat-compact" id="system-pill">
         <span id="quick-system-stats">CPU --% • RAM --% • GPU --%</span>
       </div>
-      <div class="status-pill stat-compact" id="token-pill" title="Token usage this session" style="cursor:pointer" onclick="openSettings('tokens')">
+      <div class="status-pill stat-compact" id="token-pill" title="Token usage this session">
         <span id="token-stats">Tokens: --</span>
       </div>
     </div>
@@ -5979,16 +5983,16 @@
               case 'token_usage':
                 // Update token display in real-time (accumulate across turns)
                 if (event && (event.total_tokens || event.prompt_tokens || event.completion_tokens)) {
-                  const fmt = (n) => n >= 1000 ? (n/1000).toFixed(1) + 'K' : n;
+                  const fmt = (n) => n >= 1000 ? (n / 1000).toFixed(1) + 'K' : n;
                   const totalTokens = event.total_tokens || (event.prompt_tokens || 0) + (event.completion_tokens || 0);
-                  
+
                   // Update token pill in status bar
                   const tokenPill = document.getElementById('token-stats');
                   if (tokenPill) {
                     tokenPill.textContent = `Tokens: ${fmt(totalTokens)}`;
                     tokenPill.parentElement.title = `Prompt: ${fmt(event.prompt_tokens || 0)} | Completion: ${fmt(event.completion_tokens || 0)} | Total: ${fmt(totalTokens)}`;
                   }
-                  
+
                   // Also update settings token display if open
                   const tokenStatsEl = document.getElementById('token-stats');
                   if (tokenStatsEl && tokenStatsEl !== tokenPill) {
@@ -7588,7 +7592,7 @@
 
     async function fetchTokenUsage(sessionId) {
       if (!sessionId) return;
-      
+
       // Check cache (refresh every 5 seconds)
       const now = Date.now();
       const lastFetch = lastTokenFetch.get(sessionId) || 0;
@@ -7600,7 +7604,7 @@
         }
         return;
       }
-      
+
       try {
         const tokenData = await api('/api/token-usage?session=' + encodeURIComponent(sessionId));
         const tokens = {
@@ -7622,9 +7626,9 @@
     }
 
     function updateTokenDisplay(tokens) {
-      const fmt = (n) => n >= 1000 ? (n/1000).toFixed(1) + 'K' : n;
+      const fmt = (n) => n >= 1000 ? (n / 1000).toFixed(1) + 'K' : n;
       const totalTokens = tokens?.total || 0;
-      
+
       // Update token pill in status bar
       const tokenPill = document.getElementById('token-stats');
       if (tokenPill) {
@@ -7651,7 +7655,7 @@
         try {
           const tokenData = await api('/api/token-usage?session=' + encodeURIComponent(activeChatSessionId || 'default'));
           if (tokenData && tokenData.total_tokens > 0) {
-            const fmt = (n) => n >= 1000 ? (n/1000).toFixed(1) + 'K' : n;
+            const fmt = (n) => n >= 1000 ? (n / 1000).toFixed(1) + 'K' : n;
             setText('token-stats', `Tokens: ${fmt(tokenData.total_tokens)}`);
             // Also update the token pill in status bar
             const tokenPill = document.getElementById('token-stats');
@@ -9722,55 +9726,9 @@
 
     // --- Global Pulse Ticker Logic ---
     function handlePulse(data) {
-      const ticker = document.getElementById('global-pulse-ticker');
-      const history = document.getElementById('pulse-history');
-      if (!ticker || !history) return;
-
-      const time = new Date(data.timestamp || Date.now()).toLocaleTimeString('en-US', {
-        hour12: false,
-        hour: '2-digit', minute: '2-digit', second: '2-digit'
-      });
-
-      const item = document.createElement('div');
-      item.className = 'pulse-item';
-      item.style.opacity = '0';
-      item.style.transform = 'translateY(10px)';
-      item.style.transition = 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
-
       const category = data.category || 'system';
-      item.innerHTML = `
-        <span class="pulse-tag ${category}">${category.toUpperCase()}</span>
-        <span class="pulse-time">${time}</span>
-        <span style="flex:1">${escHtml(data.message)}</span>
-      `;
-
-      history.appendChild(item);
-
-      // Animate in
-      requestAnimationFrame(() => {
-        item.style.opacity = '1';
-        item.style.transform = 'translateY(0)';
-      });
-
-      // Show ticker container
-      ticker.classList.add('visible');
-
-      // Keep only last 5 items
-      while (history.children.length > 5) {
-        history.removeChild(history.firstChild);
-      }
-
-      // Auto-remove this specific item after 10 seconds
-      setTimeout(() => {
-        item.style.opacity = '0';
-        item.style.transform = 'translateX(20px)';
-        setTimeout(() => {
-          if (item.parentNode === history) {
-            history.removeChild(item);
-            if (history.children.length === 0) ticker.classList.remove('visible');
-          }
-        }, 300);
-      }, 10000);
+      const msg = data.message || '';
+      log(`[${category.toUpperCase()}] ${msg}`, 'info');
     }
 
     function syncExternalChat(msg) {

@@ -17,6 +17,7 @@
 7. [Implementation Priority](#7-implementation-priority)
 8. [Technical Specifications](#8-technical-specifications)
 9. [Success Metrics](#9-success-metrics)
+10. [AGI Readiness & 10-Year Roadmap](#10-agi-readiness--10-year-roadmap)
 
 ---
 
@@ -48,18 +49,23 @@
 
 ## 3. Implemented Features (Phase 1) ✅
 
-| Innovation | What It Does |
-|------------|--------------|
-| **Skeleton Template System** | Auto-populates `~/.wolverine/workspace/` with SOUL.md, USER.md, etc. |
-| **Browser Automation Fix** | Enhanced detection (20+ verbs) and proactive tool injection. |
-| **Intelligent Reflection** | Binary decision (YES/NO) on user notifications only for significant events. |
-| **Pattern Recognition** | Detects repeated requests (3+ times) and proposes automation. |
-| **Failure Analysis** | Analyzes task failures and generates recovery proposals. |
-| **FAST PATH** | Bypasses complex orchestration for simple conversational queries. |
-| **Thinking Tag Processing** | Smart stripping of reasoning while preserving action-oriented content. |
-| **Persistent Brain (brain.db)** | SQLite with FTS5 - searchable, categorized memory. |
-| **HMS (Hierarchical Memory)** | 5-layer memory retrieval for anticipatory context. |
-| **Security Hardening** | Remediated CRIT-01/02/03: Path validation, Secure Vaulting, Auth gates. |
+| Innovation | What It Does | Status |
+|------------|--------------|--------|
+| **Skeleton Template System** | Auto-populates `~/.wolverine/workspace/` with SOUL.md, USER.md, etc. | ✅ |
+| **Browser Automation Fix** | Enhanced detection (20+ verbs) and proactive tool injection. | ✅ |
+| **Intelligent Reflection** | Binary decision (YES/NO) on user notifications only for significant events. | ✅ |
+| **Pattern Recognition** | Detects repeated requests (3+ times) and proposes automation. | ✅ |
+| **Failure Analysis** | Analyzes task failures and generates recovery proposals. | ✅ |
+| **FAST PATH** | Bypasses complex orchestration for simple conversational queries. | ✅ |
+| **Thinking Tag Processing** | Smart stripping of reasoning while preserving action-oriented content. | ✅ |
+| **Persistent Brain (brain.db)** | SQLite with FTS5 - searchable, categorized memory. | ✅ |
+| **HMS (Hierarchical Memory)** | 5-layer memory retrieval for anticipatory context. | ✅ |
+| **Security Hardening** | Remediated CRIT-01/02/03: Path validation, Secure Vaulting, Auth gates. | ✅ |
+| **REM Cycle (Stage 1-3)** | 3-stage memory consolidation (De-noising, Fact Extraction, File Sync). | ✅ |
+| **Universal Launchers** | `launch.sh` (Mac/Linux) & `launch.bat` (Win) for zero-config startup. | ✅ |
+| **Token Counter Fix** | Precision token tracking to prevent context overflow. | ✅ |
+| **Webhook Integration** | Foundation for autonomous external triggers. | ✅ |
+| **Codebase Cleanup** | Purged legacy scripts and SmallClaw remnants for Wolverine sovereignty. | ✅ |
 
 ---
 
@@ -86,9 +92,9 @@ Wolverine has undergone a comprehensive security audit. The following baseline i
 ### Priority 2: Autonomous Evolution
 - [ ] **Skill Auto-Creation**: Detect successful workflows and save them as reusable skills.
 - [ ] **Goal Decomposition**: Break complex tasks into executable steps with progress tracking.
-- [ ] **Interactive Onboarding**: First-run wizard to personalize personality and goals.
-- [ ] **Memory Consolidation**: Merge similar memories during idle time to prevent bloat.
-- [ ] **REM Cycle Safeguard**: Implement "Undo REM" to restore workspace from backups if consolidation hallucinations occur.
+- [✅] **Interactive Onboarding**: First-run wizard to personalize personality and goals.
+- [✅] **Memory Consolidation**: Merge similar memories during idle time to prevent bloat.
+- [✅] **REM Cycle Safeguard**: Implement "Undo REM" to restore workspace from backups if consolidation hallucinations occur.
 - [ ] **Mental Simulation (Sandbox)**: Run hidden "predicted outcome" loops before risky actions.
 - [ ] **Environment Watchdogs**: Autonomously wake up on file/log changes or URL updates.
 - [ ] **Semantic Knowledge Graph**: Map entity relationships (Who is X? Owner of Y) for deeper reasoning.
@@ -122,13 +128,141 @@ Wolverine has undergone a comprehensive security audit. The following baseline i
 
 ## 7. Implementation Roadmap
 
-| Priority | Feature | Effort | Impact |
-|----------|---------|--------|--------|
-| **CRITICAL** | Browser Element Discovery | 2h | High |
-| **CRITICAL** | Goal Decomposition | 4h | Very High |
-| **HIGH** | Skill Auto-Discovery | 8h | Very High |
-| **HIGH** | Vector Memory (Embeddings) | 6h | High |
-| **MEDIUM** | Server Refactoring | 20h | Medium |
+### Strategic Positioning: Wolverine vs OpenClaw
+
+**OpenClaw is an iPhone. Wolverine is a Linux Workstation.**
+
+| Aspect | OpenClaw | Wolverine |
+|--------|----------|-----------|
+| **Target User** | Mass market, one-click | Technical power users |
+| **Ecosystem** | 6,000+ skills (ClawHub) | Curated, code-based skills |
+| **Deployment** | Cloud-first, Docker | Local-first, bare metal |
+| **Unique Tech** | Standard agent loop | REM Cycle, FileOp Watchdog, Dual-Model |
+| **Community** | 15K+ GitHub stars | Early adopter, quality-focused |
+
+**Winning Strategy:**
+1. Target technical users who want deep control
+2. Highlight unique innovations (REM Cycle, Watchdog, Dual-Model)
+3. Build community around quality, not quantity
+4. Stay local-first (no cloud dependency)
+5. Be Wolverine (not J.A.R.V.I.S., not OpenClaw clone)
+
+---
+
+### Priority Matrix (2026)
+
+| Priority | Feature | Effort | Impact | Timeline |
+|----------|---------|--------|--------|----------|
+| **CRITICAL** | Browser Element Discovery | 2h | High | Week 1 |
+| **CRITICAL** | Goal Decomposition | 4h | Very High | Week 1 |
+| **HIGH** | Web UI Dashboard | 16h | High | Week 2 |
+| **HIGH** | Skill Auto-Discovery | 8h | Very High | Week 2-3 |
+| **HIGH** | Documentation Site | 12h | Medium | Week 3 |
+| **MEDIUM** | Vector Memory (Embeddings) | 6h | High | Month 2 |
+| **MEDIUM** | Server Refactoring | 20h | Medium | Month 2-3 |
+| **LOW** | One-Click Installer | 4h | Medium | Month 3 |
+
+---
+
+### Phase 1: Polish Core (2 Weeks)
+
+#### Week 1: Code Quality
+- [ ] **Break up server-v2.ts** - Split into `chat/`, `api/`, `services/`, `utils/`
+- [ ] **Add TypeScript interfaces** - Remove all `any` types
+- [ ] **Add structured logging** - Replace `console.log` with proper logger
+- [ ] **Add error types** - Create `WolverineError` hierarchy
+
+#### Week 2: User Experience
+- [ ] **Web UI Dashboard** - Show token usage, task status, memory stats
+- [ ] **Skill Creator UI** - Visual skill builder (drag-drop)
+- [ ] **Documentation Site** - Use VitePress or Docusaurus
+- [ ] **One-Click Installer** - `curl | bash` install script
+
+---
+
+### Phase 2: Killer Features (1 Month)
+
+#### Week 3-4: Autonomous Capabilities
+- [ ] **Autonomous Research Agent** - Give it a topic, returns compiled report
+- [ ] **Code Review Skill** - Auto-review PRs, suggest fixes
+- [ ] **Daily Briefing** - Morning digest: news, tasks, insights
+- [ ] **Memory Search UI** - Search across all conversations
+
+#### Week 5-6: Community Building
+- [ ] **Discord Server** - Early adopter community
+- [ ] **Showcase Videos** - Demo real use cases (2-min each)
+- [ ] **GitHub Examples** - Working configurations for common tasks
+- [ ] **Technical Blog Posts** - "How REM Cycle Solves Small Model Amnesia"
+
+---
+
+### Phase 3: Market Positioning (2 Months)
+
+#### Month 2: Content Marketing
+- [ ] **Post on r/LocalLLaMA** - Technical deep dive
+- [ ] **Hacker News "Show HN"** - Launch announcement
+- [ ] **Twitter/X Thread** - Wolverine vs OpenClaw comparison
+- [ ] **YouTube Demo** - "Watch Wolverine automate my morning briefing"
+
+#### Month 3: Ecosystem Growth
+- [ ] **Skill Templates** - Pre-built skills for common tasks
+- [ ] **Community Contributions** - Accept PRs for skills
+- [ ] **Integration Partners** - Connect with popular tools (Notion, Obsidian)
+- [ ] **Sponsorship Program** - Support development financially
+
+---
+
+### Marketing Strategy (Zero Budget)
+
+#### Content Marketing:
+1. **Write technical blog posts:**
+   - "How Wolverine's REM Cycle Solves Small Model Amnesia"
+   - "Building a File Verification System for AI Agents"
+   - "Why Dual-Model Orchestration Beats Single Large Models"
+
+2. **Post on:**
+   - r/LocalLLaMA (Reddit)
+   - Hacker News
+   - Lobsters
+   - Twitter/X (AI dev community)
+
+3. **Create demo videos:**
+   - 2-minute "Wolverine wakes up" video
+   - "Watch Wolverine automate my morning briefing"
+   - "Wolverine vs OpenClaw: Technical comparison"
+
+#### Community Engagement:
+1. **Be active in:**
+   - LocalLLaMA Discord
+   - Ollama Discord
+   - AI agent research communities
+
+2. **Offer:**
+   - Free help troubleshooting
+   - Technical advice on agent architecture
+   - Honest comparisons with OpenClaw
+
+---
+
+### Technical Debt (Must Address)
+
+#### Critical (Do Now):
+- [ ] **Modularize server-v2.ts** - Currently 7,500 lines, unmaintainable
+- [ ] **Add proper TypeScript types** - Remove `any` types throughout
+- [ ] **Add structured logging** - Not just `console.log`
+- [ ] **Add unit tests** - At least for core logic
+
+#### Important (This Month):
+- [ ] **Add error handling** - Structured error types
+- [ ] **Add metrics/monitoring** - Token usage, task success rates
+- [ ] **Add circuit breakers** - Handle Ollama failures gracefully
+- [ ] **Add rate limiting** - Prevent abuse on sensitive endpoints
+
+#### Nice to Have (Later):
+- [ ] **OpenAPI spec** - Document all endpoints
+- [ ] **Performance profiling** - Identify bottlenecks
+- [ ] **Caching layer** - Reduce redundant operations
+- [ ] **Docker optimization** - Smaller image, faster startup
 
 ---
 
@@ -166,5 +300,50 @@ Model: Qwen 3 4B (q4 quantization)
 
 ---
 
-*Master Blueprint Version: 2.6 (Phase 1 INTEGRATED)*  
+## 10. AGI Readiness & 10-Year Roadmap
+
+**Assessment Date:** March 7, 2026  
+**Current AGI Proximity:** ~25% (AGI-Adjacent)
+
+### Technical Readiness Audit
+
+| Dimension | Score | Status |
+|-----------|-------|--------|
+| **AGI Framework Architecture** | 75% | 🟢 World-Class foundation |
+| **Model Intelligence (4B)** | 15% | 🔴 Critical reasoning bottleneck |
+| **Memory & Learning (HMS/REM)** | 60% | 🟡 Advanced, pending vector retrieval |
+| **Tool Mastery (Embodied Cognition)** | 80% | 🟢 Excellent mastery |
+| **Self-Awareness** | 35% | 🟡 Simulated via prompts |
+
+### The "Lawnmower Engine" Law
+Wolverine is a Formula 1 chassis (Architecture) powered by a lawnmower engine (4B Model). The system must continuously over-engineer its scaffolding (HMS, REM Cycle, Reflection) to compensate for the model's limited reasoning depth (currently ~2-3 steps).
+
+---
+
+### The Three-Phase Path to AGI
+
+#### Phase 1: Enhanced Local AGI (Current - 12 Months)
+*Goal: Maximize capability within 4GB VRAM constraint.*
+- [ ] **Embedding-Based Retrieval**: Phase 2 memory with vector search (brain.db + FAISS/Chroma).
+- [ ] **Autonomous Skill Invention**: Self-directed workflow creation from successful execution patterns.
+- [ ] **Goal Decomposition**: Break multi-hour tasks into sub-plans with persistent state tracking.
+*Expected AGI Proximity: ~40%*
+
+#### Phase 2: Hybrid Cloud-Local (12 - 24 Months)
+*Goal: Leverage high-parameter cloud models for reasoning; local models for action.*
+- [ ] **Cloud-Orchestrated Planning**: 70B+ models generate the "Grand Plan"; Local 4B executes the steps.
+- [ ] **Cross-Instance Knowledge**: Shared episodic memory across multiple Wolverine nodes.
+- [ ] **Advanced World Model**: Causal reasoning - predicting consequences before tool execution.
+*Expected AGI Proximity: ~60%*
+
+#### Phase 3: True AGI (The Horizon)
+*Goal: Human-level reasoning on consumer hardware.*
+- [ ] **Model Breakthrough**: 100B+ parameter capabilities on 4GB hardware (Post-Transformer architecture).
+- [ ] **Genuine Self-Awareness**: Internalized self-model that manages its own recursive improvements.
+- [ ] **Autonomous Goal Generation**: Transition from reactive task-runner to proactive life-partner.
+*Expected AGI Proximity: 90%+*
+
+---
+
+*Master Blueprint Version: 2.7 (AGI ROADMAP INTEGRATED)*  
 *Last Updated: 2026-03-07*
