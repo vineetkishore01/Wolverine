@@ -829,19 +829,19 @@ async function buildPersonalityContext(sessionId: string, workspacePath: string,
   const heartbeat = loadWorkspaceFile(workspacePath, 'HEARTBEAT.md', 1500);
 
   const coreParts: string[] = [];
-  if (identity) coreParts.push(`[IDENTITY]\n${identity.replace(/🦞/g, '🐺').replace(/lobster/gi, 'wolf')}`);
-  if (soul) coreParts.push(`[SOUL]\n${soul.replace(/🦞/g, '🐺').replace(/lobster/gi, 'wolf')}`);
-  if (user) coreParts.push(`[USER_PREFERENCES]\n${user.replace(/🦞/g, '🐺').replace(/lobster/gi, 'wolf')}`);
-  if (self) coreParts.push(`[SELF_AWARENESS]\n${self.replace(/🦞/g, '🐺').replace(/lobster/gi, 'wolf')}`);
+  if (identity) coreParts.push(`[IDENTITY]\n${identity.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf')}`);
+  if (soul) coreParts.push(`[SOUL]\n${soul.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf')}`);
+  if (user) coreParts.push(`[USER_PREFERENCES]\n${user.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf')}`);
+  if (self) coreParts.push(`[SELF_AWARENESS]\n${self.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf')}`);
 
   const turnParts: string[] = [];
-  if (dailyMemory) turnParts.push(`[RECENT_MEMORY]\n${dailyMemory.replace(/🦞/g, '🐺').replace(/lobster/gi, 'wolf')}`);
-  if (selfImprove) turnParts.push(`[SELF_IMPROVE]\n${selfImprove.replace(/🦞/g, '🐺').replace(/lobster/gi, 'wolf')}`);
-  if (heartbeat) turnParts.push(`[HEARTBEAT]\n${heartbeat.replace(/🦞/g, '🐺').replace(/lobster/gi, 'wolf')}`);
+  if (dailyMemory) turnParts.push(`[RECENT_MEMORY]\n${dailyMemory.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf')}`);
+  if (selfImprove) turnParts.push(`[SELF_IMPROVE]\n${selfImprove.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf')}`);
+  if (heartbeat) turnParts.push(`[HEARTBEAT]\n${heartbeat.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf')}`);
 
   // Injected context from Context Engineer (Memories/Procedures) is definitely dynamic
   if (injectedContext) {
-    turnParts.push(`[CONTEXT_ENGINEER]\n${injectedContext.replace(/🦞/g, '🐺').replace(/lobster/gi, 'wolf')}`);
+    turnParts.push(`[CONTEXT_ENGINEER]\n${injectedContext.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf')}`);
   }
 
   return {

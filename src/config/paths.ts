@@ -13,7 +13,7 @@ import fs from 'fs';
  */
 const DATA_HOME = process.env.WOLVERINE_HOME
     || process.env.WOLVERINE_DATA_DIR
-    || process.env.SMALLCLAW_DATA_DIR
+    || process.env.Wolverine_DATA_DIR
     || path.join(os.homedir(), '.wolverine');
 
 /** Resolve any sub-path under the data home. Creates parent dirs if needed. */
@@ -48,7 +48,7 @@ export const PATHS = {
 
 /** One-time migration: copy data from ~/.wolverine/ to ~/.wolverine/ */
 export function migrateLegacyDataHome(): void {
-    const legacy = path.join(os.homedir(), '.smallclaw');
+    const legacy = path.join(os.homedir(), '.Wolverine');
     const target = DATA_HOME;
 
     if (!fs.existsSync(legacy) || legacy === target) return;

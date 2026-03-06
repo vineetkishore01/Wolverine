@@ -24,10 +24,10 @@ function migrateLegacyDir(legacyDir: string, targetDir: string): void {
 }
 
 function migrateLegacyData(): void {
-  const projectLegacy = path.join(__dirname, '..', '..', '.smallclaw');
+  const projectLegacy = path.join(__dirname, '..', '..', '.Wolverine');
   const homeTarget = PATHS.dataHome();
 
-  if (process.env.WOLVERINE_HOME || process.env.SMALLCLAW_HOME) return;
+  if (process.env.WOLVERINE_HOME || process.env.Wolverine_HOME) return;
 
   // Codebase-to-User migration: If legacy data exists in the repository root, 
   // move it to the user's home directory to ensure the codebase remains "virgin".
@@ -45,12 +45,12 @@ migrateLegacyData();
 
 // ── Config & workspace directory resolution ──────────────────────────────────
 // Priority:
-//   1. WOLVERINE_HOME / SMALLCLAW_DATA_DIR env var
+//   1. WOLVERINE_HOME / Wolverine_DATA_DIR env var
 //   2. ~/.wolverine in the user's home directory
 const PROJECT_CONFIG = path.join(__dirname, '..', '..', '.wolverine');
 const HOME_CONFIG = PATHS.dataHome();
 
-const ENV_DATA_DIR = process.env.WOLVERINE_HOME || process.env.WOLVERINE_DATA_DIR || process.env.SMALLCLAW_DATA_DIR;
+const ENV_DATA_DIR = process.env.WOLVERINE_HOME || process.env.WOLVERINE_DATA_DIR || process.env.Wolverine_DATA_DIR;
 
 const CONFIG_DIR =
   ENV_DATA_DIR
