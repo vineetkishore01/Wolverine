@@ -134,7 +134,7 @@ export function estimateTokens(text: string): number {
     }
 
     // Special penalty for non-alphanumeric code blocks
-    if (/[^ \p{L}\p{N}]/.test(match) && len > 1) {
+    if (/[^ \p{L}\p{N}]/u.test(match) && len > 1) {
       // Punctuation clusters like "}});" or "=> {" are often multiple tokens
       total += 0.5;
     }
