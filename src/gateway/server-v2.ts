@@ -19,6 +19,15 @@ import { z } from 'zod';
 import { WebSocketServer, WebSocket } from 'ws';
 import { ToolResult as RegistryToolResult } from '../types.js';
 import {
+  MAX_TOOL_ROUNDS,
+  MAX_CONTINUATION_NUDGES,
+  MAX_TOOL_STDOUT_CHARS,
+  DEFAULT_NUM_CTX,
+  DEFAULT_NUM_PREDICT,
+  SUMMARY_NUM_CTX,
+  SUMMARY_MAX_TOKENS,
+} from '../config/policy';
+import {
   getConfig,
   getAgents,
   getAgentById,
@@ -96,6 +105,7 @@ import {
   type TaskSnapshot as HeartbeatTaskSnapshot,
 } from '../orchestration/multi-agent';
 import { getBrainDB } from '../db/brain';
+import { log } from '../security/log-scrubber';
 import { executeReadDocument } from '../tools/documents';
 import { executeMemoryWrite, executeMemorySearch } from '../tools/memory';
 import { executeProcedureSave, executeProcedureList, executeProcedureGet, executeProcedureRecordResult } from '../tools/procedures';
@@ -156,7 +166,6 @@ const config = getConfig().getConfig();
 const CONFIG_DIR_PATH = getConfig().getConfigDir();
 const PORT = config.gateway.port || 18789;
 const HOST = config.gateway.host || '127.0.0.1';
-const MAX_TOOL_ROUNDS = 20;
 type ExecutionMode = 'interactive' | 'background_task' | 'heartbeat' | 'cron';
 
 function repairLegacyTaskChannelMetadata(): void {
@@ -1077,11 +1086,10 @@ async function executeTool(name: string, args: any, workspacePath: string, sessi
   }
 
   // ── Token Enforcement: Truncate oversized results to stay within context windows ─────────
-  const MAX_TOOL_STDOUT = 48000;
-  if (toolResult && toolResult.result && String(toolResult.result).length > MAX_TOOL_STDOUT) {
+  if (toolResult && toolResult.result && String(toolResult.result).length > MAX_TOOL_STDOUT_CHARS) {
     const origLen = String(toolResult.result).length;
-    toolResult.result = String(toolResult.result).slice(0, MAX_TOOL_STDOUT) +
-      `\n\n...[TRUNCATED ${origLen - MAX_TOOL_STDOUT} characters to stay within safety limits]`;
+    toolResult.result = String(toolResult.result).slice(0, MAX_TOOL_STDOUT_CHARS) +
+      `\n\n...[TRUNCATED ${origLen - MAX_TOOL_STDOUT_CHARS} characters to stay within safety limits]`;
   }
 
   return toolResult;
@@ -1122,10 +1130,12 @@ function logConversation(workspacePath: string, sessionId: string, role: string,
 }
 
 // ─── Thinking Stripper ─────────────────────────────────────────────────────────
+// FIX: Improved to prevent valid content from being stripped as thinking
 
 function separateThinkingFromContent(text: string): { reply: string; thinking: string } {
   if (!text) return { reply: '', thinking: '' };
 
+  // Step 1: Strip explicit think tags (<think>...</think> or <think> without closing)
   let cleaned = text
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .replace(/<think>[\s\S]*/gi, '')
@@ -1134,59 +1144,44 @@ function separateThinkingFromContent(text: string): { reply: string; thinking: s
 
   if (!cleaned) return { reply: '', thinking: text };
 
-  // Fast-path: if the entire output looks like pure reasoning (starts with common
-  // reasoning starters and is very long), treat the whole thing as thinking
-  if (cleaned.length > 500 && /^(Okay|Ok,|Let me|First|Hmm|Wait|The user|I need|I should|So,)/i.test(cleaned)) {
-    // Try to find the last sentence that looks like a real reply
-    const sentences = cleaned.split(/(?<=[.!?])\s+/);
-    let lastUseful: string | undefined;
-    for (let i = sentences.length - 1; i >= 0; i--) {
-      const s = sentences[i];
-      if (s.length > 10 && s.length < 200 && !/\b(the user|I need to|I should|let me|wait,|hmm|the rules|the tools|the instructions)\b/i.test(s)) {
-        lastUseful = s;
-        break;
+  // FIX: Check if cleaned content has actual substance before treating as thinking
+  const hasActionWords = /\b(search|open|go|create|write|read|edit|click|fill|navigate|fetch|get|post|run|execute|build|test|install|start|stop|list|find|check|update|delete|move|copy|send|receive|analyze|compare|summarize|extract|download|upload)\b/i.test(cleaned);
+  const hasToolNames = /\b(web_search|web_fetch|browser_|desktop_|read_file|write_file|create_file|edit_file|run_command|list_files|memory_|scratchpad_)\b/i.test(cleaned);
+  const hasConcreteInfo = /\b(https?:\/\/|www\.|\.(com|org|net|io|dev)|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|\/[a-zA-Z0-9._-]+\/)\b/.test(cleaned);
+  const isShortResponse = cleaned.length < 150;
+
+  // FIX: If content has action words, tool names, or concrete info, keep it as reply
+  if (hasActionWords || hasToolNames || hasConcreteInfo) {
+    return { reply: cleaned, thinking: '' };
+  }
+
+  // FIX: Short responses are likely valid replies, not thinking
+  if (isShortResponse) {
+    return { reply: cleaned, thinking: '' };
+  }
+
+  // Only treat as thinking if it's long AND starts with reasoning patterns
+  const reasoningStarters = /^(Okay|Ok,|Let me|First|Hmm|Wait|The user|I need|I should|So,|Alright|Looking at|Based on|Given that|Since|To do this|I will|I need to)/i;
+  const reasoningPatterns = /\b(the user wants|the user asked|I need to|I should|let me|first, I|to accomplish this|the tools available|the next step is|I will need to|my approach will be)\b/i;
+
+  if (cleaned.length > 300 && reasoningStarters.test(cleaned) && reasoningPatterns.test(cleaned)) {
+    // Try to extract any actual response from the end
+    const paragraphs = cleaned.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+    if (paragraphs.length > 1) {
+      const lastParagraph = paragraphs[paragraphs.length - 1];
+      // If last paragraph is substantive, use it as reply
+      if (lastParagraph.length > 50 && !reasoningPatterns.test(lastParagraph)) {
+        return {
+          reply: lastParagraph,
+          thinking: paragraphs.slice(0, -1).join('\n\n'),
+        };
       }
-    }
-    if (lastUseful) {
-      return { reply: lastUseful.trim(), thinking: cleaned };
     }
     return { reply: '', thinking: cleaned };
   }
 
-  const paragraphs = cleaned.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
-  const reasoningRE = /\b(the user|the tools|the instructions|I need to|I should|let me|the problem|the question|the answer|looking at|first,|second,|wait,|hmm|the response|the correct|the assistant|check the rules|according to|the file|the current|the plan)\b/i;
-  const starterRE = /^(Okay|Ok|Alright|Let me|First|Hmm|So,? |Wait|The user|Looking|I need|I should|Now,? |Since|Given|Based on|Check)/i;
-
-  let lastIdx = -1;
-  for (let i = 0; i < paragraphs.length; i++) {
-    if (reasoningRE.test(paragraphs[i]) || starterRE.test(paragraphs[i])) lastIdx = i;
-  }
-
-  if (lastIdx === -1) return { reply: cleaned, thinking: '' };
-  if (lastIdx >= paragraphs.length - 1) {
-    const last = paragraphs[paragraphs.length - 1];
-    const sentences = last.split(/(?<=[.!?])\s+/);
-    for (let i = sentences.length - 1; i >= 0; i--) {
-      if (!reasoningRE.test(sentences[i]) && sentences[i].length < 200) {
-        return {
-          reply: sentences.slice(i).join(' ').trim(),
-          thinking: [...paragraphs.slice(0, -1), sentences.slice(0, i).join(' ')].join('\n\n').trim(),
-        };
-      }
-    }
-    return { reply: cleaned, thinking: '' };
-  }
-
-  const reply = paragraphs.slice(lastIdx + 1).join('\n\n');
-  const replyChars = reply.replace(/\s/g, '').length;
-  if (replyChars < 10 && cleaned.length > reply.length) {
-    return { reply: cleaned, thinking: '' };
-  }
-
-  return {
-    thinking: paragraphs.slice(0, lastIdx + 1).join('\n\n'),
-    reply,
-  };
+  // Default: treat as valid reply
+  return { reply: cleaned, thinking: '' };
 }
 
 function normalizeForDedup(text: string): string {
@@ -1198,11 +1193,14 @@ function normalizeForDedup(text: string): string {
 
 function isGreetingLikeMessage(text: string): boolean {
   const raw = String(text || '').trim();
-  if (!raw || raw.length > 120) return false;
+  if (!raw || raw.length > 180) return false;
   if (/\b(search|open|read|write|file|code|task|build|fix|debug|run|install|http|www\.|\.com|please|could you|can you)\b/i.test(raw)) {
     return false;
   }
-  return /^(hi|hello|hey|yo|sup|howdy|good (morning|afternoon|evening)|hey claw|hello claw|hi claw|hey wolverine|hello wolverine|hi wolverine|how are you)[!.?\s]*$/i.test(raw);
+  return (
+    /^(hi|hello|hey|yo|sup|howdy|good (morning|afternoon|evening)|hey claw|hello claw|hi claw|hey wolverine|hello wolverine|hi wolverine|how are you)[!.?\s]*$/i.test(raw) ||
+    /\b(who (are you|art thou|r u)|what are you|identify yourself)\b[?.!\s]*$/i.test(raw)
+  );
 }
 
 function sanitizeFinalReply(
@@ -1280,10 +1278,25 @@ function isExecutionLikeRequest(message: string): boolean {
 
 function isBrowserAutomationRequest(message: string): boolean {
   const m = String(message || '');
-  const hasBrowserVerb = /\b(open|go to|navigate|visit|browse|click|type|fill|press|submit|log ?in|login|use my computer)\b/i.test(m);
-  const hasTarget = /(?:https?:\/\/)?(?:www\.)?[a-z0-9][a-z0-9.-]+\.[a-z]{2,}(?:\/\S*)?/i.test(m)
-    || /\b(chatgpt|google|reddit|x\.com|twitter|github|youtube)\b/i.test(m);
-  return hasBrowserVerb && hasTarget;
+  
+  // Browser action verbs - comprehensive list
+  const hasBrowserVerb = /\b(open|go to|navigate|visit|browse|click|type|fill|press|submit|log ?in|login|sign ?in|scroll|download|upload|screenshot|capture|search on|find on|use my computer)\b/i.test(m);
+  
+  // Known sites that require browser (not just web search)
+  const hasBrowserTarget = 
+    /\b(linkedin|github|twitter|x\.com|youtube|instagram|facebook|reddit|gmail|outlook|notion|figma|canva|google docs|google sheets|google drive|dropbox|slack|discord|telegram|whatsapp|medium|substack|news|hn|hacker news)\b/i.test(m)
+    || /(?:https?:\/\/)?(?:www\.)?[a-z0-9][a-z0-9.-]+\.[a-z]{2,}(?:\/\S*)?/i.test(m); // URLs
+  
+  // Authorization patterns (user explicitly allowing automation)
+  // Commands (not questions) are implicitly authorized
+  const hasAuthorization = 
+    /\b(my|the|this|that|it|your)\b/i.test(m)  // Possessive or definite article
+    || m.includes('for me') 
+    || m.includes('please')
+    || m.endsWith('?') === false; // Command, not question
+  
+  // Must have browser verb AND target
+  return hasBrowserVerb && hasBrowserTarget;
 }
 
 function isDesktopAutomationRequest(message: string): boolean {
@@ -1604,6 +1617,14 @@ async function handleChat(
   // Phase 1: Procedural Learning - Start fresh sequence
   getProceduralLearner().startTracking(sessionId, message);
 
+  // REM CYCLE: Record user activity for idle detection
+  try {
+    const { recordUserActivity } = await import('../agent/memory-consolidator');
+    recordUserActivity(sessionId);
+  } catch {
+    // Ignore activity tracking errors - don't break chat
+  }
+
   // Record incoming user message
   const configuredWorkspaceForLog = getConfig().getWorkspacePath();
   if (configuredWorkspaceForLog) {
@@ -1630,9 +1651,20 @@ async function handleChat(
   let preflightRoute: 'primary_direct' | 'primary_with_plan' | 'secondary_chat' | 'background_task' | null = null;
   let preflightReasonForTurn = '';
   let continuationNudges = 0;
-  const MAX_CONTINUATION_NUDGES = 2;
+  let emptyReplyRetried = false;
   const orchestrationSkillEnabled = isOrchestrationSkillEnabled();
   const greetingLikeTurn = isGreetingLikeMessage(message);
+
+  // ── FAST PATH: Simple conversational queries bypass complex orchestration ──
+  // FIX: Prevent over-engineering from blocking simple replies
+  const isSimpleConversation = 
+    greetingLikeTurn || 
+    /\b(how are you|who are you|what can you do|your name|help|introduction|about you|status|alive|there)\b/i.test(message);
+  
+  if (isSimpleConversation && !isBootStartupTurn && executionMode === 'interactive') {
+    console.log(`[v2] FAST PATH: Simple conversational query, skipping orchestration`);
+    // Skip all orchestration, just load context and respond naturally
+  }
 
   // ── Preempt watchdog setup ─────────────────────────────────────────────────
   const rawCfgForPreempt = (getConfig().getConfig() as any);
@@ -2949,7 +2981,7 @@ RULES:
   }
 
   sendSSE('info', { message: 'Thinking...' });
-  console.log(`\n[v2] ── CHAT (native tools) ──`);
+  log.info('[v2] CHAT (native tools)');
 
   // ── AUTO-PLAN: Force scratchpad planning for multi-step tasks ──────────────
   // Small models skip scratchpad planning even when instructed. Force it at code level.
@@ -2978,6 +3010,70 @@ RULES:
       role: 'tool',
       tool_call_id: planCallId,
       content: `Plan saved. Now you MUST use tools to accomplish the goal: "${message.slice(0, 100)}". Call web_search or browser_open RIGHT NOW. Do NOT just describe or summarize — use a tool.`,
+    });
+  }
+
+  // ── BROWSER AUTO: Force browser tool execution for explicit automation requests ──
+  // When user explicitly asks to open/go to a website, inject browser state and force action
+  const browserAutomationRequest = isBrowserAutomationRequest(message);
+  if (browserAutomationRequest && allToolResults.length === 0) {
+    const liveBrowser = getBrowserSessionInfo(sessionId);
+    const explicitUrl = extractLikelyUrl(message);
+    
+    console.log(`[v2] BROWSER AUTO: Detected browser automation request`);
+    sendSSE('info', { message: 'Starting browser automation...' });
+    
+    // Inject browser state context
+    if (liveBrowser.active) {
+      messages.push({
+        role: 'system',
+        content: `BROWSER ALREADY OPEN: ${liveBrowser.url || 'current page'}. Use browser_snapshot to see current elements.`,
+      });
+    }
+    
+    // Force immediate browser action with synthetic tool call
+    const browserActionId = `browser_auto_${Date.now()}`;
+    if (explicitUrl && !liveBrowser.active) {
+      // Need to open URL first
+      messages.push({
+        role: 'assistant',
+        content: null,
+        tool_calls: [{
+          id: browserActionId,
+          type: 'function',
+          function: {
+            name: 'browser_open',
+            arguments: { url: explicitUrl },
+          },
+        }],
+      });
+      console.log(`[v2] BROWSER AUTO: Injecting synthetic browser_open for ${explicitUrl}`);
+    } else if (liveBrowser.active) {
+      // Browser already open, take snapshot
+      messages.push({
+        role: 'assistant',
+        content: null,
+        tool_calls: [{
+          id: browserActionId,
+          type: 'function',
+          function: {
+            name: 'browser_snapshot',
+            arguments: {},
+          },
+        }],
+      });
+      console.log(`[v2] BROWSER AUTO: Injecting synthetic browser_snapshot`);
+    }
+    
+    // Add follow-up nudge
+    const followUpMsg = explicitUrl && !liveBrowser.active
+      ? `URL opened. Now call browser_snapshot to see the page, then continue with browser_click/browser_fill as needed for: "${message.slice(0, 100)}"`
+      : `Snapshot captured. Analyze the page and continue with browser_click/browser_fill to complete: "${message.slice(0, 100)}"`;
+    
+    messages.push({
+      role: 'tool',
+      tool_call_id: browserActionId,
+      content: followUpMsg,
     });
   }
 
@@ -3183,8 +3279,8 @@ RULES:
       const primaryThinkMode: boolean | 'high' | 'medium' | 'low' = (multiAgentActive && !isActiveAutomationOp) ? true : false;
       const activeProvider = (getConfig().getConfig() as any).llm?.provider || 'ollama';
       const providerCfg = (getConfig().getConfig() as any).llm?.providers?.[activeProvider] || {};
-      const configNumCtx = Number(providerCfg.num_ctx || 8192);
-      const configNumPredict = Number(providerCfg.num_predict || 4096);
+      const configNumCtx = Number(providerCfg.num_ctx || DEFAULT_NUM_CTX);
+      const configNumPredict = Number(providerCfg.num_predict || DEFAULT_NUM_PREDICT);
 
       // Loop Detection Correction Nudge
       const lastFewTools = allToolResults.slice(-3);
@@ -3469,13 +3565,31 @@ RULES:
     if (!toolCalls || toolCalls.length === 0) {
       const { reply, thinking: inlineThinking } = separateThinkingFromContent(response.content || '');
       if (inlineThinking) {
-        console.log(`[v2] INLINE REASONING (${inlineThinking.length} chars): ${inlineThinking.slice(0, 100)}...`);
+        log.debug('[v2] INLINE REASONING:', inlineThinking.length, 'chars:', inlineThinking.slice(0, 100), '...');
         allThinking += (allThinking ? '\n\n' : '') + inlineThinking;
         sendSSE('thinking', { thinking: inlineThinking });
       }
 
       const rawAssistantText = String(response.content || '').trim();
       const candidateText = String(reply || rawAssistantText || '').trim();
+
+      // Single retry for empty reply on clearly conversational messages (greetings, "who are you", etc.)
+      if (
+        !candidateText
+        && round === 0
+        && allToolResults.length === 0
+        && !emptyReplyRetried
+        && greetingLikeTurn
+      ) {
+        emptyReplyRetried = true;
+        log.info('[v2] EMPTY-REPLY RETRY: model returned empty for conversational message, nudging for natural reply');
+        messages.push({
+          role: 'user',
+          content: 'Reply naturally and concisely to the user. No tools needed. Just respond in 1-2 sentences.',
+        });
+        continue;
+      }
+
       const isExecutionTurn =
         preflightRoute === 'primary_with_plan'
         || allToolResults.length > 0
@@ -3790,13 +3904,10 @@ RULES:
             try {
               const activeProvider = (getConfig().getConfig() as any).llm?.provider || 'ollama';
               const providerCfg = (getConfig().getConfig() as any).llm?.providers?.[activeProvider] || {};
-              const configNumCtx = Number(providerCfg.num_ctx || 4096);
-              const configNumPredict = Number(providerCfg.num_predict || 2048);
-
               const summaryResponse = await ollama.chat(messages, getModelForRole('manager'), {
                 temperature: 0.25,
-                num_ctx: 4096,
-                max_tokens: 512,
+                num_ctx: SUMMARY_NUM_CTX,
+                max_tokens: SUMMARY_MAX_TOKENS,
                 think: 'low',
               });
               const summaryText = sanitizeFinalReply(
@@ -3815,11 +3926,14 @@ RULES:
             finalText = lastResult.error ? `Tool failed: ${lastResult.result.slice(0, 200)}` : 'Done!';
           }
         } else {
-          // If no tools were called and the reply is empty, try to explain why or provide a fallback
-          if (allThinking && allThinking.length > 50) {
-            finalText = `I've been thinking about this: ${allThinking.slice(0, 300).replace(/<think>/g, '').replace(/<\/think>/g, '').trim()}... \n\nHow should I proceed?`;
+          // If no tools were called and the reply is empty, use a contextual fallback
+          if (allThinking && allThinking.length > 100) {
+            const thinkSnippet = allThinking.slice(0, 280).replace(/<think>/g, '').replace(/<\/think>/g, '').trim();
+            finalText = `I've been considering that. ${thinkSnippet}${thinkSnippet.length >= 250 ? '...' : ''}\n\nHow would you like to proceed?`;
+          } else if (greetingLikeTurn) {
+            finalText = "Hey! I'm Wolverine, your local AI assistant. How can I help you today? 🐺";
           } else {
-            finalText = 'I am ready to help. I analyzed the request but no tools were needed for this turn. What is the next step? 🐺';
+            finalText = "I'm here to help. What would you like to do? 🐺";
           }
         }
       }
@@ -3827,7 +3941,7 @@ RULES:
         finalText = finalText.split(/\n+/)[0].slice(0, 220).trim();
       }
       finalText = sanitizeFinalReply(finalText, { preflightReason: preflightReasonForTurn }) || 'Hey! How can I help?';
-      console.log(`[v2] FINAL: ${finalText.slice(0, 150)}`);
+      log.info('[v2] FINAL:', finalText.slice(0, 150));
 
       logConversation(workspacePath, sessionId, 'ai', finalText, modelOverride || (() => { const c = getConfig().getConfig() as any; const p = c.llm?.provider || 'ollama'; return c.llm?.providers?.[p]?.model || c.models?.primary || 'unknown'; })());
       logToDaily(workspacePath, 'Wolverine', finalText);

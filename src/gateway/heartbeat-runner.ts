@@ -183,6 +183,27 @@ export class HeartbeatRunner {
     };
 
     try {
+      // AGI: Run introspection before deciding on notification
+      let introspection: any = null;
+      try {
+        const { performIntrospection } = await import('../agent/heartbeat-introspection');
+        introspection = await performIntrospection();
+        console.log('[HeartbeatRunner] Introspection complete:', {
+          errors: introspection.learnings.length,
+          improvements: introspection.improvements.length,
+          gaps: introspection.gaps_identified.length
+        });
+
+        if (introspection.improvements.length > 0 || introspection.gaps_identified.length > 0) {
+          this.deps.broadcast?.({
+            type: 'introspection_result',
+            data: introspection
+          });
+        }
+      } catch (introspectionErr) {
+        console.warn('[HeartbeatRunner] Introspection failed:', introspectionErr);
+      }
+
       const result = await this.deps.handleChat(
         prompt,
         sessionId,
@@ -195,47 +216,104 @@ export class HeartbeatRunner {
       );
       const text = String(result?.text || '');
       const isOk = /^\s*HEARTBEAT_OK\s*$/i.test(text);
+
+      // INTELLIGENT REFLECTION: Decide whether to notify user
       if (!isOk && text.trim()) {
+        // Run intelligent reflection to decide on notification
+        const { performIntelligentReflection, formatTelegramNotification } = await import('../agent/intelligent-reflection');
+
+        const reflectionDecision = await performIntelligentReflection({
+          type: 'post_heartbeat',
+          sessionId,
+          message: prompt,
+          introspectionData: introspection ? {
+            learnings: introspection.learnings,
+            improvements: introspection.improvements,
+            gaps_identified: introspection.gaps_identified,
+          } : undefined,
+        });
+
+        // Broadcast result to Web UI always
         this.deps.broadcast?.({
           type: 'heartbeat_result',
           sessionId,
           text: text.slice(0, 8000),
           at: Date.now(),
+          reflectionDecision: {
+            shouldNotify: reflectionDecision.shouldNotify,
+            reason: reflectionDecision.reason,
+            priority: reflectionDecision.priority,
+          },
         });
-        if (this.deps.deliverTelegram) {
-          this.deps.deliverTelegram(`🫀 <b>Heartbeat</b>\n\n${text}`).catch(() => { });
+
+        // Send to Telegram ONLY if reflection decided to notify
+        if (reflectionDecision.shouldNotify && this.deps.deliverTelegram) {
+          const telegramMessage = formatTelegramNotification(reflectionDecision);
+          this.deps.deliverTelegram(telegramMessage).catch(() => { });
+          console.log('[HeartbeatRunner] Notification sent to user via Telegram');
+        } else {
+          console.log('[HeartbeatRunner] Reflection decided no user notification needed');
         }
+
         this.deps.broadcastPulse?.('heartbeat', 'Scout Pulse: Observations reported.');
       } else {
         // No pulse broadcast for HEARTBEAT_OK - be silent as requested.
         console.log('[HeartbeatRunner] System check: OK (Silent)');
       }
+      
+      // REM CYCLE: Run memory consolidation during heartbeat (after user-facing work)
+      // This happens during idle time, so user doesn't experience latency
+      try {
+        const { runREMCycle, isUserIdle } = await import('../agent/memory-consolidator');
+        
+        // Check if user is idle (don't run REM cycle if user is actively chatting)
+        const idleThreshold = 10; // minutes
+        if (isUserIdle(idleThreshold)) {
+          console.log(`[HeartbeatRunner] User idle for ${idleThreshold}+ min, running REM Cycle...`);
+          
+          const remResults = await runREMCycle({
+            stage: 'full',
+            sessionId: `heartbeat_${sessionId}_${Date.now()}`,
+          });
+          
+          // Report REM cycle results
+          if (remResults.length > 0) {
+            const factsExtracted = remResults.find(r => r.stage === 'light_rem')?.facts_extracted?.length || 0;
+            const filesUpdated = remResults.find(r => r.stage === 'deep_rem')?.files_updated?.length || 0;
+            
+            console.log(`[HeartbeatRunner] REM Cycle complete: ${factsExtracted} facts extracted, ${filesUpdated} files updated`);
+            
+            // Notify user if significant discoveries were made
+            if (factsExtracted > 0 && this.deps.deliverTelegram) {
+              const { formatTelegramNotification } = await import('../agent/intelligent-reflection');
+              const notification = {
+                shouldNotify: true,
+                reason: `REM Cycle discovered ${factsExtracted} new insights`,
+                priority: 'significant' as const,
+                event: {
+                  type: 'breakthrough' as const,
+                  timestamp: Date.now(),
+                  summary: `Overnight Learning: ${factsExtracted} insights consolidated`,
+                  description: `Wolverine processed today's conversations and extracted ${factsExtracted} durable facts. ${filesUpdated > 0 ? `Updated ${filesUpdated} workspace files.` : ''}`,
+                  shouldNotify: true,
+                },
+              };
+              
+              const telegramMessage = formatTelegramNotification(notification as any);
+              this.deps.deliverTelegram(telegramMessage).catch(() => { });
+            }
+          }
+        } else {
+          console.log('[HeartbeatRunner] User still active, skipping REM Cycle (will retry next heartbeat)');
+        }
+      } catch (remError: any) {
+        console.warn('[HeartbeatRunner] REM Cycle failed:', remError.message);
+        // Don't fail heartbeat if REM cycle fails - just log and continue
+      }
     } catch (err: any) {
       console.warn('[HeartbeatRunner] Execution failed:', err?.message || err);
     } finally {
       this.running = false;
-
-      // AGI: Run introspection after heartbeat
-      try {
-        const introspection = await performIntrospection();
-        const formatted = formatIntrospectionResult(introspection);
-        console.log('[HeartbeatRunner] Introspection complete:', {
-          errors: introspection.learnings.length,
-          improvements: introspection.improvements.length,
-          gaps: introspection.gaps_identified.length
-        });
-
-        // Log to heartbeat results
-        if (introspection.improvements.length > 0 || introspection.gaps_identified.length > 0) {
-          this.deps.broadcast?.({
-            type: 'introspection_result',
-            data: introspection
-          });
-        }
-      } catch (introspectionErr) {
-        console.warn('[HeartbeatRunner] Introspection failed:', introspectionErr);
-      }
-
       this.schedule();
     }
   }

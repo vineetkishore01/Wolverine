@@ -4595,6 +4595,9 @@
     let agentsConfigList = [];
     let selectedAgentId = '';
     let agentMdEditor = null;
+    // Token usage tracking
+    let sessionTokenCache = new Map(); // sessionId -> {prompt, completion, total, requests}
+    let lastTokenFetch = new Map(); // sessionId -> timestamp
     // (skills cache moved to skillsCache in v2 skills management section)
     let lastHeartbeat = {
       state: 'idle',
@@ -4711,6 +4714,8 @@
         refreshScratchpad();
         refreshMemories();
       }
+      // Fetch token usage for this session
+      fetchTokenUsage(activeChatSessionId);
     }
 
     function persistActiveChat() {
@@ -5972,12 +5977,22 @@
                 break;
 
               case 'token_usage':
-                // Update token display in real-time
-                if (event && event.total_tokens) {
+                // Update token display in real-time (accumulate across turns)
+                if (event && (event.total_tokens || event.prompt_tokens || event.completion_tokens)) {
                   const fmt = (n) => n >= 1000 ? (n/1000).toFixed(1) + 'K' : n;
-                  const tokenEl = document.getElementById('token-stats');
-                  if (tokenEl) {
-                    tokenEl.textContent = `Tokens: ${fmt(event.total_tokens)}`;
+                  const totalTokens = event.total_tokens || (event.prompt_tokens || 0) + (event.completion_tokens || 0);
+                  
+                  // Update token pill in status bar
+                  const tokenPill = document.getElementById('token-stats');
+                  if (tokenPill) {
+                    tokenPill.textContent = `Tokens: ${fmt(totalTokens)}`;
+                    tokenPill.parentElement.title = `Prompt: ${fmt(event.prompt_tokens || 0)} | Completion: ${fmt(event.completion_tokens || 0)} | Total: ${fmt(totalTokens)}`;
+                  }
+                  
+                  // Also update settings token display if open
+                  const tokenStatsEl = document.getElementById('token-stats');
+                  if (tokenStatsEl && tokenStatsEl !== tokenPill) {
+                    tokenStatsEl.textContent = `Tokens: ${fmt(totalTokens)}`;
                   }
                 }
                 break;
@@ -7571,6 +7586,53 @@
       el.style.width = meterWidth(pct);
     }
 
+    async function fetchTokenUsage(sessionId) {
+      if (!sessionId) return;
+      
+      // Check cache (refresh every 5 seconds)
+      const now = Date.now();
+      const lastFetch = lastTokenFetch.get(sessionId) || 0;
+      if (now - lastFetch < 5000) {
+        // Use cached value
+        const cached = sessionTokenCache.get(sessionId);
+        if (cached) {
+          updateTokenDisplay(cached);
+        }
+        return;
+      }
+      
+      try {
+        const tokenData = await api('/api/token-usage?session=' + encodeURIComponent(sessionId));
+        const tokens = {
+          prompt: tokenData?.prompt_tokens || 0,
+          completion: tokenData?.completion_tokens || 0,
+          total: tokenData?.total_tokens || 0,
+          requests: tokenData?.request_count || 0,
+        };
+        sessionTokenCache.set(sessionId, tokens);
+        lastTokenFetch.set(sessionId, now);
+        updateTokenDisplay(tokens);
+      } catch (e) {
+        // Use cached value on error
+        const cached = sessionTokenCache.get(sessionId);
+        if (cached) {
+          updateTokenDisplay(cached);
+        }
+      }
+    }
+
+    function updateTokenDisplay(tokens) {
+      const fmt = (n) => n >= 1000 ? (n/1000).toFixed(1) + 'K' : n;
+      const totalTokens = tokens?.total || 0;
+      
+      // Update token pill in status bar
+      const tokenPill = document.getElementById('token-stats');
+      if (tokenPill) {
+        tokenPill.textContent = `Tokens: ${fmt(totalTokens)}`;
+        tokenPill.parentElement.title = `Prompt: ${fmt(tokens?.prompt || 0)} | Completion: ${fmt(tokens?.completion || 0)} | Total: ${fmt(totalTokens)} | Requests: ${tokens?.requests || 0}`;
+      }
+    }
+
     let systemStatsFetchInFlight = false;
     async function loadSystemStats() {
       if (systemStatsFetchInFlight) return;
@@ -7587,10 +7649,13 @@
 
         // Fetch token usage
         try {
-          const tokenData = await api('/api/token-usage?session=' + encodeURIComponent(currentSessionId));
+          const tokenData = await api('/api/token-usage?session=' + encodeURIComponent(activeChatSessionId || 'default'));
           if (tokenData && tokenData.total_tokens > 0) {
             const fmt = (n) => n >= 1000 ? (n/1000).toFixed(1) + 'K' : n;
             setText('token-stats', `Tokens: ${fmt(tokenData.total_tokens)}`);
+            // Also update the token pill in status bar
+            const tokenPill = document.getElementById('token-stats');
+            if (tokenPill) tokenPill.textContent = `Tokens: ${fmt(tokenData.total_tokens)}`;
           } else {
             setText('token-stats', 'Tokens: 0');
           }

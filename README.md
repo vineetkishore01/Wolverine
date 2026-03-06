@@ -1,88 +1,94 @@
 # 🐺 Project Wolverine
-> **Autonomous AGI Architect for the Silicon Age**
+> **Sovereign AGI for the Silicon Age**
 
-![Wolverine Logo](./screenshots/wolverine_logo.jpg)
+![Wolverine Banner](./screenshots/wolverine_logo.jpg)
 
-Wolverine is a sovereign, self-evolving AI agent engineered for **systemic dominance** on local hardware. It transcends the limitations of traditional "chatbots" by implementing a sophisticated **Neural Engine** and **Hierarchical Memory Architecture**, enabling high-precision autonomy and recursive self-improvement.
+Wolverine is a private, local-first AI agent engineered for **architectural dominance**. Unlike generic chatbots, Wolverine is designed as a recursive intelligence system that compensates for small-model constraints (4GB VRAM) through sophisticated memory layering, autonomous de-noising, and a proactive "Self-Evolution" protocol.
 
 ---
 
-## 🏗️ Cognitive Architecture
+## 🏗️ Neural Architecture: The 2070 Protocol
 
-Wolverine's intelligence is built on a structured multi-layer system designed to compensate for model limitations through architectural excellence.
+Wolverine’s intelligence is structured across four cognitive layers to ensure long-term stability and high-signal autonomy.
 
 | Layer | Component | Function | Status |
 | :--- | :--- | :--- | :--- |
-| **L1: Neural Engine** | `AGIController` | Central nervous system; intent routing & introspection. | ✅ Active |
-| **L2: Memory** | `HMS` (5-Layer) | Hierarchical context: System, Session, Working, Semantic, Episodic. | ✅ Active |
-| **L3: Evolution** | `ProceduralLearning` | Automatic workflow synthesis and failure-pattern avoidance. | ✅ Active |
-| **L4: Agency** | `Orchestrator` | Tool usage, recursive sub-agent spawning, and tool invention. | ⚡ Evolving |
+| **L1: Neural Engine** | `AGIController` | The central nervous system; intent routing and focus management. | ✅ **Active** |
+| **L2: REM Cycle** | `MemoryConsolidator` | **The Sleep Phase.** Autonomous de-noising and fact extraction during idle time. | 🆕 **New** |
+| **L3: HMS Memory** | `HierarchicalMemory` | 5-layer context stack: System, Session, Working, Semantic, and Episodic. | ✅ **Active** |
+| **L4: Agency** | `Orchestrator` | Proactive tool selection, browser bridge, and recursive logic. | ✅ **Active** |
 
 ---
 
-## 🚀 Key Capabilities
+## 🚀 Key Innovations
 
-### 🧠 Recursive Intelligence & Learning
-- **Procedural Synthesis**: Wolverine identifies successful tool sequences and saves them as reusable "Procedures," effectively teaching itself new skills.
-- **Negative Learning**: Every failure is meta-analyzed. Wolverine learns what *not* to do, ensuring error patterns are identified and avoided in future turns.
-- **Self-Reflection**: Post-task meta-cognition allows the agent to critique its own performance and optimize its logic for the next mission.
+### 🧠 Autonomous Evolution (The REM Cycle)
+Biological systems clean their memory during sleep; Wolverine does the same. During idle periods (Heartbeats), Wolverine initiates a **REM Cycle**:
+- **NREM (De-noising)**: Strips 60-80% of transient conversation noise (tool outputs, duplicate reasoning).
+- **Light REM (Extraction)**: Uses the LLM to extract durable facts, user preferences, and lessons learned with confidence scoring.
+- **Deep REM (Consolidation)**: Automatically updates your `USER.md`, `SOUL.md`, and `SELF.md` files, ensuring the agent grows wiser every time you step away.
 
-### 🛠️ Hardware-Native Autonomy
-Engineered to run on **4GB VRAM** local hardware, Wolverine makes "Small Models" perform like heavyweights through:
-- **Prefix Caching**: KV-cache optimization for instant context recall.
-- **Context Engineering**: Dynamic prompt assembly that fits complex tool results into small context windows.
-- **Agentic Search**: A surgical search hierarchy (Glob → Grep → Read) that explores massive codebases with minimal token waste.
+### 🛡️ Sovereign Security & Vaulting
+Wolverine implements a "Zero-Trust" local architecture for your sensitive data:
+- **AES-256-GCM Vault**: All API keys, bot tokens, and credentials live in an encrypted hardware vault (`.wolverine/vault/`).
+- **Log Scrubber Pipeline**: A unified security layer that automatically redacts PII, tokens, and secrets from all console logs and Web UI responses.
+- **Auth-Gated Gateway**: Every internal endpoint (even local ones) requires an authorized Bearer token to execute.
 
-### 📡 Multi-Channel Connectivity (Master-Only)
-- **Telegram AGI**: Control your local server via a secure, master-only Telegram bot.
-- **MCP Integration**: Native support for the Model Context Protocol to expand capabilities instantly.
-- **Docker-Sovereign**: Fully containerized deployment with unified persistence.
+### 🌐 Advanced Browser & Desktop Agency
+- **PinchTab Bridge**: Proactive browser automation that detects intent (e.g., "Check my LinkedIn") and auto-injects required tools without asking for permission.
+- **Natural Discovery**: Navigate the web using text-based element discovery. No more fragile CSS selectors; Wolverine finds buttons by reading them.
+- **Desktop Sovereign**: Direct, authenticated control over your OS environment and file system.
+
+### ⚡ Neural Optimization (4GB Target)
+- **Fast Path Intelligence**: Bypasses complex orchestration for simple queries, providing instant responses for greetings and status checks.
+- **Intelligent Reflection**: The agent analyzes its own performance and makes a **Binary Decision (YES/NO)** on whether to notify you. You only receive alerts for significant breakthroughs or failures.
 
 ---
 
-## 📊 Deployment & Hardware Specs
+## 📁 Sovereign Workspace Structure
 
-Wolverine is built for the "Everyman's AGI"—high performance on consumer hardware.
+Wolverine maintains a "Virgin Repo" state. All intelligence and personality live strictly in your workspace, decoupled from the source code:
 
-| Tier | Target Hardware | Engine Mode | Scope |
+- `SOUL.md`: Personality directives, emotional tone, and core identity.
+- `USER.md`: Your preferences, verified secrets, and permission levels.
+- `SELF.md`: The agent's awareness of its own source code, state, and active projects.
+- `HEARTBEAT.md`: Scheduled autonomous missions for background execution.
+- `memory/`: Daily logs processed by the REM Cycle for long-term continuity.
+
+---
+
+## 📊 Hardware Engine Tiers
+
+| Tier | Resources | Engine Mode | Capability |
 | :--- | :--- | :--- | :--- |
-| **Sovereign** | **4GB GPU** | Neural Phase 1 | Single-task, self-correction, local file-ops. |
-| **Architect** | **8GB GPU** | Neural Phase 2 | Multi-task, sub-agent spawning, browser automation. |
-| **Overlord** | **16GB+ GPU** | Neural Phase 3 | Full AGI, tool invention, world-model simulation. |
+| **Sovereign** | **4GB GPU** | Phase 1 | Single-task focus, REM consolidation, local-first logic. |
+| **Architect** | **8GB GPU** | Phase 2 | Multi-tasking, browser element discovery, skill creation. |
+| **Overlord** | **16GB+ GPU** | Phase 3 | Full AGI simulation, tool invention, curiosity engines. |
 
 ---
 
-## 🛠️ Setup & Strategy
+## 🛠️ Quick Start (Universal)
 
-### 1. Unified Environment
-Wolverine utilizes a sovereign data strategy. All persistent data is isolated from the codebase to ensure a "Virgin Repo" state.
+Wolverine provides optimized launchers for all operating systems.
 
+### **macOS / Linux**
 ```bash
-# Clone the architect
-git clone https://github.com/vineetkishore01/Wolverine.git
-cd Wolverine
-
-# Build the Neural Engine
-npm install && npm run build
+git clone https://github.com/vineetkishore01/Wolverine.git && cd Wolverine
+./launch.sh
 ```
 
-### 2. Deployment via Docker
-Wolverine is fully sovereign within its container.
-
-```bash
-# Start the engine
-docker-compose up -d
+### **Windows**
+```cmd
+git clone https://github.com/vineetkishore01/Wolverine.git && cd Wolverine
+launch.bat
 ```
 
----
-
-## 📜 Roadmap & Philosophy
-
-Wolverine is not just software; it is an evolving entity. Our mission is to bridge the gap between "Large Model" reasoning and "Local Model" execution.
-
-> **"Architecture is the true intelligence. When the model forgets, the system remembers. When the model fails, the system learns."**
-
-Explore the full roadmap in [WOLVERINE_BLUEPRINT.md](./WOLVERINE_BLUEPRINT.md).
+*The launcher will automatically install dependencies, build the Neural Engine, and start the Gateway.*
 
 ---
-© 2026 Project Wolverine. Designed for Dominance.
+
+## 🎯 Implementation Roadmap
+See [WOLVERINE_BLUEPRINT.md](./WOLVERINE_BLUEPRINT.md) for the full 2026 evolution path.
+
+---
+© 2026 Project Wolverine. **Designed for Dominance.**
