@@ -1097,6 +1097,30 @@ function logToolCall(workspacePath: string, toolName: string, args: any, result:
   } catch { }
 }
 
+// ─── AI Conversation Logger ───────────────────────────────────────────────────
+
+function logConversation(workspacePath: string, sessionId: string, role: string, content: string, model?: string) {
+  try {
+    const logDir = path.join(workspacePath, 'logs', 'conversations');
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+
+    const today = new Date().toISOString().split('T')[0];
+    const logPath = path.join(logDir, `${today}_${sessionId}.jsonl`);
+
+    const entry = JSON.stringify({
+      timestamp: new Date().toISOString(),
+      role,
+      model: model || 'default',
+      sessionId,
+      content
+    }) + '\n';
+
+    fs.appendFileSync(logPath, entry);
+  } catch (err) {
+    console.warn('[Logger] Failed to record conversation turn:', err);
+  }
+}
+
 // ─── Thinking Stripper ─────────────────────────────────────────────────────────
 
 function separateThinkingFromContent(text: string): { reply: string; thinking: string } {
@@ -1579,6 +1603,12 @@ async function handleChat(
 ): Promise<HandleChatResult> {
   // Phase 1: Procedural Learning - Start fresh sequence
   getProceduralLearner().startTracking(sessionId, message);
+
+  // Record incoming user message
+  const configuredWorkspaceForLog = getConfig().getWorkspacePath();
+  if (configuredWorkspaceForLog) {
+    logConversation(configuredWorkspaceForLog, sessionId, 'user', message, modelOverride);
+  }
 
   let currentRound = 0;
   const ollama = getOllamaClient();
@@ -3799,6 +3829,7 @@ RULES:
       finalText = sanitizeFinalReply(finalText, { preflightReason: preflightReasonForTurn }) || 'Hey! How can I help?';
       console.log(`[v2] FINAL: ${finalText.slice(0, 150)}`);
 
+      logConversation(workspacePath, sessionId, 'ai', finalText, modelOverride || (() => { const c = getConfig().getConfig() as any; const p = c.llm?.provider || 'ollama'; return c.llm?.providers?.[p]?.model || c.models?.primary || 'unknown'; })());
       logToDaily(workspacePath, 'Wolverine', finalText);
       if (fileOpV2Active) {
         maybeSaveFileOpCheckpoint({

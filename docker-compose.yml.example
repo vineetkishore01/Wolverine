@@ -2,33 +2,29 @@ version: '3.8'
 
 services:
   wolverine:
-    image: node:20-slim
-    container_name: wolverine-server
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: wolverine-agi
     ports:
       - "18789:18789"
     volumes:
-      - ./config:/app/config
-      - ./workspace:/app/workspace
-      - ./logs:/app/logs
-      - ./.wolverine:/root/.wolverine
-      - ./WolverineData:/root/WolverineData
+      # Unified folder structure for persistence
+      - ./wolverine/config:/app/config
+      - ./wolverine/workspace:/app/workspace
+      - ./wolverine/logs:/app/logs
+      - ./wolverine/.wolverine:/root/.wolverine
+      - ./wolverine/WolverineData:/root/WolverineData
     environment:
       - NODE_ENV=production
       - PORT=18789
-      - WOLVERINE_HOME=/root/.wolverine
-      - WOLVERINE_WORKSPACE_DIR=/root/WolverineData/workspace
       - OLLAMA_HOST=http://host.docker.internal:11434
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
-    # If using local GPU or display for desktop tools on Linux:
-    # devices:
-    #   - /dev/dri:/dev/dri
-    #   - /dev/input:/dev/input
+    networks:
+      - wolverine-network
 
 networks:
-  default:
-    name: wolverine-network
+  wolverine-network:
+    driver: bridge
