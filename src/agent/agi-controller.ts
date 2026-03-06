@@ -6,13 +6,11 @@
  * - Phase 4: MCP Auto-Learn  
  * - Phase 5: Skill Builder
  * - Phase 6: True Self-Awareness
- * 
- * Architecture designed to scale:
- * - 4GB GPU: Basic features
- * - 8GB+: AI-assisted features
- * - 16GB+: Full meta-cognition
  */
 
+import fs from 'fs';
+import path from 'path';
+import { getBrainDB } from '../db/brain';
 import {
   scanAllCapabilities,
   formatCapabilitiesForLLM
@@ -183,6 +181,11 @@ export class WolverineAGIController {
 
     // Phase 6: Self-Awareness / Introspection
     const introspection = [
+      'who are you',
+      'who am i talking to',
+      'identify yourself',
+      'your name',
+      'what are you',
       'what can you do',
       'your capabilities',
       'your limits',
@@ -199,10 +202,19 @@ export class WolverineAGIController {
       };
     }
 
+    // Phase 7: Startup Summary Shortcut
+    if (lower.includes('boot startup summary')) {
+      return {
+        type: 'introspection',
+        message: 'Startup summary requested. Synthesizing session memories...',
+        confidence: 1.0
+      };
+    }
+
     // Phase 1.5: Agentic Search Detection
     if (/\b(find|search|where|look for|grep|glob|locate)\b/i.test(lower)) {
       return {
-        type: 'none', // Continue to general chat but with search hints
+        type: 'none',
         confidence: 0.8,
         message: 'Search intent detected. Pivoting to glob -> grep hierarchy.'
       };
@@ -220,8 +232,8 @@ export class WolverineAGIController {
   }
 
   /**
-   * Generate response for MCP request
-   */
+ * Generate response for MCP request
+ */
   generateMCPResponse(detected: string[]): string {
     const request = generateMCPConfigRequest(detected);
     return request.message;
@@ -265,6 +277,61 @@ ${formatSkillTemplates()}
   }
 
   /**
+   * Handle Startup Summary / Onboarding
+   */
+  async handleStartupSummary(workspacePath: string): Promise<string> {
+    const userFile = path.join(workspacePath, 'USER.md');
+    let isFirstTime = true;
+    let userName = '';
+
+    if (fs.existsSync(userFile)) {
+      const content = fs.readFileSync(userFile, 'utf-8');
+      const nameMatch = content.match(/Name:\s*([^\r\n*]+)/i);
+      if (nameMatch && nameMatch[1] && !nameMatch[1].includes('update me')) {
+        isFirstTime = false;
+        userName = nameMatch[1].trim();
+      }
+    }
+
+    if (isFirstTime) {
+      return `
+# 🐺 Wolverine Status: ONLINE
+
+*Internal systems are stabilizing. Byte-buffers are flushing. The silicon is breathing.*
+
+Hello. I am **Wolverine**. I've just been initialized in your local environment. My neural engine is currently scanning your workspace and synchronizing with your system context.
+
+To begin our partnership, I need to know who I am serving. **What is your name?** And what is our primary objective for this session?
+`.trim();
+    }
+
+    // Normal synthesis
+    const memoryDir = path.join(workspacePath, 'memory');
+    let recentContext = '';
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const todayFile = path.join(memoryDir, `${today}.md`);
+      if (fs.existsSync(todayFile)) {
+        recentContext = fs.readFileSync(todayFile, 'utf-8').slice(-2000);
+      }
+    } catch { }
+
+    return `
+# 🐺 Wolverine Status: READY
+
+Welcome back, **${userName}**. My neural engine is hot and ready for instructions.
+
+## System Readiness
+- **Core Engine:** ONLINE
+- **Self-Awareness:** STABLE
+- **Context Persistence:** SYNCED (${recentContext ? 'Recent Memories Active' : 'Fresh Session'})
+- **Peripheral Tools:** READY (Shell, Browser, Desktop, OCR)
+
+How shall we proceed with the mission today?
+`.trim();
+  }
+
+  /**
    * Handle introspection question
    */
   async handleIntrospection(): Promise<string> {
@@ -290,16 +357,12 @@ ${formatSkillTemplates()}
   /**
    * Create skill
    */
-  async createSkill(skillSpec: ReturnType<typeof parseSkillCreationResponse>): Promise<string> {
-    if (!skillSpec) {
-      return 'Could not parse skill specification. Please provide more details.';
-    }
-
+  async createSkill(skillSpec: any): Promise<string> {
+    if (!skillSpec) return 'Could not parse skill specification.';
     const result = writeSkill(skillSpec);
     if (result.success) {
       return `Skill "${skillSpec.name}" created successfully at ${result.path}!`;
     }
-
     return `Failed to create skill: ${result.error}`;
   }
 
@@ -323,20 +386,11 @@ ${formatSkillTemplates()}
    */
   async getAGIContext(): Promise<string> {
     const parts: string[] = [];
-
-    // Capabilities
     const caps = await scanAllCapabilities();
     parts.push(formatCapabilitiesForLLM(caps));
-
-    // MCP Servers
     parts.push('\n' + formatKnownMCPServers());
-
-    // Skill Templates
     parts.push('\n' + formatSkillTemplates());
-
-    // Limitations (self-awareness)
     parts.push('\n' + generateLimitationReport());
-
     return parts.join('\n');
   }
 }
@@ -351,19 +405,14 @@ export function getAGIController(): WolverineAGIController {
   return controller;
 }
 
-// Re-export all AGI functions
+// Re-exports
 export {
-  // Phase 2
   scanAllCapabilities,
   formatCapabilitiesForLLM,
   selfQuery,
   canDo,
-
-  // Phase 1
   performIntrospection,
   formatIntrospectionResult,
-
-  // Phase 4
   detectMCPRequest,
   generateMCPConfigRequest,
   parseEnvVarsFromMessage,
@@ -371,16 +420,12 @@ export {
   isMCPConfigured,
   formatKnownMCPServers,
   KNOWN_MCP_SERVERS,
-
-  // Phase 5
   detectSkillRequest,
   generateSkillCreationPrompt,
   parseSkillCreationResponse,
   writeSkill,
   SKILL_TEMPLATES,
   formatSkillTemplates,
-
-  // Phase 6
   analyzeCapabilities,
   generateLimitationReport,
   selfDiagnostic,

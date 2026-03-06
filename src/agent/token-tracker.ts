@@ -105,12 +105,42 @@ class InMemoryTracker {
 const memoryTracker = new InMemoryTracker();
 
 /**
- * Estimate token count from text (word-based estimation)
+ * Accurate token estimation (BPE-inspired)
+ * Refined to match OpenRouter/OpenAI patterns.
  */
 export function estimateTokens(text: string): number {
   if (!text || typeof text !== 'string') return 0;
-  const words = text.split(/\s+/).filter(w => w.length > 0);
-  return Math.ceil(words.length * 1.3); // ~1.3 tokens per word average
+
+  // Regex to split similar to GPT-4o / Llama-3 tokenizers:
+  // - apostrophes ('s, 't, etc.)
+  // - words (letters)
+  // - numbers
+  // - sequences of characters (punctuation/code)
+  // - whitespace
+  const tokenRegex = /'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+/gu;
+  const matches = text.match(tokenRegex);
+  if (!matches) return 0;
+
+  let total = 0;
+  for (const match of matches) {
+    total++; // Base: each segment is at least 1 token
+
+    // BPE Penalty for long segments:
+    // Common in code or very long words
+    const len = match.length;
+    if (len > 4) {
+      // Every additional 4 characters is roughly another token
+      total += Math.floor((len - 1) / 4);
+    }
+
+    // Special penalty for non-alphanumeric code blocks
+    if (/[^ \p{L}\p{N}]/.test(match) && len > 1) {
+      // Punctuation clusters like "}});" or "=> {" are often multiple tokens
+      total += 0.5;
+    }
+  }
+
+  return Math.ceil(total);
 }
 
 /**

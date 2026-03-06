@@ -829,19 +829,19 @@ async function buildPersonalityContext(sessionId: string, workspacePath: string,
   const heartbeat = loadWorkspaceFile(workspacePath, 'HEARTBEAT.md', 1500);
 
   const coreParts: string[] = [];
-  if (identity) coreParts.push(`[IDENTITY]\n${identity.replace(/🦞/g, '🐺')}`);
-  if (soul) coreParts.push(`[SOUL]\n${soul.replace(/🦞/g, '🐺')}`);
-  if (user) coreParts.push(`[USER_PREFERENCES]\n${user.replace(/🦞/g, '🐺')}`);
-  if (self) coreParts.push(`[SELF_AWARENESS]\n${self.replace(/🦞/g, '🐺')}`);
+  if (identity) coreParts.push(`[IDENTITY]\n${identity.replace(/🦞/g, '🐺').replace(/lobster/gi, 'wolf')}`);
+  if (soul) coreParts.push(`[SOUL]\n${soul.replace(/🦞/g, '🐺').replace(/lobster/gi, 'wolf')}`);
+  if (user) coreParts.push(`[USER_PREFERENCES]\n${user.replace(/🦞/g, '🐺').replace(/lobster/gi, 'wolf')}`);
+  if (self) coreParts.push(`[SELF_AWARENESS]\n${self.replace(/🦞/g, '🐺').replace(/lobster/gi, 'wolf')}`);
 
   const turnParts: string[] = [];
-  if (dailyMemory) turnParts.push(`[RECENT_MEMORY]\n${dailyMemory.replace(/🦞/g, '🐺')}`);
-  if (selfImprove) turnParts.push(`[SELF_IMPROVE]\n${selfImprove.replace(/🦞/g, '🐺')}`);
-  if (heartbeat) turnParts.push(`[HEARTBEAT]\n${heartbeat.replace(/🦞/g, '🐺')}`);
+  if (dailyMemory) turnParts.push(`[RECENT_MEMORY]\n${dailyMemory.replace(/🦞/g, '🐺').replace(/lobster/gi, 'wolf')}`);
+  if (selfImprove) turnParts.push(`[SELF_IMPROVE]\n${selfImprove.replace(/🦞/g, '🐺').replace(/lobster/gi, 'wolf')}`);
+  if (heartbeat) turnParts.push(`[HEARTBEAT]\n${heartbeat.replace(/🦞/g, '🐺').replace(/lobster/gi, 'wolf')}`);
 
   // Injected context from Context Engineer (Memories/Procedures) is definitely dynamic
   if (injectedContext) {
-    turnParts.push(`[CONTEXT_ENGINEER]\n${injectedContext.replace(/🦞/g, '🐺')}`);
+    turnParts.push(`[CONTEXT_ENGINEER]\n${injectedContext.replace(/🦞/g, '🐺').replace(/lobster/gi, 'wolf')}`);
   }
 
   return {
@@ -1577,6 +1577,10 @@ async function handleChat(
   modelOverride?: string,
   executionMode: ExecutionMode = 'interactive'
 ): Promise<HandleChatResult> {
+  // Phase 1: Procedural Learning - Start fresh sequence
+  getProceduralLearner().startTracking(sessionId, message);
+
+  let currentRound = 0;
   const ollama = getOllamaClient();
   const isBootStartupTurn = /\bBOOT\.md\b/i.test(String(callerContext || ''));
   const bootAllowedTools = new Set(['list_files', 'read_file']);
@@ -3781,7 +3785,12 @@ RULES:
             finalText = lastResult.error ? `Tool failed: ${lastResult.result.slice(0, 200)}` : 'Done!';
           }
         } else {
-          finalText = 'Hey! How can I help?';
+          // If no tools were called and the reply is empty, try to explain why or provide a fallback
+          if (allThinking && allThinking.length > 50) {
+            finalText = `I've been thinking about this: ${allThinking.slice(0, 300).replace(/<think>/g, '').replace(/<\/think>/g, '').trim()}... \n\nHow should I proceed?`;
+          } else {
+            finalText = 'I am ready to help. I analyzed the request but no tools were needed for this turn. What is the next step? 🐺';
+          }
         }
       }
       if (greetingLikeTurn && finalText.length > 220) {
@@ -3802,7 +3811,7 @@ RULES:
       // Phase 1: Procedural Learning & Reflection
       const taskSuccess = allToolResults.length > 0 && !allToolResults.some((r: any) => r.error);
       try {
-        await getProceduralLearner().completeTask(taskSuccess);
+        await getProceduralLearner().completeTask(sessionId, taskSuccess);
 
         // NEW: Self-Reflection Engine
         const toolHistory = allToolResults.map((tr: any) => ({
@@ -4290,7 +4299,7 @@ RULES:
       // Phase 1: Procedural Learning - record tool execution
       try {
         const learner = getProceduralLearner();
-        learner.recordTool(toolName, toolArgs, !toolResult.error);
+        learner.recordTool(sessionId, toolName, toolArgs, !toolResult.error);
 
         // NEW: Dynamic Error Learning
         if (toolResult.error) {
@@ -4944,7 +4953,8 @@ app.post('/api/chat', async (req, res) => {
       addMessage(sessionId, userMsg, { disableMemoryFlushCheck: true, disableCompactionCheck: true });
     }
 
-    console.log(`\n[v2] USER: ${message.slice(0, 100)}`);
+    const sessionWorkspace = getWorkspace(sessionId);
+    const workspacePath = sessionWorkspace || (getConfig().getConfig() as any).workspace?.path || process.cwd();
 
     // NEW: Neural Engine (AGI Controller) Integration
     try {
@@ -4955,7 +4965,13 @@ app.post('/api/chat', async (req, res) => {
 
       if (agiRequest && agiRequest.type !== 'none' && agiRequest.type !== 'plan') {
         let responseText = '';
-        if (agiRequest.type === 'introspection') responseText = await agi.handleIntrospection();
+        if (agiRequest.type === 'introspection') {
+          if (message.toLowerCase().includes('boot startup summary')) {
+            responseText = await agi.handleStartupSummary(workspacePath);
+          } else {
+            responseText = await agi.handleIntrospection();
+          }
+        }
         else if (agiRequest.type === 'self_query') responseText = await agi.handleSelfQuery(message);
         else if (agiRequest.type === 'mcp') responseText = agi.generateMCPResponse(agiRequest.detected || []);
         else if (agiRequest.type === 'skill') responseText = agi.generateSkillResponse(agiRequest.detected || []);

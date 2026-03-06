@@ -178,11 +178,25 @@ export class TelegramChannel {
 
   updateConfig(newConfig: Partial<TelegramConfig>): void {
     const wasEnabled = this.config.enabled;
-    this.config = { ...this.config, ...newConfig };
+    const oldToken = this.config.botToken;
+    const oldUsers = JSON.stringify(this.config.allowedUserIds);
 
-    if (wasEnabled && !this.config.enabled) {
+    // Filter to single user ID as per design requirement (One Wolverine, One Master)
+    if (Array.isArray(newConfig.allowedUserIds) && newConfig.allowedUserIds.length > 1) {
+      newConfig.allowedUserIds = [newConfig.allowedUserIds[0]];
+    }
+
+    this.config = { ...this.config, ...newConfig };
+    const newUsers = JSON.stringify(this.config.allowedUserIds);
+
+    if (wasEnabled && (!this.config.enabled || oldToken !== this.config.botToken || oldUsers !== newUsers)) {
+      console.log('[Telegram] Configuration changed — resetting bot...');
       this.stop();
-    } else if (!wasEnabled && this.config.enabled) {
+      if (this.config.enabled && this.config.botToken) {
+        // Delay slightly to allow the abort controller to fully settle
+        setTimeout(() => this.start(), 1000);
+      }
+    } else if (!wasEnabled && this.config.enabled && this.config.botToken) {
       this.start();
     }
   }
@@ -738,6 +752,7 @@ export class TelegramChannel {
     let accumulatedThinking = '';
     let lastThinkingUpdateMs = 0;
 
+    let isSentThinkingInProgress = false;
     const sendSSE = (type: string, data: any) => {
       events.push({ type, data });
       this.deps.broadcast({ type: 'chat_sse', sessionId, event: type, data });
@@ -745,17 +760,23 @@ export class TelegramChannel {
       if (type === 'thinking' && data?.thinking) {
         accumulatedThinking += data.thinking;
         const now = Date.now();
-        if (now - lastThinkingUpdateMs > 3000) { // throttle Telegram edits to 3s
+        if (now - lastThinkingUpdateMs > 1000) { // throttle Telegram edits to 1s
           lastThinkingUpdateMs = now;
           const preview = accumulatedThinking.length > 500
             ? `🧠 <b>Thinking...</b>\n\n<i>${accumulatedThinking.slice(-500)}</i>`
             : `🧠 <b>Thinking...</b>\n\n<i>${accumulatedThinking}</i>`;
 
-          if (!thinkingMessageId) {
+          if (!thinkingMessageId && !isSentThinkingInProgress) {
+            isSentThinkingInProgress = true;
             this.apiCall('sendMessage', { chat_id: chatId, text: preview, parse_mode: 'HTML' })
-              .then(res => thinkingMessageId = res.message_id)
-              .catch(() => { });
-          } else {
+              .then(res => {
+                thinkingMessageId = res.message_id;
+                isSentThinkingInProgress = false;
+              })
+              .catch(() => {
+                isSentThinkingInProgress = false;
+              });
+          } else if (thinkingMessageId) {
             this.apiCall('editMessageText', { chat_id: chatId, message_id: thinkingMessageId, text: preview, parse_mode: 'HTML' })
               .catch(() => { });
           }
