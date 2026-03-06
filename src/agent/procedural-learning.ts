@@ -1,11 +1,13 @@
 /**
  * Procedural Learning System
  * 
- * Automatically learns from successful tool sequences and saves
+ * Automatically learns from successful AND failed tool sequences and saves
  * them as reusable procedures in BrainDB.
  * 
  * Key insight: Small models benefit from remembering successful
  * patterns rather than figuring out everything from scratch.
+ * 
+ * ENHANCEMENT: Now learns from FAILURES too - tracks what NOT to do
  */
 
 import { getBrainDB } from '../db/brain';
@@ -193,6 +195,86 @@ function analyzeForLearning(sequence: ToolSequence): {
 }
 
 /**
+ * NEW: Analyze failure sequence and extract what NOT to do
+ * This is the "negative learning" - Wolverine learns from mistakes
+ */
+function analyzeForFailureLearning(sequence: ToolSequence): {
+  learnable: boolean;
+  name: string;
+  trigger: string;
+  steps: ProcedureStep[];
+  errorPattern: string;
+  alternativeApproach?: string;
+} | null {
+  // Must have at least one failure
+  const hasFailure = sequence.toolCalls.some(c => !c.success);
+  if (!hasFailure) return null;
+
+  // Find the failing step
+  const failedStepIndex = sequence.toolCalls.findIndex(c => !c.success);
+  const failedStep = sequence.toolCalls[failedStepIndex];
+  
+  // Extract error type from the failure
+  const errorContext = sequence.toolCalls
+    .slice(Math.max(0, failedStepIndex - 1), failedStepIndex + 2)
+    .map(c => c.success ? `OK: ${c.tool}` : `FAIL: ${c.tool}`)
+    .join(' → ');
+
+  // Generate what NOT to do name
+  const name = `avoid_${failedStep.tool}_${sequence.toolCalls.length}steps`;
+  const trigger = sequence.task.toLowerCase().slice(0, 50);
+
+  // Steps showing the failure path
+  const steps: ProcedureStep[] = sequence.toolCalls.map((call, i) => ({
+    order: i + 1,
+    tool: call.tool,
+    args: call.args,
+    description: `Step ${i + 1}: ${call.tool}${call.success ? ' (success)' : ' (FAILED)'}`
+  }));
+
+  return {
+    learnable: true,
+    name,
+    trigger,
+    steps,
+    errorPattern: errorContext,
+    alternativeApproach: `Avoid ${failedStep.tool} in this context. Consider alternative tools or check prerequisites first.`
+  };
+}
+
+/**
+ * NEW: Save failure pattern to memory (not procedures - failures aren't reusable procedures)
+ */
+async function saveFailureToMemory(sequence: ToolSequence, analysis: ReturnType<typeof analyzeForFailureLearning>): Promise<void> {
+  if (!analysis) return;
+
+  try {
+    const brain = getBrainDB();
+    
+    const failedTools = sequence.toolCalls
+      .filter(c => !c.success)
+      .map(c => c.tool)
+      .join(', ');
+
+    const context = sequence.task.slice(0, 100);
+    
+    // Store as a memory with category "failure_pattern"
+    await brain.upsertMemory({
+      key: `failure:${analysis.name}:${Date.now()}`,
+      content: `When trying to "${context}", avoid: ${analysis.errorPattern}. Alternative: ${analysis.alternativeApproach || 'Try different approach'}`,
+      category: 'failure_pattern',
+      importance: 0.8,
+      source: 'system',
+      scope: 'global'
+    });
+
+    console.log(`[ProceduralLearning] Saved failure pattern: ${analysis.name}`);
+  } catch (error) {
+    console.warn('[ProceduralLearning] Failed to save failure pattern:', error);
+  }
+}
+
+/**
  * Procedural Learning Engine
  */
 class ProceduralLearner {
@@ -243,6 +325,14 @@ class ProceduralLearner {
         steps: analysis.steps,
         success: success && sequence.toolCalls.every(c => c.success)
       });
+    }
+
+    // NEW: Also learn from failures
+    if (!success) {
+      const failureAnalysis = analyzeForFailureLearning(sequence);
+      if (failureAnalysis) {
+        await saveFailureToMemory(sequence, failureAnalysis);
+      }
     }
   }
 

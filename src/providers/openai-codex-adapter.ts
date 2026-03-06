@@ -44,10 +44,10 @@ export class OpenAICodexAdapter implements LLMProvider {
     const accountId = tokens?.account_id || '';
 
     const headers: Record<string, string> = {
-      'Content-Type':      'application/json',
-      'Authorization':     `Bearer ${token}`,
-      'OpenAI-Beta':       'responses=experimental',
-      'Accept':            'text/event-stream',
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      'OpenAI-Beta': 'responses=experimental',
+      'Accept': 'text/event-stream',
     };
     if (accountId) {
       headers['chatgpt-account-id'] = accountId;
@@ -201,7 +201,19 @@ export class OpenAICodexAdapter implements LLMProvider {
 
     // Parse SSE stream to extract the completed response
     const result = await this.parseSSEStream(response);
-    return result;
+
+    // Codex doesn't return usage, so we estimate locally
+    const promptChars = JSON.stringify(body).length;
+    const completionChars = (result.message.content || '').length + JSON.stringify(result.message.tool_calls || []).length;
+
+    return {
+      ...result,
+      usage: {
+        prompt_tokens: Math.ceil(promptChars / 4),
+        completion_tokens: Math.ceil(completionChars / 4),
+        total_tokens: Math.ceil((promptChars + completionChars) / 4)
+      }
+    };
   }
 
   private async parseSSEStream(response: Response): Promise<ChatResult> {
@@ -239,10 +251,10 @@ export class OpenAICodexAdapter implements LLMProvider {
             // Tool/function call detected
             if (type === 'response.output_item.added' && event.item?.type === 'function_call') {
               toolCalls.push({
-                id:       event.item.call_id || `call_${Date.now()}`,
-                type:     'function',
+                id: event.item.call_id || `call_${Date.now()}`,
+                type: 'function',
                 function: {
-                  name:      event.item.name || '',
+                  name: event.item.name || '',
                   arguments: '',
                 },
                 _idx: toolCalls.length,
@@ -271,12 +283,12 @@ export class OpenAICodexAdapter implements LLMProvider {
                   // Prefer the complete snapshot over accumulated deltas
                   const existing = toolCalls.find(tc => tc.id === item.call_id);
                   if (existing) {
-                    existing.function.name      = item.name || existing.function.name;
+                    existing.function.name = item.name || existing.function.name;
                     existing.function.arguments = item.arguments || existing.function.arguments;
                   } else {
                     toolCalls.push({
-                      id:       item.call_id || `call_${Date.now()}`,
-                      type:     'function',
+                      id: item.call_id || `call_${Date.now()}`,
+                      type: 'function',
                       function: { name: item.name || '', arguments: item.arguments || '' },
                     });
                   }
@@ -309,7 +321,7 @@ export class OpenAICodexAdapter implements LLMProvider {
     if (options?.system) messages.push({ role: 'system', content: options.system });
     messages.push({ role: 'user', content: prompt });
     const result = await this.chat(messages, model, {
-      max_tokens:  options?.max_tokens,
+      max_tokens: options?.max_tokens,
     });
     return { response: contentToString(result.message.content) };
   }

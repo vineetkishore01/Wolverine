@@ -39,7 +39,6 @@ export class OllamaAdapter implements LLMProvider {
   }
 
   async chat(messages: ChatMessage[], model: string, options?: ChatOptions): Promise<ChatResult> {
-    // Normalize all messages to string content before sending to Ollama.
     const normalizedMessages = messages.map(m => ({
       ...m,
       content: contentToString(m.content),
@@ -63,7 +62,6 @@ export class OllamaAdapter implements LLMProvider {
           stream: false,
         };
 
-        // Handle thinking mode
         if (think !== undefined) {
           const isThinkingEnabled = (options as any)?.thinking_enabled !== false;
           chatRequest.think = isThinkingEnabled ? think : false;
@@ -71,7 +69,15 @@ export class OllamaAdapter implements LLMProvider {
 
         const response: any = await this.client.chat(chatRequest);
         const message = response?.message || { role: 'assistant', content: String(response?.response || '') };
-        return { message, thinking: response?.thinking };
+        
+        // Extract token usage from response (Ollama provides eval_count and prompt_eval_count)
+        const usage = {
+          prompt_tokens: response?.prompt_eval_count || 0,
+          completion_tokens: response?.eval_count || 0,
+          total_tokens: (response?.prompt_eval_count || 0) + (response?.eval_count || 0),
+        };
+        
+        return { message, thinking: response?.thinking, usage };
       } catch (error: any) {
         lastError = error;
         const msg = String(error?.message || error || '');
@@ -79,7 +85,6 @@ export class OllamaAdapter implements LLMProvider {
         const isLastCandidate = idx === thinkCandidates.length - 1;
 
         if (!isLastCandidate) {
-          // Always try the next think candidate on error
           console.warn(`[OllamaAdapter] Chat failed (think=${think}), trying next candidate. Error: ${msg.slice(0, 120)}`);
           continue;
         }
@@ -88,6 +93,75 @@ export class OllamaAdapter implements LLMProvider {
       }
     }
     throw new Error(`Ollama chat failed at ${this.endpoint}: ${lastError?.message || 'Unknown'}`);
+  }
+
+  async streamChat(
+    messages: ChatMessage[],
+    model: string,
+    onToken: (token: { content?: string; thinking?: string }) => void,
+    options?: ChatOptions
+  ): Promise<ChatResult> {
+    const normalizedMessages = messages.map(m => ({
+      ...m,
+      content: contentToString(m.content),
+    }));
+
+    const think = options?.think ?? true;
+    const isThinkingEnabled = (options as any)?.thinking_enabled !== false;
+
+    const chatRequest: any = {
+      model,
+      messages: normalizedMessages as any,
+      tools: options?.tools,
+      options: {
+        temperature: options?.temperature ?? 0.25,
+        top_p: 0.9,
+        num_ctx: options?.num_ctx ?? 4096,
+        num_predict: options?.max_tokens ?? 1024,
+      },
+      stream: true,
+      think: isThinkingEnabled ? think : false,
+    };
+
+    let content = '';
+    let thinking = '';
+    let finalMessage: any = null;
+    let promptEvalCount = 0;
+    let evalCount = 0;
+
+    const response = await this.client.chat(chatRequest);
+    for await (const part of response) {
+      if ((part as any).message) {
+        const pMsg = (part as any).message;
+        if (pMsg.content) {
+          content += pMsg.content;
+          onToken({ content: pMsg.content });
+        }
+        if (pMsg.tool_calls) {
+          if (!finalMessage) finalMessage = { role: 'assistant', content: '', tool_calls: [] };
+          finalMessage.tool_calls.push(...pMsg.tool_calls);
+        }
+      }
+      if ((part as any).thinking) {
+        thinking += (part as any).thinking;
+        onToken({ thinking: (part as any).thinking });
+      }
+      if (part.done) {
+        finalMessage = (part as any).message || finalMessage;
+        promptEvalCount = (part as any).prompt_eval_count || 0;
+        evalCount = (part as any).eval_count || 0;
+      }
+    }
+
+    return {
+      message: finalMessage || { role: 'assistant', content },
+      thinking: thinking || undefined,
+      usage: {
+        prompt_tokens: promptEvalCount,
+        completion_tokens: evalCount,
+        total_tokens: promptEvalCount + evalCount,
+      },
+    };
   }
 
   async generate(prompt: string, model: string, options?: GenerateOptions): Promise<GenerateResult> {
@@ -116,7 +190,15 @@ export class OllamaAdapter implements LLMProvider {
         }
 
         const response: any = await this.client.generate(generateRequest);
-        return { response: response.response, thinking: response.thinking };
+        return { 
+          response: response.response, 
+          thinking: response.thinking,
+          usage: {
+            prompt_tokens: response.prompt_eval_count || 0,
+            completion_tokens: response.eval_count || 0,
+            total_tokens: (response.prompt_eval_count || 0) + (response.eval_count || 0),
+          }
+        };
       } catch (error: any) {
         lastError = error;
         const msg = String(error?.message || error || '');

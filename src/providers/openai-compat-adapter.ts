@@ -128,7 +128,142 @@ export class OpenAICompatAdapter implements LLMProvider {
       content: choice?.message?.content ?? '',
       tool_calls: choice?.message?.tool_calls,
     };
-    return { message };
+
+    // Extract token usage from OpenAI-compatible response
+    const usage = data.usage || {};
+    return {
+      message,
+      usage: {
+        prompt_tokens: usage.prompt_tokens || 0,
+        completion_tokens: usage.completion_tokens || 0,
+        total_tokens: usage.total_tokens || 0,
+      }
+    };
+  }
+
+  async streamChat(
+    messages: ChatMessage[],
+    model: string,
+    onToken: (token: { content?: string; thinking?: string }) => void,
+    options?: ChatOptions
+  ): Promise<ChatResult> {
+    const body: any = {
+      model,
+      messages,
+      temperature: options?.temperature ?? 0.25,
+      max_tokens: options?.max_tokens ?? 1024,
+      stream: true,
+      stream_options: { include_usage: true }, // Standard OpenAI way to get usage in stream
+    };
+    if (Array.isArray(options?.tools) && options!.tools!.length) {
+      body.tools = options!.tools;
+      body.tool_choice = 'auto';
+    }
+
+    const auth = await this.getAuthHeader();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (auth) headers['Authorization'] = auth;
+
+    let baseUrl = this.config.endpoint.replace(/\/$/, '');
+    if (baseUrl.endsWith('/v1')) {
+      baseUrl = baseUrl.slice(0, -3);
+    }
+    const url = `${baseUrl}/v1/chat/completions`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`${this.id} Stream API error ${response.status}: ${text.slice(0, 200)}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('No response body from stream');
+
+    let content = '';
+    let thinking = '';
+    let usage: any = null;
+    let toolCalls: any[] = [];
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed === 'data: [DONE]') continue;
+          if (!trimmed.startsWith('data: ')) continue;
+
+          try {
+            const data = JSON.parse(trimmed.slice(6));
+
+            // Extract usage (OpenAI puts it in the last chunk or a specific chunk if using include_usage)
+            if (data.usage) {
+              usage = data.usage;
+            }
+
+            const delta = data.choices?.[0]?.delta;
+            if (delta) {
+              if (delta.content) {
+                content += delta.content;
+                onToken({ content: delta.content });
+              }
+              // Handle non-standard thinking deltas (DeepSeek/OpenRouter style)
+              if (delta.reasoning_content || delta.thinking) {
+                const thinkText = delta.reasoning_content || delta.thinking;
+                thinking += thinkText;
+                onToken({ thinking: thinkText });
+              }
+              // Accumulate tool calls
+              if (delta.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                  const idx = tc.index;
+                  if (!toolCalls[idx]) {
+                    toolCalls[idx] = {
+                      id: tc.id,
+                      type: 'function',
+                      function: { name: '', arguments: '' }
+                    };
+                  }
+                  if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
+                  if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
+                }
+              }
+            }
+          } catch (e) {
+            // Ignore parse errors for partial chunks
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    return {
+      message: {
+        role: 'assistant',
+        content: content || null,
+        tool_calls: toolCalls.length > 0 ? toolCalls.filter(Boolean) : undefined,
+      },
+      thinking: thinking || undefined,
+      usage: usage ? {
+        prompt_tokens: usage.prompt_tokens || 0,
+        completion_tokens: usage.completion_tokens || 0,
+        total_tokens: usage.total_tokens || 0,
+      } : undefined,
+    };
   }
 
   async generate(prompt: string, model: string, options?: GenerateOptions): Promise<GenerateResult> {
@@ -151,7 +286,15 @@ export class OpenAICompatAdapter implements LLMProvider {
 
     const data = await this.post('/v1/chat/completions', body);
     const content = data.choices?.[0]?.message?.content ?? '';
-    return { response: contentToString(content) };
+    const usage = data.usage || {};
+    return {
+      response: contentToString(content),
+      usage: {
+        prompt_tokens: usage.prompt_tokens || 0,
+        completion_tokens: usage.completion_tokens || 0,
+        total_tokens: usage.total_tokens || 0,
+      }
+    };
   }
 
   async listModels(): Promise<ModelInfo[]> {

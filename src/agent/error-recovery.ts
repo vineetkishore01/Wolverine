@@ -3,7 +3,11 @@
  * 
  * Automatically detects and recovers from common errors
  * without requiring the model to figure it out each time.
+ * 
+ * ENHANCEMENT: Now learns NEW error patterns dynamically!
  */
+
+import { getBrainDB } from '../db/brain';
 
 export interface ErrorPattern {
   pattern: RegExp;
@@ -87,14 +91,24 @@ const ERROR_PATTERNS: ErrorPattern[] = [
 ];
 
 /**
- * Detect error type from message
+ * Detect error type from message - checks both static AND dynamic patterns
+ * Now includes learning capability!
  */
 export function detectError(errorMessage: string): ErrorPattern | null {
+  // First check static patterns
   for (const pattern of ERROR_PATTERNS) {
     if (pattern.pattern.test(errorMessage)) {
       return pattern;
     }
   }
+  
+  // Then check dynamic patterns (learned from past errors)
+  for (const pattern of DYNAMIC_PATTERNS) {
+    if (pattern.pattern.test(errorMessage)) {
+      return pattern;
+    }
+  }
+  
   return null;
 }
 
@@ -224,4 +238,53 @@ const errorStats = new ErrorStats();
 
 export function getErrorStats(): ErrorStats {
   return errorStats;
+}
+
+/**
+ * NEW: Learn new error patterns from failures
+ * This allows Wolverine to expand its error recovery capabilities over time
+ */
+const DYNAMIC_PATTERNS: ErrorPattern[] = [];
+
+export async function learnErrorPattern(
+  errorMessage: string,
+  toolName: string,
+  recoveryThatWorked?: string
+): Promise<void> {
+  // Extract the key error phrase
+  const match = errorMessage.match(/([a-zA-Z][a-zA-Z\s]{3,40})/);
+  if (!match) return;
+  
+  const errorPhrase = match[1].trim();
+  
+  // Check if we already have this pattern
+  if (DYNAMIC_PATTERNS.some(p => p.pattern.test(errorMessage))) {
+    return;
+  }
+  
+  // Create new pattern
+  const newPattern: ErrorPattern = {
+    pattern: new RegExp(errorPhrase, 'i'),
+    recovery: recoveryThatWorked || `Encountered "${errorPhrase}" with ${toolName}. Check tool documentation and try alternative approach.`,
+    retry: false,
+    maxRetries: 1
+  };
+  
+  DYNAMIC_PATTERNS.push(newPattern);
+  
+  // Save to brain for persistence
+  try {
+    const brain = getBrainDB();
+    await brain.upsertMemory({
+      key: `error_pattern:${errorPhrase.toLowerCase().replace(/\s+/g, '_')}`,
+      content: `Error: "${errorPhrase}" when using ${toolName}. Recovery: ${newPattern.recovery}`,
+      category: 'error_pattern',
+      importance: 0.7,
+      source: 'system',
+      scope: 'global'
+    });
+    console.log(`[ErrorRecovery] Learned new pattern: "${errorPhrase}"`);
+  } catch (e) {
+    // Ignore
+  }
 }

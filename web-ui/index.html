@@ -2852,6 +2852,9 @@
       <div class="status-pill stat-compact" id="system-pill">
         <span id="quick-system-stats">CPU --% • RAM --% • GPU --%</span>
       </div>
+      <div class="status-pill stat-compact" id="token-pill" title="Token usage this session" style="cursor:pointer" onclick="openSettings('tokens')">
+        <span id="token-stats">Tokens: --</span>
+      </div>
     </div>
   </header>
 
@@ -5968,6 +5971,17 @@
                 addProcessEntry('error', event.message);
                 break;
 
+              case 'token_usage':
+                // Update token display in real-time
+                if (event && event.total_tokens) {
+                  const fmt = (n) => n >= 1000 ? (n/1000).toFixed(1) + 'K' : n;
+                  const tokenEl = document.getElementById('token-stats');
+                  if (tokenEl) {
+                    tokenEl.textContent = `Tokens: ${fmt(event.total_tokens)}`;
+                  }
+                }
+                break;
+
               case 'done':
                 finalReply = event.reply || '';
                 if (finalReply) partialContent = finalReply;
@@ -7570,6 +7584,19 @@
         const gpuAvailable = !!stats?.gpu?.available;
 
         setText('quick-system-stats', `CPU ${fmtPercent(cpu)} • RAM ${fmtPercent(ram)} • GPU ${gpuAvailable ? fmtPercent(gpu) : '--%'}`);
+
+        // Fetch token usage
+        try {
+          const tokenData = await api('/api/token-usage?session=' + encodeURIComponent(currentSessionId));
+          if (tokenData && tokenData.total_tokens > 0) {
+            const fmt = (n) => n >= 1000 ? (n/1000).toFixed(1) + 'K' : n;
+            setText('token-stats', `Tokens: ${fmt(tokenData.total_tokens)}`);
+          } else {
+            setText('token-stats', 'Tokens: 0');
+          }
+        } catch (e) {
+          setText('token-stats', 'Tokens: --');
+        }
 
         setText('sys-cpu', fmtPercent(cpu));
         setText('sys-ram', fmtPercent(ram));

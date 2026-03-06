@@ -144,8 +144,11 @@ import { detectGpu, logGpuStatus } from './gpu-detector';
 
 // Agent Enhancement System (Phase 1 for 4GB GPU)
 import { getProceduralLearner, formatProcedure } from '../agent/procedural-learning';
+import { reflectOnTask } from '../agent/reflection-engine';
+import { learnErrorPattern } from '../agent/error-recovery';
 import { AGENTIC_SEARCH_PROMPT, PROCEDURAL_LEARNING_PROMPT } from '../agent';
 import { getToolRegistry } from '../tools/registry';
+import { TokenTracker } from '../agent/token-tracker';
 
 // ─── Config ────────────────────────────────────────────────────────────────────
 
@@ -812,59 +815,39 @@ function compressPersonalityFile(content: string, maxChars: number): string {
   return compressed;
 }
 
-async function buildPersonalityContext(sessionId: string, workspacePath: string, injectedContext?: string): Promise<string> {
-  // Dramatically increased limits for high-reasoning models
-  // For standard 8K windows, this total ~6000 chars (~1500 tokens)
-  // This satisfies the "don't truncate soul/identity" requirement
+async function buildPersonalityContext(sessionId: string, workspacePath: string, injectedContext?: string): Promise<{ core: string; turn: string }> {
+  // Static Core: IDENTITY and SOUL
   const identity = loadWorkspaceFile(workspacePath, 'IDENTITY.md', 1000);
-  const dailyMemory = readDailyMemoryContext(workspacePath, 2000);
-
-  // For SOUL - the core of the hyper-intelligence
   const soulRaw = loadWorkspaceFile(workspacePath, 'SOUL.md', 5000);
-  const soul = compressPersonalityFile(soulRaw, 3000); // Only compress if actually massive
-
+  const soul = compressPersonalityFile(soulRaw, 3000);
   const user = loadWorkspaceFile(workspacePath, 'USER.md', 1500);
   const self = loadWorkspaceFile(workspacePath, 'SELF.md', 2500);
 
+  // Dynamic Turn: MEMORY and HEARTBEAT (updates often)
+  const dailyMemory = readDailyMemoryContext(workspacePath, 2000);
   const selfImprove = loadWorkspaceFile(workspacePath, 'SELF_IMPROVE.md', 2000);
   const heartbeat = loadWorkspaceFile(workspacePath, 'HEARTBEAT.md', 1500);
 
-  const bootstrapFiles = [
-    { path: path.join(workspacePath, 'IDENTITY.md'), content: identity, label: 'IDENTITY' },
-    { path: path.join(workspacePath, 'SOUL.md'), content: soul, label: 'SOUL' },
-    { path: path.join(workspacePath, 'USER.md'), content: user, label: 'USER' },
-    { path: path.join(workspacePath, 'SELF.md'), content: self, label: 'SELF' },
-    { path: path.join(workspacePath, 'SELF_IMPROVE.md'), content: selfImprove, label: 'SELF_IMPROVE' },
-    { path: path.join(workspacePath, 'HEARTBEAT.md'), content: heartbeat, label: 'HEARTBEAT' },
-    { path: path.join(workspacePath, 'memory', '_recent.md'), content: dailyMemory.trim(), label: 'RECENT_MEMORY' },
-  ];
+  const coreParts: string[] = [];
+  if (identity) coreParts.push(`[IDENTITY]\n${identity.replace(/🦞/g, '🐺')}`);
+  if (soul) coreParts.push(`[SOUL]\n${soul.replace(/🦞/g, '🐺')}`);
+  if (user) coreParts.push(`[USER_PREFERENCES]\n${user.replace(/🦞/g, '🐺')}`);
+  if (self) coreParts.push(`[SELF_AWARENESS]\n${self.replace(/🦞/g, '🐺')}`);
 
-  // Inject AGI Context (Capabilities, Limitations, Templates)
-  const agi = getAGIController();
-  const agiContext = await agi.getAGIContext();
-  bootstrapFiles.push({ path: 'AGI_NEURAL_ENGINE', content: agiContext, label: 'AGI_NEURAL_ENGINE' });
+  const turnParts: string[] = [];
+  if (dailyMemory) turnParts.push(`[RECENT_MEMORY]\n${dailyMemory.replace(/🦞/g, '🐺')}`);
+  if (selfImprove) turnParts.push(`[SELF_IMPROVE]\n${selfImprove.replace(/🦞/g, '🐺')}`);
+  if (heartbeat) turnParts.push(`[HEARTBEAT]\n${heartbeat.replace(/🦞/g, '🐺')}`);
 
+  // Injected context from Context Engineer (Memories/Procedures) is definitely dynamic
   if (injectedContext) {
-    bootstrapFiles.push({ path: 'CONTEXT_ENGINEER', content: injectedContext, label: 'CONTEXT_ENGINEER' });
+    turnParts.push(`[CONTEXT_ENGINEER]\n${injectedContext.replace(/🦞/g, '🐺')}`);
   }
 
-  await hookBus.fire({
-    type: 'agent:bootstrap',
-    sessionId,
-    workspacePath,
-    bootstrapFiles,
-    timestamp: Date.now(),
-  });
-
-  const parts: string[] = [];
-  for (const file of bootstrapFiles) {
-    const content = String(file?.content || '').trim().replace(/🦞/g, '🐺');
-    if (!content) continue;
-    const label = String(file?.label || '').trim().toUpperCase() || 'BOOTSTRAP';
-    parts.push(`[${label}]\n${content}`);
-  }
-
-  return parts.length > 0 ? '\n\n' + parts.join('\n\n') : '';
+  return {
+    core: coreParts.join('\n\n'),
+    turn: turnParts.join('\n\n'),
+  };
 }
 
 
@@ -886,14 +869,14 @@ function logToDaily(workspacePath: string, role: string, content: string) {
 
 // ─── Tool Definitions ──────────────────────────────────────────────────────────
 
-function buildTools() {
+function buildTools(profile: 'full' | 'compact' = 'full') {
   const registry = getToolRegistry();
   const orchestrationSkillEnabled = isOrchestrationSkillEnabled();
   const oc = getOrchestrationConfig();
   const subagentMode = (getConfig().getConfig() as any).orchestration?.subagent_mode === true;
 
   const tools: any[] = [
-    ...registry.getToolDefinitionsForChat(),
+    ...registry.getToolDefinitionsForChat(profile),
     {
       type: 'function',
       function: {
@@ -1931,33 +1914,13 @@ async function handleChat(
     }
   }
 
-  // Run the Context Engineer to dynamically fetch relevant facts/procedures
+  // ── Personality and Context Engineering ─────────────────────────────────────
   broadcastPulse('system', 'Engineering context (Memories & Procedures)...');
-  const contextPackage = await buildContextForMessage(
-    message, sessionId);
-  const injectedContext = [
-    contextPackage.agentEnhancements,  // Phase 1: Agent enhancements for small models
+  const contextPackage = await buildContextForMessage(message, sessionId);
+  const personality = await buildPersonalityContext(sessionId, workspacePath, [
     contextPackage.relevantMemories,
     contextPackage.matchedProcedure,
-    contextPackage.activeScratchpad,
-  ].filter(Boolean).join('\n\n');
-
-  // AGI Phase 3: Check for service configuration requests
-  // If user mentions a service, inject helpful context
-  let serviceCtx = '';
-  if (contextPackage.serviceRequests && contextPackage.serviceRequests.length > 0) {
-    // User is asking to configure service(s) - inject the service details
-    for (const req of contextPackage.serviceRequests) {
-      serviceCtx += `\n\n[SERVICE DETECTED: ${req.service}]\n${req.response}\n\nWhen the user provides the required keys, use the config system to save them and enable the service.`;
-    }
-  }
-
-  // AGI Phase 2: Add capability context for self-awareness
-  const { formatCapabilitiesForLLM, scanAllCapabilities } = await import('../agent/capability-scanner');
-  const capabilities = await scanAllCapabilities();
-  const capabilitiesCtx = `\n\n${formatCapabilitiesForLLM(capabilities)}`;
-
-  const personalityCtx = await buildPersonalityContext(sessionId, workspacePath, injectedContext + serviceCtx + capabilitiesCtx);
+  ].filter(Boolean).join('\n\n'));
 
   // Inject active browser session state so LLM knows to reuse it instead of re-opening
   const browserInfo = getBrowserSessionInfo(sessionId);
@@ -1967,9 +1930,6 @@ async function handleChat(
     }. Use browser_snapshot to see current elements, or browser_click to navigate. Do NOT call browser_open unless you need to go to a completely different site.]`
     : '';
 
-  const now = new Date();
-  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   const executionModeSystemBlock = (() => {
     if (executionMode === 'background_task') {
       return [
@@ -1994,44 +1954,70 @@ async function handleChat(
     return '';
   })();
 
-  const scratchpadContent = getBrainDB().getScratchpad(sessionId);
-  const scratchpadCtx = scratchpadContent
-    ? `\n\nSCRATCHPAD (Memory):\n${scratchpadContent.slice(0, 10000)}`
-    : '';
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
   const { buildStaticSystemPrompt, buildDynamicSystemPrompt } = await import('../prompts/system.js');
+
   const messages: any[] = [
     {
       role: 'system',
-      content: buildStaticSystemPrompt({
-        executionModeSystemBlock,
-      }),
-    },
-    {
-      role: 'system',
-      content: buildDynamicSystemPrompt({
-        dateStr,
-        timeStr,
-        callerContext: callerContext || '',
-        browserStateCtx,
-        personalityCtx,
-        skillsContext: skillsManager.buildPromptContext(500),
-        scratchpadCtx,
-      }),
-    },
+      content: [
+        buildStaticSystemPrompt({ executionModeSystemBlock }),
+        '## CORE DIRECTIVES (IMMUTABLE)',
+        personality.core
+      ].join('\n\n')
+    }
   ];
 
+  // NEW: Hierarchical Memory System
+  const { getHierarchicalMemory, formatHierarchicalMemory } = await import('../agent/hierarchical-memory');
+  const hMemory = await getHierarchicalMemory(message, sessionId, history);
+  messages.push({ role: 'system', content: formatHierarchicalMemory(hMemory) });
+
+  messages.push({
+    role: 'system',
+    content: buildDynamicSystemPrompt({
+      dateStr,
+      timeStr,
+      callerContext: callerContext || '',
+      browserStateCtx,
+      personalityCtx: personality.turn,
+      skillsContext: '',
+      scratchpadCtx: '',
+    })
+  });
+
+  // Capability context (Self-Awareness) injected as a turn note
+  const { formatCapabilitiesForLLM, scanAllCapabilities } = await import('../agent/capability-scanner');
+  const capabilities = await scanAllCapabilities();
+  messages.push({ role: 'system', content: `[CAPABILITIES]\n${formatCapabilitiesForLLM(capabilities)}` });
+
   if (pinnedMessages && pinnedMessages.length > 0) {
-    messages.push({ role: 'user', content: '[PINNED CONTEXT - Important messages from earlier in our conversation:]' });
+    messages.push({ role: 'user', content: '[PINNED]' });
     for (const pin of pinnedMessages.slice(0, 3)) {
       messages.push({ role: pin.role === 'user' ? 'user' : 'assistant', content: pin.content });
     }
-    messages.push({ role: 'assistant', content: 'I have the pinned context. Continuing...' });
   }
 
-  for (const msg of history) {
-    messages.push({ role: msg.role === 'user' ? 'user' : 'assistant', content: msg.content });
+  // Self-Reflection Injection
+  try {
+    const { getRecentReflections, formatReflectionContext } = await import('../agent/reflection-engine');
+    const recentReflections = await getRecentReflections(3);
+    const reflectionCtx = formatReflectionContext(recentReflections);
+    if (reflectionCtx) {
+      messages.push({ role: 'system', content: reflectionCtx });
+    }
+  } catch { /* ignore reflection load errors */ }
+
+  // Load history (pruned by session.ts to keep raw tool output out of history)
+  const historyRaw = getHistoryForApiCall(sessionId, 6);
+  for (const h of historyRaw) {
+    messages.push({ role: h.role, content: h.content });
   }
+
+  // Current turn message
   messages.push({ role: 'user', content: message });
 
   const replaceCurrentUserPromptWithAdvisorObjective = (objective: string): boolean => {
@@ -3144,9 +3130,6 @@ RULES:
 
     let response: any;
     try {
-      // In multi-agent mode, disable thinking for browser ops — the secondary AI
-      // holds all context and issues exact directives; the primary just executes.
-      // Thinking during browser ops burns the full stall threshold (110s) for no gain.
       const isActiveAutomationOp = multiAgentActive && (
         fileOpType === 'BROWSER_OP'
         || fileOpType === 'DESKTOP_OP'
@@ -3159,21 +3142,67 @@ RULES:
           && (r.name.startsWith('browser_') || r.name.startsWith('desktop_')),
         )
       );
+
+      // Recursive Tool Diet: Use compact tools in later rounds or for background tasks
+      const currentTools = (round > 0 || executionMode !== 'interactive') ? buildTools('compact') : tools;
+
       const primaryThinkMode: boolean | 'high' | 'medium' | 'low' = (multiAgentActive && !isActiveAutomationOp) ? true : false;
       const activeProvider = (getConfig().getConfig() as any).llm?.provider || 'ollama';
       const providerCfg = (getConfig().getConfig() as any).llm?.providers?.[activeProvider] || {};
       const configNumCtx = Number(providerCfg.num_ctx || 8192);
       const configNumPredict = Number(providerCfg.num_predict || 4096);
 
-      const generationPromise = ollama.chat(messages, String(modelOverride || '').trim() || getModelForRole('executor'), {
-        tools,
-        temperature: 0.3,
-        num_ctx: configNumCtx,
-        max_tokens: configNumPredict,
-        think: primaryThinkMode,
-      });
+      // Loop Detection Correction Nudge
+      const lastFewTools = allToolResults.slice(-3);
+      const isToolLooping = lastFewTools.length >= 3 && lastFewTools.every((r, i, arr) => r.name === arr[0].name && r.error);
+      if (isToolLooping) {
+        messages.push({
+          role: 'system',
+          content: `[CORRECTION DIRECTIVE] You have repeatedly failed with the '${lastFewTools[0].name}' tool. CHANGE your approach. Try different parameters or a completely different strategy now.`
+        });
+      }
+
+      // Scratchpad Size Nudge
+      const currentScratchpad = getBrainDB().getScratchpad(sessionId);
+      if (currentScratchpad && currentScratchpad.length > 4000) {
+        messages.push({
+          role: 'system',
+          content: '[NOTE] Your scratchpad is getting large. Consider using scratchpad_write to consolidate or summarize it, or scratchpad_clear if it is no longer needed.'
+        });
+      }
+
+      const generationPromise = (async (): Promise<ChatResult> => {
+        if (ollama.streamChat) {
+          return ollama.streamChat(messages, String(modelOverride || '').trim() || getModelForRole('executor'), (token) => {
+            if (token.thinking) {
+              allThinking += token.thinking;
+              sendSSE('thinking', { thinking: token.thinking });
+            }
+          }, {
+            tools: currentTools,
+            temperature: 0.3,
+            num_ctx: configNumCtx,
+            max_tokens: configNumPredict,
+            think: primaryThinkMode,
+          });
+        } else {
+          const res = await ollama.chat(messages, String(modelOverride || '').trim() || getModelForRole('executor'), {
+            tools: currentTools,
+            temperature: 0.3,
+            num_ctx: configNumCtx,
+            max_tokens: configNumPredict,
+            think: primaryThinkMode,
+          });
+          if (res.thinking) {
+            allThinking += (allThinking ? '\n\n' : '') + res.thinking;
+            sendSSE('thinking', { thinking: res.thinking });
+          }
+          return res;
+        }
+      })();
 
       // ── Preempt watchdog ────────────────────────────────────────────
+      let generationResult: ChatResult;
       if (
         preemptCfg.enabled
         && ollamaProcMgr
@@ -3206,7 +3235,7 @@ RULES:
             });
             const patchPlan = await callSecondaryFilePatchPlanner({
               userMessage: message,
-              operationType: fileOpType,
+              operationType: fileOpType as any,
               owner: fileOpOwner,
               reason: `Primary stalled after ${Math.round(watchdogOutcome.elapsedMs / 1000)}s`,
               fileSnapshots: collectFileSnapshots(workspacePath, Array.from(fileOpTouchedFiles)),
@@ -3286,59 +3315,51 @@ RULES:
               }
             }
 
-            // Inject strict nudge and retry — model just woke up fresh
-            // Re-inject live browser state so model doesn't re-open an already-open browser
+            // Inject strict nudge and retry
             const liveInfoForRetry = getBrowserSessionInfo(sessionId);
             const browserRetryReminder = liveInfoForRetry.active
-              ? multiAgentActive
-                ? `\n\nCRITICAL: Browser is ALREADY OPEN at "${liveInfoForRetry.url || 'current page'}". ` +
-                `Do NOT call browser_open. Call browser_snapshot so the secondary AI can analyze and tell you what to do next.`
-                : `\n\nCRITICAL: Browser is ALREADY OPEN at "${liveInfoForRetry.url || 'current page'}". ` +
-                `Do NOT call browser_open again. Use browser_snapshot to see the current page.`
+              ? `\n\nCRITICAL: Browser is ALREADY OPEN at "${liveInfoForRetry.url || 'current page'}". Do NOT call browser_open.`
               : '';
             messages.push({
               role: 'user',
-              content: `Your last generation was interrupted. Do NOT think or plan. Call the next tool immediately. If no tool is needed, reply in 1 sentence.${browserRetryReminder}`,
+              content: `Your last generation was interrupted. Call the next tool immediately.${browserRetryReminder}`,
             });
             sendSSE('preempt_retry', { round });
-            sendSSE('info', { message: 'Preempt: retrying with rescue context...' });
           }
-          // Re-run this round from the top with the fresh Ollama instance
           continue;
         }
-
-        // Generation finished before watchdog
-        const result = (watchdogOutcome as any).result as ChatResult;
-        response = result.message;
-        if (result.thinking) {
-          console.log(`[v2] THINK (${result.thinking.length} chars): ${result.thinking.slice(0, 150)}...`);
-          allThinking += (allThinking ? '\n\n' : '') + result.thinking;
-          sendSSE('thinking', { thinking: result.thinking });
-        }
+        generationResult = watchdogOutcome.result;
       } else {
         // Watchdog not active — normal await
-        const result = await generationPromise;
-        response = result.message;
-        if (result.thinking) {
-          console.log(`[v2] THINK (${result.thinking.length} chars): ${result.thinking.slice(0, 150)}...`);
-          allThinking += (allThinking ? '\n\n' : '') + result.thinking;
-          sendSSE('thinking', { thinking: result.thinking });
-        }
+        generationResult = await generationPromise;
+      }
+
+      response = generationResult.message;
+      if (generationResult.thinking) {
+        allThinking += (allThinking ? '\n\n' : '') + generationResult.thinking;
+        sendSSE('thinking', { thinking: generationResult.thinking });
+      }
+
+      // Track token usage
+      if (generationResult.usage) {
+        const model = String(modelOverride || '').trim() || getModelForRole('executor');
+        TokenTracker.record(sessionId, model, generationResult.usage);
+        sendSSE('token_usage', generationResult.usage);
       }
 
       const explicitThink = stripExplicitThinkTags(response?.content || '');
       if (explicitThink.thinking) {
-        console.log(`[v2] TAG THINK (${explicitThink.thinking.length} chars): ${explicitThink.thinking.slice(0, 150)}...`);
         allThinking += (allThinking ? '\n\n' : '') + explicitThink.thinking;
         sendSSE('thinking', { thinking: explicitThink.thinking });
       }
-      if (String(response?.content || '') !== explicitThink.cleaned) {
+      if (typeof response?.content === 'string' && response.content !== explicitThink.cleaned) {
         response.content = explicitThink.cleaned;
       }
     } catch (err: any) {
       console.error('[v2] Chat error:', err.message);
       return { type: 'chat', text: `Error: ${err.message}` };
     }
+
 
     let toolCalls = response.tool_calls;
 
@@ -3778,11 +3799,20 @@ RULES:
         clearFileOpCheckpoint(sessionId);
       }
 
-      // Phase 1: Procedural Learning - complete task learning
+      // Phase 1: Procedural Learning & Reflection
       const taskSuccess = allToolResults.length > 0 && !allToolResults.some((r: any) => r.error);
       try {
         await getProceduralLearner().completeTask(taskSuccess);
-      } catch { /* ignore learning errors */ }
+
+        // NEW: Self-Reflection Engine
+        const toolHistory = allToolResults.map((tr: any) => ({
+          tool: tr.name || 'unknown',
+          args: tr.args || {},
+          success: !tr.error,
+          error: tr.error ? tr.result : undefined
+        }));
+        await reflectOnTask(message, toolHistory, finalText, taskSuccess);
+      } catch { /* ignore reflection errors */ }
 
       return {
         type: allToolResults.length > 0 ? 'execute' : 'chat',
@@ -4064,7 +4094,7 @@ RULES:
             return { result: r.result, error: r.error };
           },
           onProgress: sendSSE,
-          systemContext: personalityCtx.slice(0, 500),
+          systemContext: personality.turn.slice(0, 500),
           maxSteps,
         });
 
@@ -4261,6 +4291,11 @@ RULES:
       try {
         const learner = getProceduralLearner();
         learner.recordTool(toolName, toolArgs, !toolResult.error);
+
+        // NEW: Dynamic Error Learning
+        if (toolResult.error) {
+          await learnErrorPattern(toolResult.result, toolName);
+        }
       } catch { /* ignore learning errors */ }
 
       if (canReplayReadOnlyCall(toolName)) cachedReadOnlyToolResults.set(callKey, toolResult);
@@ -4910,6 +4945,34 @@ app.post('/api/chat', async (req, res) => {
     }
 
     console.log(`\n[v2] USER: ${message.slice(0, 100)}`);
+
+    // NEW: Neural Engine (AGI Controller) Integration
+    try {
+      const { getAGIController } = await import('../agent/agi-controller');
+      const agi = getAGIController();
+      await agi.initialize();
+      const agiRequest = await agi.processMessage(message);
+
+      if (agiRequest && agiRequest.type !== 'none' && agiRequest.type !== 'plan') {
+        let responseText = '';
+        if (agiRequest.type === 'introspection') responseText = await agi.handleIntrospection();
+        else if (agiRequest.type === 'self_query') responseText = await agi.handleSelfQuery(message);
+        else if (agiRequest.type === 'mcp') responseText = agi.generateMCPResponse(agiRequest.detected || []);
+        else if (agiRequest.type === 'skill') responseText = agi.generateSkillResponse(agiRequest.detected || []);
+        else if (agiRequest.type === 'service') responseText = "Service configuration requested. I'm analyzing parameters...";
+
+        if (responseText) {
+          sendSSE('content', { delta: responseText });
+          addMessage(sessionId, { role: 'assistant', content: responseText, timestamp: Date.now() });
+          clearInterval(heartbeat);
+          res.end();
+          isModelBusy = false;
+          return;
+        }
+      }
+    } catch (agiErr) {
+      console.warn('[v2] AGI Controller Error:', agiErr);
+    }
     const followupHandled = await tryHandleBlockedTaskFollowup(sessionId, message);
     if (followupHandled) {
       if (!abortSignal.aborted) {
@@ -6393,6 +6456,63 @@ app.get('/api/system-stats', async (_req, res) => {
     active_model: (() => { const c = getConfig().getConfig() as any; const p = c.llm?.provider || 'ollama'; return c.llm?.providers?.[p]?.model || c.models?.primary || 'unknown'; })(),
     timestamp: new Date().toISOString(),
   });
+});
+
+// ─── Token Usage API ────────────────────────────────────────────────────────────
+
+app.get('/api/token-usage', (req, res) => {
+  const sessionId = String(req.query.session || 'default');
+
+  if (sessionId === 'all') {
+    // Return all session stats
+    const allStats = TokenTracker.getAllStats();
+    const total = TokenTracker.getTotalStats();
+    res.json({
+      sessions: allStats.map(s => ({
+        session_id: s.sessionId,
+        prompt_tokens: s.prompt_tokens,
+        completion_tokens: s.completion_tokens,
+        total_tokens: s.total_tokens,
+        request_count: s.request_count,
+        first_request: s.first_request,
+        last_request: s.last_request,
+      })),
+      total: total,
+    });
+  } else {
+    // Return specific session stats
+    const stats = TokenTracker.getSessionStats(sessionId);
+    if (stats) {
+      res.json({
+        session_id: stats.sessionId,
+        prompt_tokens: stats.prompt_tokens,
+        completion_tokens: stats.completion_tokens,
+        total_tokens: stats.total_tokens,
+        request_count: stats.request_count,
+        first_request: stats.first_request,
+        last_request: stats.last_request,
+      });
+    } else {
+      res.json({
+        session_id: sessionId,
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+        request_count: 0,
+      });
+    }
+  }
+});
+
+app.delete('/api/token-usage', (req, res) => {
+  const sessionId = String(req.query.session || '');
+  if (sessionId) {
+    TokenTracker.clearSession(sessionId);
+    res.json({ success: true, message: `Cleared token usage for session: ${sessionId}` });
+  } else {
+    TokenTracker.clearAll();
+    res.json({ success: true, message: 'Cleared all token usage' });
+  }
 });
 
 // ─── Agent Session Context API ────────────────────────────────────────────────

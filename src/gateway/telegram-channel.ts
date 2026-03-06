@@ -734,16 +734,36 @@ export class TelegramChannel {
     // Broadcast "thinking" state immediately
     this.deps.broadcast({ type: 'chat_sse', sessionId, event: 'thinking', data: {} });
 
+    let thinkingMessageId: number | null = null;
+    let accumulatedThinking = '';
+    let lastThinkingUpdateMs = 0;
+
     const sendSSE = (type: string, data: any) => {
       events.push({ type, data });
-
-      // Mirror reasoning steps (thinking/info) to Web UI
       this.deps.broadcast({ type: 'chat_sse', sessionId, event: type, data });
 
-      // Deliver important "Mission Updates" to Telegram in real-time
+      if (type === 'thinking' && data?.thinking) {
+        accumulatedThinking += data.thinking;
+        const now = Date.now();
+        if (now - lastThinkingUpdateMs > 3000) { // throttle Telegram edits to 3s
+          lastThinkingUpdateMs = now;
+          const preview = accumulatedThinking.length > 500
+            ? `🧠 <b>Thinking...</b>\n\n<i>${accumulatedThinking.slice(-500)}</i>`
+            : `🧠 <b>Thinking...</b>\n\n<i>${accumulatedThinking}</i>`;
+
+          if (!thinkingMessageId) {
+            this.apiCall('sendMessage', { chat_id: chatId, text: preview, parse_mode: 'HTML' })
+              .then(res => thinkingMessageId = res.message_id)
+              .catch(() => { });
+          } else {
+            this.apiCall('editMessageText', { chat_id: chatId, message_id: thinkingMessageId, text: preview, parse_mode: 'HTML' })
+              .catch(() => { });
+          }
+        }
+      }
+
       if (type === 'info' && data?.message) {
         const textToMatch = String(data.message).trim().toLowerCase();
-        // Skip repetitive markers and simple "Thinking..." which is handled by the typing indicator
         if (
           textToMatch &&
           textToMatch !== lastHandledInfoText &&
@@ -753,6 +773,10 @@ export class TelegramChannel {
           lastHandledInfoText = textToMatch;
           this.sendMessage(chatId, `ℹ️ <i>${data.message}</i>`).catch(() => { });
         }
+      }
+
+      if (type === 'preempt_start') {
+        this.sendMessage(chatId, `🔁 <i>Stall detected; restarting current round...</i>`).catch(() => { });
       }
     };
 
@@ -798,9 +822,13 @@ export class TelegramChannel {
       console.log(`[Telegram] Replied to ${userName}: ${responseText.slice(0, 80)}`);
     } catch (err: any) {
       console.error(`[Telegram] handleChat error:`, err.message);
-      await this.sendMessage(chatId, `🐺 Error: ${err.message}`);
+      await this.sendMessage(chatId, `❌ Sorry, an error occurred in the LLM engine: ${err.message}`);
     } finally {
       clearInterval(typingInterval);
+      if (thinkingMessageId) {
+        this.apiCall('deleteMessage', { chat_id: chatId, message_id: thinkingMessageId }).catch(() => { });
+        thinkingMessageId = null;
+      }
     }
   }
 

@@ -15,6 +15,7 @@ import fs from 'fs';
 import path from 'path';
 import { getConfig } from '../config/config';
 import { getBrainDB } from '../db/brain';
+import { estimateTokens } from '../db/brain';
 
 export type MemoryLayer = 0 | 1 | 2 | 3 | 4;
 
@@ -250,7 +251,7 @@ export async function getHierarchicalMemory(
     }
     
     if (content) {
-      const tokens = Math.ceil(content.length / 4);
+      const tokens = estimateTokens(content);
       layers.set(layerConfig.layer, content);
       breakdown[layerConfig.layer] = { tokens, source };
       usedTokens += tokens;
@@ -331,7 +332,7 @@ export async function quickMemoryRetrieve(
     const memories = brain.searchMemories(query, { max: 3, scope: 'global' });
     if (memories.length > 0) {
       facts = memories.map(m => `- ${m.content}`).join('\n');
-      factTokens = Math.ceil(facts.length / 4);
+      factTokens = estimateTokens(facts);
     }
   } catch {
     // Ignore
@@ -342,7 +343,7 @@ export async function quickMemoryRetrieve(
   let scratchpadTokens = 0;
   try {
     scratchpad = brain.getScratchpad(sessionId) || '';
-    scratchpadTokens = Math.ceil(scratchpad.length / 4);
+    scratchpadTokens = estimateTokens(scratchpad);
   } catch {
     // Ignore
   }

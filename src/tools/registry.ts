@@ -37,9 +37,10 @@ export interface Tool {
   jsonSchema?: Record<string, any>;
 }
 
-export type ToolProfile = 'minimal' | 'coding' | 'web' | 'full' | 'desktop' | 'browser';
+export type ToolProfile = 'minimal' | 'coding' | 'web' | 'full' | 'desktop' | 'browser' | 'compact';
 
 const TOOL_PROFILE_TOOL_NAMES: Record<Exclude<ToolProfile, 'full'>, ReadonlySet<string>> = {
+  compact: new Set(),
   minimal: new Set([
     'memory_search',
     'memory_write',
@@ -120,7 +121,7 @@ const TOOL_PROFILE_TOOL_NAMES: Record<Exclude<ToolProfile, 'full'>, ReadonlySet<
 };
 
 function isToolProfile(value: string): value is ToolProfile {
-  return value === 'minimal' || value === 'coding' || value === 'web' || value === 'full' || value === 'desktop' || value === 'browser';
+  return value === 'minimal' || value === 'coding' || value === 'web' || value === 'full' || value === 'desktop' || value === 'browser' || value === 'compact';
 }
 
 class ToolRegistry {
@@ -230,9 +231,9 @@ class ToolRegistry {
   }
 
   private listByProfile(profile: ToolProfile = 'full'): Tool[] {
-    if (profile === 'full') return this.list();
-    const toolNames = TOOL_PROFILE_TOOL_NAMES[profile];
-    return this.list().filter((tool) => toolNames.has(tool.name));
+    if (profile === 'full' || profile === 'compact') return this.list();
+    const toolNames = (TOOL_PROFILE_TOOL_NAMES as any)[profile];
+    return this.list().filter((tool) => toolNames?.has(tool.name));
   }
 
   resolveToolProfile(profile?: string | null): ToolProfile {
@@ -309,6 +310,17 @@ class ToolRegistry {
       return normalized;
     };
     return tools.map((tool) => {
+      if ((profile as string) === 'compact') {
+        return {
+          type: 'function',
+          function: {
+            name: tool.name,
+            description: String(tool.description || '').slice(0, 100),
+            parameters: { type: 'object', properties: {}, additionalProperties: true }
+          },
+        };
+      }
+
       const explicitParameters = normalizeExplicitParameters(tool);
       const inferredParameters = buildInferredParameters(tool);
       const parameters = explicitParameters || inferredParameters;
@@ -328,7 +340,7 @@ class ToolRegistry {
   }
 }
 
-// Singleton instance
+// Singleton instance with lazy initialization
 let registryInstance: ToolRegistry | null = null;
 
 export function getToolRegistry(): ToolRegistry {

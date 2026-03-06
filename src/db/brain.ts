@@ -8,6 +8,27 @@ import { generateEmbedding, cosineSimilarity } from './embeddings';
 
 const BRAIN_DB_PATH = PATHS.brainDb();
 
+// Better token estimation (word-based with overhead)
+export function estimateTokens(text: string): number {
+    if (!text || typeof text !== 'string') return 0;
+    const trimmed = text.trim();
+    if (!trimmed) return 0;
+
+    // Split by whitespace and filter empty
+    const words = trimmed.split(/\s+/).filter(w => w.length > 0);
+    const wordCount = words.length;
+
+    // Average tokens per word varies by model, but ~1.3 is a safe estimate
+    // Plus overhead for special characters and formatting
+    const baseTokens = Math.ceil(wordCount * 1.3);
+
+    // Add overhead for code-like content (more special chars)
+    const specialCharRatio = (trimmed.match(/[^a-zA-Z0-9\s]/g) || []).length / Math.max(trimmed.length, 1);
+    const overhead = Math.ceil(specialCharRatio * wordCount * 0.2);
+
+    return baseTokens + overhead;
+}
+
 export interface Memory {
     id: string;
     category: string;
@@ -167,7 +188,21 @@ export class BrainDB {
         )
       `).run();
 
-            // 7. Indexes
+            // 7. Token Usage Table
+            this.db.prepare(`
+        CREATE TABLE IF NOT EXISTS token_usage (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT,
+          model TEXT,
+          prompt_tokens INTEGER,
+          completion_tokens INTEGER,
+          total_tokens INTEGER,
+          cost_usd REAL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `).run();
+
+            // 8. Indexes
             this.db.prepare("CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category)").run();
             this.db.prepare("CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope)").run();
             this.db.prepare("CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance DESC)").run();
@@ -527,6 +562,7 @@ export class BrainDB {
 }
 
 let instance: BrainDB | null = null;
+
 export function getBrainDB(): BrainDB {
     if (!instance) {
         instance = new BrainDB();

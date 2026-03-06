@@ -1,4 +1,5 @@
 import { getBrainDB } from '../db/brain';
+import { estimateTokens } from '../db/brain';
 import { detectServices, isConfigurationRequest, generateConfigRequest, formatKnownServices } from '../agent/service-autoconfig';
 import { formatCapabilitiesForLLM, scanAllCapabilities } from '../agent/capability-scanner';
 
@@ -76,9 +77,9 @@ export async function buildContextForMessage(
         // Safe fail
     }
 
-    // 5. Estimate tokens (rough heuristic: 4 chars per token)
+    // 5. Estimate tokens (using improved estimation)
     const totalChars = (relevantMemories?.length || 0) + (matchedProcedure?.length || 0) + (activeScratchpad?.length || 0);
-    const tokenEstimate = Math.ceil(totalChars / 4);
+    const tokenEstimate = estimateTokens(relevantMemories) + estimateTokens(matchedProcedure || '') + estimateTokens(activeScratchpad || '');
 
     // 6. Phase 1: Add agent enhancement prompts for small models
     const agentEnhancements = `

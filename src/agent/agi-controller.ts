@@ -199,6 +199,15 @@ export class WolverineAGIController {
       };
     }
 
+    // Phase 1.5: Agentic Search Detection
+    if (/\b(find|search|where|look for|grep|glob|locate)\b/i.test(lower)) {
+      return {
+        type: 'none', // Continue to general chat but with search hints
+        confidence: 0.8,
+        message: 'Search intent detected. Pivoting to glob -> grep hierarchy.'
+      };
+    }
+
     // Phase 2: Self-Query
     if (lower.includes('can you') || lower.includes('do you know how to')) {
       return {

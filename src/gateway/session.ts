@@ -334,18 +334,70 @@ export function getHistory(id: string, maxTurns: number = 10): ChatMessage[] {
   return session.history.slice(-maxMessages);
 }
 
-export function getHistoryForApiCall(id: string, maxTurns: number = 60): ChatMessage[] {
-  const messages = getHistory(id, maxTurns);
-  return messages.map((msg) => {
-    if (msg.role !== 'assistant') return msg;
+export function getHistoryForApiCall(id: string, maxTurns: number = 20): ChatMessage[] {
+  const session = getSession(id);
+  const messages = session.history.slice(-(maxTurns * 2));
+  let cumulativeTokens = 0;
+  const targetTokenLimit = 4000; // Target keeping history under 4K tokens to leave room for thinking
+
+  // Process messages in reverse to keep recent ones full
+  const result: ChatMessage[] = [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    const role = msg.role;
     const content = String(msg.content || '');
-    if (content.length <= API_HISTORY_PRUNE_THRESHOLD_CHARS) return msg;
-    const removed = content.length - API_HISTORY_PRUNE_KEEP_CHARS;
-    return {
-      ...msg,
-      content: `${content.slice(0, API_HISTORY_PRUNE_KEEP_CHARS)}\n[pruned: ${removed} chars]`,
-    };
-  });
+    const tokens = estimateMessageTokens(msg);
+
+    // Keep the last 6 messages (3 turns) completely intact
+    if (result.length < 6) {
+      result.unshift(msg);
+      cumulativeTokens += tokens;
+      continue;
+    }
+
+    // After 6 messages, start pruning/summarizing if we are over limit
+    if (cumulativeTokens > targetTokenLimit && role === 'assistant') {
+      // Very aggressive archiving for old turns when over token budget
+      result.unshift({
+        ...msg,
+        content: `[Omitted older turn to save context: ${content.slice(0, 40).replace(/\n/g, ' ')}...]`,
+      });
+      continue;
+    }
+
+    // Medium pruning for older turns
+    if (role === 'assistant') {
+      const looksTechnical = /^[\[\{]/.test(content.trim()) || content.split('\n').length > 15;
+      if (looksTechnical || content.length > 500) {
+        const archived = {
+          ...msg,
+          content: looksTechnical
+            ? `[Archived Tool Output: ${content.slice(0, 100).replace(/\n/g, ' ')}... (${content.length} chars)]`
+            : `${content.slice(0, 400)}\n[... turn archived to save context ...]`
+        };
+        result.unshift(archived);
+        cumulativeTokens += estimateMessageTokens(archived);
+      } else {
+        result.unshift(msg);
+        cumulativeTokens += tokens;
+      }
+    } else {
+      // Keep user messages but prune if extremely long (> 1000 chars)
+      if (content.length > 1000) {
+        const prunedUser = {
+          ...msg,
+          content: `${content.slice(0, 800)}\n[... long user message truncated for context ...]`
+        };
+        result.unshift(prunedUser);
+        cumulativeTokens += estimateMessageTokens(prunedUser);
+      } else {
+        result.unshift(msg);
+        cumulativeTokens += tokens;
+      }
+    }
+  }
+
+  return result;
 }
 
 export function clearHistory(id: string): void {

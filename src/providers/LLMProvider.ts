@@ -55,11 +55,21 @@ export interface GenerateOptions {
 export interface ChatResult {
   message: ChatMessage;
   thinking?: string;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
 }
 
 export interface GenerateResult {
   response: string;
   thinking?: string;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
 }
 
 export interface ModelInfo {
@@ -74,8 +84,24 @@ export interface LLMProvider {
   /** Send a multi-turn chat request. */
   chat(messages: ChatMessage[], model: string, options?: ChatOptions): Promise<ChatResult>;
 
+  /** Stream a multi-turn chat request. */
+  streamChat?(
+    messages: ChatMessage[],
+    model: string,
+    onToken: (token: { content?: string; thinking?: string }) => void,
+    options?: ChatOptions
+  ): Promise<ChatResult>;
+
   /** Single-prompt generation (used by reactor/agents). */
   generate(prompt: string, model: string, options?: GenerateOptions): Promise<GenerateResult>;
+
+  /** Stream single-prompt generation. */
+  streamGenerate?(
+    prompt: string,
+    model: string,
+    onToken: (token: { content?: string; thinking?: string }) => void,
+    options?: GenerateOptions
+  ): Promise<GenerateResult>;
 
   /** List available models. Returns [] if provider doesn't support listing. */
   listModels(): Promise<ModelInfo[]>;

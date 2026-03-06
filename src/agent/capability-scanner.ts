@@ -7,12 +7,28 @@
  * Now TRULY DYNAMIC - reads from actual ToolRegistry!
  * 
  * For Phase 2: Self-Query Engine foundation
+ * 
+ * OPTIMIZATION: Added TTL-based caching (5 min) to avoid redundant scans
  */
 
 import fs from 'fs';
 import path from 'path';
 import { getConfig } from '../config/config';
 import { getToolRegistry, Tool } from '../tools/registry';
+
+// Cache for capability scans
+let cachedCaps: CapabilityMap | null = null;
+let cacheTime = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function isCacheValid(): boolean {
+  return cachedCaps !== null && (Date.now() - cacheTime) < CACHE_TTL;
+}
+
+export function invalidateCapabilityCache(): void {
+  cachedCaps = null;
+  cacheTime = 0;
+}
 
 export interface Capability {
   name: string;
@@ -276,16 +292,21 @@ function scanModels(): Capability[] {
 }
 
 /**
- * Main scanner - discovers all capabilities
+ * Main scanner - discovers all capabilities (with caching)
  */
 export async function scanAllCapabilities(): Promise<CapabilityMap> {
+  // Return cached result if valid
+  if (isCacheValid() && cachedCaps) {
+    return cachedCaps;
+  }
+  
   const tools = scanTools();
   const skills = await scanSkills();
   const mcp = await scanMCP();
   const channels = scanChannels();
   const models = scanModels();
 
-  return {
+  cachedCaps = {
     tools,
     skills,
     mcp,
@@ -294,6 +315,10 @@ export async function scanAllCapabilities(): Promise<CapabilityMap> {
     total: tools.length + skills.length + mcp.length + channels.length + models.length,
     timestamp: Date.now()
   };
+  
+  cacheTime = Date.now();
+  
+  return cachedCaps;
 }
 
 /**
