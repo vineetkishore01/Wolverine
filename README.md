@@ -1,201 +1,47 @@
-# 🐺 Project Wolverine
-> **Sovereign AGI for the Silicon Age**
+# Wolverine 🐺 — Recursive Sovereign Intelligence
 
-![Wolverine Banner](./screenshots/wolverine_logo.jpg)
+Wolverine is a local-first, autonomous AI assistant designed to dominate complex problem spaces and evolve with you. It is engineered for extreme efficiency on local hardware while scaling seamlessly to industry-grade models.
 
-Wolverine is a private, local-first AI agent engineered for **architectural dominance**. Unlike generic chatbots, Wolverine is designed as a recursive intelligence system that compensates for small-model constraints (4GB VRAM) through sophisticated memory layering, autonomous de-noising, and a proactive "Self-Evolution" protocol.
+## 🚀 The Essence
+Wolverine is more than a chatbot; it is an **Elite Architect of Logic**. It operates under the **Sovereign Protocol**, where every tool call is a tactical move toward systemic dominance.
 
-**Target User:** Technical power users who want deep control, not mass-market one-click solutions.
+- **Local-First**: Runs primarily via Ollama, keeping your data on your silicon.
+- **Recursive**: Learns from every interaction, tool result, and workspace change.
+- **Proactive**: Identifies bottlenecks and suggests improvements without being asked.
+- **Elastic Context Tiering**: Automatically adjusts its reasoning depth based on the available model's intelligence tier.
 
-**Philosophy:** OpenClaw is an iPhone. Wolverine is a Linux workstation.
+## 🛠️ Architecture: Elastic Context Tiering
+Wolverine dynamically categorizes models into three tiers to optimize performance and prevent instruction drowning:
 
----
+| Tier | Example Models | Strategy | Benefit |
+|------|----------------|----------|---------|
+| **Low** | Qwen 3.5 1.5B/4B, Llama 3B | **Scout Mode**: Extreme compression, core SOUL focus. | Prevents hallucinations on limited hardware. |
+| **Medium** | Llama 8B, Mistral 7B | **Architect Mode**: Balanced context, agent coordination. | Smart reasoning with low latency. |
+| **High** | GPT-4, DeepSeek R1, 70B+ | **Sovereign Mode**: Zero compression, full workspace injection. | Mastery of complex, multi-layered dependencies. |
 
-## 🏗️ Neural Architecture: The 2070 Protocol
+## 🧬 Core Intelligence Protocols
+1. **Wolverine FnCall Protocol**: A generic, scalable function-calling framework that works across all tiers.
+2. **Thinking Protocol**: Mandatory <thinking> blocks for high-precision planning before action.
+3. **Daily Memory**: Persistent SQLite-backed memory with semantic search (brain.db).
+4. **Skills Manager**: On-the-fly creation and testing of specialized capabilities.
 
-Wolverine's intelligence is structured across four cognitive layers to ensure long-term stability and high-signal autonomy.
+## 🏁 Getting Started
+### Prerequisites
+- [Ollama](https://ollama.ai/) installed and running.
+- A model downloaded (e.g., `ollama pull qwen3.5:4b` or `ollama pull llama3:8b`).
 
-| Layer | Component | Function | Status |
-| :--- | :--- | :--- | :--- |
-| **L1: Neural Engine** | `AGIController` | The central nervous system; intent routing and focus management. | ✅ **Active** |
-| **L2: REM Cycle** | `MemoryConsolidator` | **The Sleep Phase.** Autonomous de-noising and fact extraction during idle time. | ✅ **Active** |
-| **L3: HMS Memory** | `HierarchicalMemory` | 5-layer context stack: System, Session, Working, Semantic, and Episodic. | ✅ **Active** |
-| **L4: Agency** | `Orchestrator` | Proactive tool selection, browser bridge, and recursive logic. | ✅ **Active** |
-
----
-
-## 🚀 What Wolverine Can Do NOW
-
-### 🧠 **Autonomous Memory Consolidation (REM Cycle)**
-Biological systems clean their memory during sleep; Wolverine does the same. During idle periods (Heartbeats), Wolverine initiates a **REM Cycle**:
-- **NREM (De-noising)**: Strips 60-80% of transient conversation noise (tool outputs, duplicate reasoning).
-- **Light REM (Extraction)**: Uses the LLM to extract durable facts, user preferences, and lessons learned with confidence scoring.
-- **Deep REM (Consolidation)**: Automatically updates your `USER.md`, `SOUL.md`, and `SELF.md` files, ensuring the agent grows wiser every time you step away.
-
-**Real-World Impact:** Wolverine remembers your preferences across sessions, learns from failures, and proactively suggests automations for repeated tasks.
-
----
-
-### 🌐 **Proactive Browser & Desktop Automation**
-- **Intent Detection**: Wolverine detects browser automation intent (e.g., "Check my LinkedIn") and auto-injects required tools without asking for permission.
-- **Natural Discovery**: Navigate the web using text-based element discovery. No more fragile CSS selectors; Wolverine finds buttons by reading them.
-- **Forced Tool Execution**: Unlike other agents that might just talk about actions, Wolverine guarantees tool execution for critical tasks.
-- **Desktop Sovereign**: Direct, authenticated control over your OS environment and file system (screenshots, window management, clipboard).
-
-**Real-World Impact:** Say "Go to GitHub and find trending AI repos" - Wolverine opens browser, navigates, extracts data, and presents findings autonomously.
-
----
-
-### 💬 **Natural Conversational AI**
-- **No Robotic Responses**: Wolverine responds naturally to conversation - no hardcoded fallbacks like "I didn't identify a specific action."
-- **Model-Generated Responses**: 100% model-generated content, not pre-defined replies.
-- **Context Awareness**: Remembers conversation history, user preferences, and past interactions.
-- **Intelligent Notifications**: Binary decision (YES/NO) on user notifications - you only receive alerts for significant breakthroughs or failures.
-
-**Real-World Impact:** Have genuine conversations with Wolverine. Ask questions, discuss ideas, get help - it responds naturally, not like a robot.
-
----
-
-### 🛡️ **Sovereign Security & Vaulting**
-Wolverine implements a "Zero-Trust" local architecture for your sensitive data:
-- **AES-256-GCM Vault**: All API keys, bot tokens, and credentials live in an encrypted hardware vault (`.wolverine/vault/`).
-- **Log Scrubber Pipeline**: A unified security layer that automatically redacts PII, tokens, and secrets from all console logs and UI responses.
-- **Auth-Gated Gateway**: Every internal endpoint (even local ones) requires an authorized Bearer token to execute.
-- **Path Traversal Protection**: All file operations validated against workspace boundaries.
-
-**Real-World Impact:** Your API keys, passwords, and sensitive data never appear in logs or UI. Wolverine is secure by default.
-
----
-
-### 🎯 **Proactive Awakening & First-Run Experience**
-- **Cinematic Awakening**: On first run, Wolverine initiates a 3-act awakening sequence (Emergence → Exploration → Connection).
-- **Tool Demonstration**: Wolverine automatically scans its environment and shows you what it can do.
-- **Personality Sync**: Asks for your name and preferences, then customizes its personality files accordingly.
-- **Transcript Preservation**: Your awakening experience is saved to memory for future reference.
-
-**Real-World Impact:** Your first interaction with Wolverine is memorable, not just another "Hello, how can I help?" chatbot greeting.
-
----
-
-### 📁 **Unified Data Structure**
-Everything lives in `~/WolverineData/` - one folder to rule them all:
-- **Config**: Settings, API keys, model configuration
-- **Workspace**: Personality files (USER.md, SOUL.md, etc.)
-- **Memory**: Daily logs, conversation history
-- **Sessions**: Chat sessions, task state
-- **Skills**: Installed and auto-created skills
-- **Logs**: Conversation transcripts, tool audit trails
-
-**Real-World Impact:** Delete `~/WolverineData/` for complete virgin reset. Simple, clean, understandable.
-
----
-
-## 🔧 Current Capabilities (March 2026)
-
-### ✅ **Fully Implemented**
-- [x] **40+ Tools**: File operations, web search, browser automation, desktop control, memory, shell
-- [x] **Multi-Channel Support**: Web UI, Telegram, Discord, WhatsApp integration
-- [x] **Background Tasks**: Persistent task runner with journal compression
-- [x] **Cron Scheduler**: Scheduled autonomous jobs with delivery channels
-- [x] **Heartbeat System**: 30-minute self-checks with intelligent reflection
-- [x] **Skill System**: Pluggable skills with persistence
-- [x] **MCP Integration**: Model Context Protocol servers
-- [x] **Webhook Handler**: External trigger support
-- [x] **Token Tracking**: Real-time token usage counter on Web UI
-- [x] **Unified Folder Structure**: All data in `~/WolverineData/`
-
-### 🆕 **Recent Additions (Last 7 Days)**
-- [x] **REM Cycle (3-Stage)**: Memory consolidation during idle time
-- [x] **Proactive Awakening**: Cinematic first-run experience
-- [x] **Intelligent Reflection**: Binary notification decisions
-- [x] **Pattern Recognition**: Detects repeated requests (3+ times)
-- [x] **Failure Analysis**: Generates recovery proposals
-- [x] **FAST Path**: Bypasses orchestration for simple queries
-- [x] **Thinking Tag Processing**: Smart reasoning extraction
-- [x] **Browser Automation Fix**: Enhanced detection + forced execution
-- [x] **Skeleton Template System**: Auto-populates workspace files
-- [x] **Robotic Response Fix**: Model responses used, not hardcoded
-
----
-
-## 📊 Hardware Engine Tiers
-
-| Tier | Resources | Engine Mode | Capability |
-| :--- | :--- | :--- | :--- |
-| **Sovereign** | **4GB GPU** | Phase 1 | Single-task focus, REM consolidation, local-first logic. |
-| **Architect** | **8GB GPU** | Phase 2 | Multi-tasking, browser element discovery, skill creation. |
-| **Overlord** | **16GB+ GPU** | Phase 3 | Full AGI simulation, tool invention, curiosity engines. |
-
----
-
-## 🛠️ Quick Start (Universal)
-
-Wolverine provides optimized launchers for all operating systems.
-
-### **macOS / Linux**
+### Installation & Launch
 ```bash
-git clone https://github.com/vineetkishore01/Wolverine.git && cd Wolverine
+git clone https://github.com/vineetkishore/Wolverine.git
+cd Wolverine
 ./launch.sh
 ```
 
-### **Windows**
-```cmd
-git clone https://github.com/vineetkishore01/Wolverine.git && cd Wolverine
-launch.bat
-```
-
-*The launcher will automatically install dependencies, build the Neural Engine, and start the Gateway.*
-
-### **First Run Experience**
-1. **Bootstrap**: Wolverine copies personality templates to `~/WolverineData/workspace/`
-2. **Awakening**: 3-act sequence triggers automatically (3 seconds after Web UI opens)
-3. **Sync**: Wolverine asks for your name and preferences
-4. **Ready**: Start chatting or give tasks
-
-### **Virgin Reset**
-```bash
-# Delete all data, reset to factory state
-rm -rf ~/WolverineData/
-
-# Restart Wolverine
-./launch.sh
-```
+## 📈 Roadmap (Phase 2 & 3)
+- [ ] **Autonomous Skill Evolution**: Models self-generating and testing new tools.
+- [ ] **Multi-Agent Spawning**: Orchestrating sub-agents for parallel task execution.
+- [ ] **Universal Browser Mastery**: Advanced extraction and form-filling strategies.
+- [ ] **Self-Repair Loop**: Autonomous debugging and patching of its own gateway code.
 
 ---
-
-## 🎯 Implementation Roadmap
-See [WOLVERINE_BLUEPRINT.md](./WOLVERINE_BLUEPRINT.md) for the full 2026 evolution path including:
-- Strategic positioning vs OpenClaw
-- Phase 1-3 implementation plans
-- Marketing strategy (zero budget)
-- Technical debt remediation
-- AGI readiness assessment (~25% currently)
-
----
-
-## 🏆 Wolverine vs OpenClaw
-
-| Aspect | OpenClaw | Wolverine |
-|--------|----------|-----------|
-| **Target User** | Mass market, one-click | Technical power users |
-| **Ecosystem** | 6,000+ skills (ClawHub) | Curated, code-based skills |
-| **Deployment** | Cloud-first, Docker | Local-first, bare metal |
-| **Unique Tech** | Standard agent loop | REM Cycle, FileOp Watchdog, Dual-Model |
-| **Community** | 15K+ GitHub stars | Early adopter, quality-focused |
-
-**Bottom Line:** OpenClaw is an iPhone. Wolverine is a Linux workstation. Choose based on your needs.
-
----
-
-## 📜 License & Community
-
-**License:** MIT - Build, modify, distribute freely
-
-**Community:** Early stage - join the journey!
-- **GitHub:** [vineetkishore01/Wolverine](https://github.com/vineetkishore01/Wolverine)
-- **Issues:** Report bugs, request features
-- **Discussions:** Share configurations, skills, use cases
-
----
-
-© 2026 Project Wolverine. **Designed for Dominance.** 🐺
+*“I don’t wait for permission to be smart.”* — Wolverine 🐺

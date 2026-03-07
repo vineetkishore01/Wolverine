@@ -12,9 +12,11 @@ import { PATHS } from '../config/paths.js';
 import { HISTORY_PRUNE_THRESHOLD_CHARS, SESSION_CLEANUP_MAX_AGE_MS } from '../config/policy';
 
 export interface ChatMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
   timestamp: number;
+  tool_calls?: any[];
+  tool_call_id?: string;
 }
 
 export interface Session {
@@ -26,6 +28,7 @@ export interface Session {
   pendingMemoryFlush?: boolean;
   pendingCompaction?: boolean;
   contextTokenEstimate?: number;
+  model?: string;
 }
 
 const sessions = new Map<string, Session>();
@@ -183,6 +186,56 @@ export interface AddMessageResult {
   estimatedTokens: number;
   contextLimitTokens: number;
   thresholdTokens: number;
+}
+
+/**
+ * List all available sessions
+ * Returns session metadata without full history for performance
+ */
+export function listSessions(): Array<{ id: string; createdAt: number; lastActiveAt: number; messageCount: number }> {
+  const result: Array<{ id: string; createdAt: number; lastActiveAt: number; messageCount: number }> = [];
+
+  // First, add in-memory sessions
+  for (const [id, session] of sessions.entries()) {
+    result.push({
+      id: session.id,
+      createdAt: session.createdAt,
+      lastActiveAt: session.lastActiveAt,
+      messageCount: session.history.length,
+    });
+  }
+
+  // Then, scan session directory for persisted sessions not in memory
+  try {
+    ensureSessionDir();
+    const files = fs.readdirSync(SESSION_DIR).filter(f => f.endsWith('.json'));
+    const inMemoryIds = new Set(sessions.keys());
+
+    for (const file of files) {
+      const sessionId = file.slice(0, -5); // Remove .json
+      if (!inMemoryIds.has(sessionId)) {
+        try {
+          const filePath = getSessionPath(sessionId);
+          const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+          result.push({
+            id: data.id || sessionId,
+            createdAt: data.createdAt || Date.now(),
+            lastActiveAt: data.lastActiveAt || Date.now(),
+            messageCount: Array.isArray(data.history) ? data.history.length : 0,
+          });
+        } catch {
+          // Skip corrupted files
+        }
+      }
+    }
+  } catch {
+    // Directory doesn't exist or can't be read
+  }
+
+  // Sort by lastActiveAt descending (most recent first)
+  result.sort((a, b) => b.lastActiveAt - a.lastActiveAt);
+
+  return result;
 }
 
 export function getSession(id: string): Session {
@@ -468,13 +521,19 @@ function saveSession(id: string): void {
   const existing = sessionSaveTimers.get(id);
   if (existing) clearTimeout(existing);
 
+  // Capture the current session state to ensure we save what we intended
+  const sessionSnapshot = { ...session, history: [...session.history] };
+
   const timer = setTimeout(() => {
     sessionSaveTimers.delete(id);
+    // Verify session still exists before saving
     const latest = sessions.get(id);
     if (!latest) return;
+
+    // Use the snapshot to avoid race conditions with concurrent modifications
     ensureSessionDir();
     try {
-      fs.writeFileSync(getSessionPath(id), JSON.stringify(scrubSession(latest), null, 2));
+      fs.writeFileSync(getSessionPath(id), JSON.stringify(scrubSession(sessionSnapshot), null, 2));
     } catch (err) {
       console.warn(`[session] Failed to save session ${id}:`, err);
     }

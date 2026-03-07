@@ -412,7 +412,7 @@ gateway
         return;
       }
     } catch { }
-    require('../gateway/server-v2');
+    require('../gateway/server');
   });
 
 gateway

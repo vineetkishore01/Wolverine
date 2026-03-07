@@ -57,3 +57,7 @@ tmp-study/
 # --- REPOSITORY ---
 .antigravity/
 .code/
+
+# --- TEMPORARY CLONED REPOS (NEVER COMMIT) ---
+tmp/
+tmp_study/

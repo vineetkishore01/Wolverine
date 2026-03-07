@@ -14,6 +14,7 @@ import { getConfig } from '../config/config';
 import { PATHS, resolveDataPath } from '../config/paths.js';
 import type { LLMProvider } from '../providers/LLMProvider';
 import { contentToString } from '../providers/content-utils';
+import { clampInt } from '../shared/utils';
 
 export type PreflightMode = 'off' | 'complex_only' | 'always';
 
@@ -69,12 +70,6 @@ const VALID_PREFLIGHT_MODES: Set<PreflightMode> = new Set(['off', 'complex_only'
 function normalizePreflightMode(value: any): PreflightMode {
   const mode = String(value || '').trim() as PreflightMode;
   return VALID_PREFLIGHT_MODES.has(mode) ? mode : 'complex_only';
-}
-
-function clampInt(value: any, min: number, max: number, fallback: number): number {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(max, Math.max(min, Math.floor(n)));
 }
 
 /**

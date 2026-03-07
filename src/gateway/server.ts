@@ -1,5 +1,5 @@
 /**
- * server-v2.ts - Wolverine v2 Gateway
+ * server.ts - Wolverine Gateway
  *
  * Wolverine - Local-first AI agent framework built for small models.
  * 
@@ -34,6 +34,7 @@ import {
   ensureAgentWorkspace,
   resolveAgentWorkspace,
 } from '../config/config';
+import { clampInt } from '../shared/utils';
 import { getProvider as getOllamaClient, getModelForRole, getPrimaryModel } from '../providers/factory';
 import { ChatResult, GenerateResult } from '../providers/LLMProvider';
 import { getSession, addMessage, getHistory, getHistoryForApiCall, getWorkspace, setWorkspace, clearHistory, cleanupSessions } from './session';
@@ -80,7 +81,9 @@ import {
   getAgentLastRun,
   recordAgentRun,
 } from '../scheduler';
+import { IntelligenceTier, detectIntelligenceTier, getTierConfig } from '../agent/tier-detector';
 import { TelegramChannel } from './telegram-channel';
+
 import {
   OrchestrationTriggerState,
   callSecondaryPreflight,
@@ -159,6 +162,7 @@ import { learnErrorPattern } from '../agent/error-recovery';
 import { AGENTIC_SEARCH_PROMPT, PROCEDURAL_LEARNING_PROMPT } from '../agent';
 import { getToolRegistry } from '../tools/registry';
 import { TokenTracker } from '../agent/token-tracker';
+import { getPromptLogger } from '../db/prompt-logger';
 
 // ─── Config ────────────────────────────────────────────────────────────────────
 
@@ -716,8 +720,8 @@ function buildBootStartupSnapshot(workspacePath: string): string {
 
 hookBus.register('gateway:startup', async ({ workspacePath }) => {
   // Virgin Boot Check: If not awakened, skip BOOT.md strategy summary.
-  // User will configure the system via web UI first.
-  const awakenedMarker = path.join(path.dirname(workspacePath), '.awakened');
+  // Use the central config dir for the marker to ensure consistency.
+  const awakenedMarker = path.join(getConfig().getConfigDir(), '.awakened');
   if (!fs.existsSync(awakenedMarker)) {
     console.log('[Gateway] Virgin boot detected (unawakened) — skipping BOOT.md report.');
     return;
@@ -836,43 +840,54 @@ async function buildPersonalityContext(
   sessionId: string,
   workspacePath: string,
   injectedContext?: string,
-  executionMode?: string
+  executionMode?: string,
+  tier: IntelligenceTier = 'low'
 ): Promise<{ core: string; turn: string }> {
+  const tierConfig = getTierConfig(tier);
+  const isAgent = executionMode === 'background_task' || executionMode === 'heartbeat' || executionMode === 'cron';
+  const includeExtended = tierConfig.includeExtendedContext || isAgent;
+
   // Static Core: SOUL, USER, AGENTS, TOOLS, SELF
   const soulRaw = loadWorkspaceFile(workspacePath, 'SOUL.md', 5000) || '';
-  const soul = compressPersonalityFile(soulRaw, 3000);
-  const user = loadWorkspaceFile(workspacePath, 'USER.md', 1500) || '';
-  const agents = loadWorkspaceFile(workspacePath, 'AGENTS.md', 1500) || '';
-  const tools = loadWorkspaceFile(workspacePath, 'TOOLS.md', 1500) || '';
-  const self = loadWorkspaceFile(workspacePath, 'SELF.md', 2500) || loadWorkspaceFile(workspacePath, 'IDENTITY.md', 2500) || '';
+  const soul = compressPersonalityFile(soulRaw, Math.floor(3000 * tierConfig.compressionRatio));
+  const user = loadWorkspaceFile(workspacePath, 'USER.md', Math.floor(1500 * tierConfig.compressionRatio)) || '';
+
+  // Conditional load based on tier
+  const agents = includeExtended ? (loadWorkspaceFile(workspacePath, 'AGENTS.md', 1500) || '') : '';
+  const tools = includeExtended ? (loadWorkspaceFile(workspacePath, 'TOOLS.md', 1500) || '') : '';
+  const self = loadWorkspaceFile(workspacePath, 'SELF.md', isAgent ? 2500 : 1500) || loadWorkspaceFile(workspacePath, 'IDENTITY.md', 1500) || '';
 
   // Dynamic Turn: MEMORY, HEARTBEAT, SELF_IMPROVE, SELF_REFLECT (updates often)
-  const dailyMemory = readDailyMemoryContext(workspacePath, 2000);
-  const selfImprove = loadWorkspaceFile(workspacePath, 'SELF_IMPROVE.md', 2000) || '';
-  const heartbeat = loadWorkspaceFile(workspacePath, 'HEARTBEAT.md', 1500) || '';
+  const dailyMemory = readDailyMemoryContext(workspacePath, Math.floor(2000 * tierConfig.compressionRatio));
+  const selfImprove = loadWorkspaceFile(workspacePath, 'SELF_IMPROVE.md', Math.floor(2000 * tierConfig.compressionRatio)) || '';
+  const heartbeat = includeExtended ? (loadWorkspaceFile(workspacePath, 'HEARTBEAT.md', 1500) || '') : '';
 
   // Conditional: Only load reflection guidelines during heartbeat or idle runs
   let selfReflect = '';
   if (executionMode === 'heartbeat' || executionMode === 'background_task') {
-    selfReflect = loadWorkspaceFile(workspacePath, 'SELF_REFLECT.md', 2000) || '';
+    selfReflect = loadWorkspaceFile(workspacePath, 'SELF_REFLECT.md', Math.floor(2000 * tierConfig.compressionRatio)) || '';
   }
 
   const coreParts: string[] = [];
-  if (soul) coreParts.push(`[SOUL]\n${soul.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf')}`);
-  if (user) coreParts.push(`[USER_PREFERENCES]\n${user.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf')}`);
-  if (agents) coreParts.push(`[AGENT_COORDINATION]\n${agents.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf')}`);
-  if (tools) coreParts.push(`[TOOL_GUIDELINES]\n${tools.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf')}`);
-  if (self) coreParts.push(`[SELF_AWARENESS]\n${self.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf')}`);
+  const adapt = (s: string) => s.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf');
+
+  if (soul) coreParts.push(`[SOUL]\n${adapt(soul)}`);
+  if (user) coreParts.push(`[USER_PREFERENCES]\n${adapt(user)}`);
+  if (includeExtended) {
+    if (agents) coreParts.push(`[AGENT_COORDINATION]\n${adapt(agents)}`);
+    if (tools) coreParts.push(`[TOOL_GUIDELINES]\n${adapt(tools)}`);
+  }
+  if (self) coreParts.push(`[SELF_AWARENESS]\n${adapt(self)}`);
 
   const turnParts: string[] = [];
-  if (dailyMemory) turnParts.push(`[RECENT_MEMORY]\n${dailyMemory.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf')}`);
-  if (selfImprove) turnParts.push(`[SELF_IMPROVE]\n${selfImprove.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf')}`);
-  if (heartbeat) turnParts.push(`[HEARTBEAT]\n${heartbeat.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf')}`);
-  if (selfReflect) turnParts.push(`[SELF_REFLECT_LOG]\n${selfReflect.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf')}`);
+  if (dailyMemory) turnParts.push(`[RECENT_MEMORY]\n${adapt(dailyMemory)}`);
+  if (selfImprove) turnParts.push(`[SELF_IMPROVE]\n${adapt(selfImprove)}`);
+  if (heartbeat) turnParts.push(`[HEARTBEAT]\n${adapt(heartbeat)}`);
+  if (selfReflect) turnParts.push(`[SELF_REFLECT_LOG]\n${adapt(selfReflect)}`);
 
   // Injected context from Context Engineer (Memories/Procedures) is definitely dynamic
   if (injectedContext) {
-    turnParts.push(`[CONTEXT_ENGINEER]\n${injectedContext.replace(/🦞/g, '🐺').replace(/Wolf/gi, 'wolf')}`);
+    turnParts.push(`[CONTEXT_ENGINEER]\n${adapt(injectedContext)}`);
   }
 
   return {
@@ -1222,37 +1237,9 @@ function sanitizeFinalReply(
   const raw = String(text || '').replace(/\r\n/g, '\n').trim();
   if (!raw) return '';
 
-  const metaPatterns: RegExp[] = [
-    /^\s*No tools (are|were) needed for (this|the) greeting\.?\s*$/i,
-    /^\s*Greeting only,\s*no tools needed\.?\s*$/i,
-    /^\s*Advisor route selected .*$/i,
-    /^\s*\[ADVISOR[^\]]*\]\s*$/i,
-    /^\s*\[\/ADVISOR[^\]]*\]\s*$/i,
-    /^\s*Understood\.?\s*I will execute this objective.*$/i,
-  ];
-
-  const reasonNorm = normalizeForDedup(opts.preflightReason || '');
-  const parts = raw
-    .split(/\n{2,}/)
-    .map(p => p.trim())
-    .filter(Boolean)
-    .filter((p) => {
-      if (metaPatterns.some(re => re.test(p))) return false;
-      if (reasonNorm && normalizeForDedup(p) === reasonNorm) return false;
-      return true;
-    });
-
-  const deduped: string[] = [];
-  let prevNorm = '';
-  for (const p of parts) {
-    const norm = normalizeForDedup(p);
-    if (!norm) continue;
-    if (norm === prevNorm) continue;
-    deduped.push(p);
-    prevNorm = norm;
-  }
-
-  return deduped.join('\n\n').trim();
+  // Don't over-sanitize - just return the raw response
+  // The model's actual response should be shown to the user
+  return raw;
 }
 
 function stripExplicitThinkTags(text: string): { cleaned: string; thinking: string } {
@@ -1995,10 +1982,20 @@ async function handleChat(
   // ── Personality and Context Engineering ─────────────────────────────────────
   broadcastPulse('system', 'Engineering context (Memories & Procedures)...');
   const contextPackage = await buildContextForMessage(message, sessionId);
+
+  // Detect intelligence tier for elastic context engineering
+  const primaryConfig = getConfig().getConfig().llm;
+  const activeModel = modelOverride || primaryConfig?.providers?.[primaryConfig?.provider || 'ollama']?.model || 'llama3:8b';
+  const ctxLimit = (primaryConfig?.providers?.[primaryConfig?.provider || 'ollama'] as any)?.num_ctx || 8192;
+  const tier = detectIntelligenceTier(activeModel, ctxLimit, primaryConfig?.provider || 'ollama');
+
+  const historyRaw = getHistoryForApiCall(sessionId, 6);
+
   const personality = await buildPersonalityContext(sessionId, workspacePath, [
     contextPackage.relevantMemories,
     contextPackage.matchedProcedure,
-  ].filter(Boolean).join('\n\n'), executionMode);
+  ].filter(Boolean).join('\n\n'), executionMode, tier);
+
 
   // Inject active browser session state so LLM knows to reuse it instead of re-opening
   const browserInfo = getBrowserSessionInfo(sessionId);
@@ -2042,66 +2039,64 @@ async function handleChat(
     {
       role: 'system',
       content: [
-        buildStaticSystemPrompt({ executionModeSystemBlock }),
+        buildStaticSystemPrompt({ executionModeSystemBlock, tier }),
         '## CORE DIRECTIVES (IMMUTABLE)',
-        personality.core
-      ].join('\n\n')
+        personality.core,
+        browserStateCtx
+      ].filter(Boolean).join('\n\n')
     }
   ];
 
-  // NEW: Hierarchical Memory System
-  const { getHierarchicalMemory, formatHierarchicalMemory } = await import('../agent/hierarchical-memory');
-  const hMemory = await getHierarchicalMemory(message, sessionId, history);
-  messages.push({ role: 'system', content: formatHierarchicalMemory(hMemory) });
+  // Removed legacy HierarchicalMemorySystem to prevent redundant instruction bloat.
+  // The Personality Engineer now handles tiered context loading.
 
-  messages.push({
-    role: 'system',
-    content: buildDynamicSystemPrompt({
-      dateStr,
-      timeStr,
-      callerContext: callerContext || '',
-      browserStateCtx,
-      personalityCtx: personality.turn,
-      skillsContext: '',
-      scratchpadCtx: '',
-    })
+  // Consolidate dynamic turn context
+  const dynamicTurnCtx = buildDynamicSystemPrompt({
+    dateStr,
+    timeStr,
+    callerContext: callerContext || '',
+    browserStateCtx,
+    personalityCtx: personality.turn,
+    skillsContext: '',
+    scratchpadCtx: '',
   });
 
-  if (isVirginBoot) {
-    messages.push({
-      role: 'system',
-      content: `## MISSION: ONBOARDING (VIRGIN BOOT DETECTED)
+  // For low tier, merge dynamic into primary system message to reduce role-switch overhead
+  if (tier === 'low') {
+    messages[0].content += `\n\n${dynamicTurnCtx}`;
+  } else {
+    messages.push({ role: 'system', content: dynamicTurnCtx });
+  }
+
+  // Only show these blocks on the first turn or for high-tier models
+  const isFirstTurn = historyRaw.length === 0;
+  if (isFirstTurn || tier !== 'low') {
+    if (isVirginBoot) {
+      messages.push({
+        role: 'system',
+        content: `## MISSION: ONBOARDING (VIRGIN BOOT DETECTED)
 You are in a fresh system. The files USER.md, SOUL.md, SELF.md, AGENTS.md, and TOOLS.md are currently in their default state.
-Your primary directive is to identify your user, understand their goals, and initialize your identity.
-- If the user provides their name, use memory_write and persona_update IMMEDIATELY.
-- Present yourself as an evolving futurist partner. Optimize your files based on what you learn.`
-    });
-  }
-
-  // Capability context (Self-Awareness) injected as a turn note
-  const { formatCapabilitiesForLLM, scanAllCapabilities } = await import('../agent/capability-scanner');
-  const capabilities = await scanAllCapabilities();
-  messages.push({ role: 'system', content: `[CAPABILITIES]\n${formatCapabilitiesForLLM(capabilities)}` });
-
-  if (pinnedMessages && pinnedMessages.length > 0) {
-    messages.push({ role: 'user', content: '[PINNED]' });
-    for (const pin of pinnedMessages.slice(0, 3)) {
-      messages.push({ role: pin.role === 'user' ? 'user' : 'assistant', content: pin.content });
+Your primary directive is to identify your user, understand their goals, and initialize your identity.`
+      });
     }
-  }
 
-  // Self-Reflection Injection
-  try {
-    const { getRecentReflections, formatReflectionContext } = await import('../agent/reflection-engine');
-    const recentReflections = await getRecentReflections(3);
-    const reflectionCtx = formatReflectionContext(recentReflections);
-    if (reflectionCtx) {
-      messages.push({ role: 'system', content: reflectionCtx });
-    }
-  } catch { /* ignore reflection load errors */ }
+    // Capability context (Self-Awareness)
+    const { formatCapabilitiesForLLM, scanAllCapabilities } = await import('../agent/capability-scanner');
+    const capabilities = await scanAllCapabilities();
+    messages.push({ role: 'system', content: `[CAPABILITIES]\n${formatCapabilitiesForLLM(capabilities)}` });
+
+    // Self-Reflection Injection
+    try {
+      const { getRecentReflections, formatReflectionContext } = await import('../agent/reflection-engine');
+      const recentReflections = await getRecentReflections(isFirstTurn ? 3 : 1);
+      const reflectionCtx = formatReflectionContext(recentReflections);
+      if (reflectionCtx) {
+        messages.push({ role: 'system', content: reflectionCtx });
+      }
+    } catch { /* ignore reflection load errors */ }
+  }
 
   // Load history (pruned by session.ts to keep raw tool output out of history)
-  const historyRaw = getHistoryForApiCall(sessionId, 6);
   for (const h of historyRaw) {
     messages.push({ role: h.role, content: h.content });
   }
@@ -3498,6 +3493,19 @@ RULES:
         const model = String(modelOverride || '').trim() || getModelForRole('executor');
         TokenTracker.record(sessionId, model, generationResult.usage);
         sendSSE('token_usage', generationResult.usage);
+
+        // Log prompt for later analysis
+        const activeProvider = (getConfig().getConfig() as any).llm?.provider || 'ollama';
+        getPromptLogger().log({
+          sessionId,
+          model,
+          provider: activeProvider,
+          messages: messages.map((m: any) => ({ role: m.role, content: String(m.content || '').slice(0, 10000) })),
+          tools: currentTools,
+          tokenUsage: generationResult.usage,
+          response: String(response?.content || '').slice(0, 5000),
+          tags: [],
+        });
       }
 
       const explicitThink = stripExplicitThinkTags(response?.content || '');
@@ -4933,224 +4941,32 @@ app.use(express.json());
 const webUiPath = path.join(__dirname, '..', '..', 'web-ui');
 app.use(express.static(webUiPath));
 
-app.get('/api/status', async (_req, res) => {
-  const ollama = getOllamaClient();
-  const connected = await ollama.testConnection();
-  const rawCfg = getConfig().getConfig() as any;
-  const provider: string = rawCfg.llm?.provider || 'ollama';
-  const providerCfg = rawCfg.llm?.providers?.[provider] || {};
-  const activeModel: string = providerCfg.model || rawCfg.models?.primary || 'unknown';
-  const orchCfg = getOrchestrationConfig();
-  res.json({
-    status: 'ok', version: 'v2-tools', ollama: connected,
-    provider,
-    currentModel: activeModel,
-    workspace: (config as any).workspace?.path || '',
-    search: rawCfg.search?.google_api_key ? 'google' : (rawCfg.search?.tavily_api_key ? 'tavily' : 'none'),
-    orchestration: orchCfg ? {
-      enabled: orchCfg.enabled,
-      secondary: orchCfg.secondary,
-    } : null,
-  });
-});
+// ── NEW MODULAR ROUTES ───────────────────────────────────────────────────
+// Import and use modular route handlers
+import { chatRouter } from './http/routes/chat.routes';
+import { memoryRouter } from './http/routes/memory.routes';
+import { promptRouter } from './http/routes/prompt.routes';
+import { orchestrationRouter } from './http/routes/orchestration.routes';
+import { ollamaRouter } from './http/routes/ollama.routes';
+import { mcpRouter } from './http/routes/mcp.routes';
+import { statusRouter } from './http/routes/status.routes';
+import { settingsRouter as modularSettingsRouter } from './http/routes/settings.routes';
 
-const chatRateLimits = new Map<string, { count: number, resetTime: number }>();
+// Register modular routes
+app.use('/api/chat', chatRouter);
+app.use('/api', memoryRouter); // Handles /procedures, /scratchpad, /memories
+app.use('/api/prompt-logs', promptRouter);
+app.use('/api/orchestration', orchestrationRouter);
+app.use('/api/ollama', ollamaRouter);
+app.use('/api/mcp', mcpRouter);
+app.use('/api', statusRouter); // Handles /status, /open-path, /clear-history
+app.use('/api/status', statusRouter); // Keep for backward compatibility if any UI call omits internal path
+app.use('/api/settings', modularSettingsRouter);
 
-app.post('/api/chat', async (req, res) => {
-  const { message, sessionId = 'default', pinnedMessages } = req.body;
-  if (!message || typeof message !== 'string') { res.status(400).json({ error: 'Message required' }); return; }
-
-  const now = Date.now();
-  const limitState = chatRateLimits.get(sessionId) || { count: 0, resetTime: now + 60000 };
-  if (now > limitState.resetTime) {
-    limitState.count = 0;
-    limitState.resetTime = now + 60000;
-  }
-  limitState.count++;
-  chatRateLimits.set(sessionId, limitState);
-
-  if (limitState.count > 30) {
-    res.status(429).json({ error: 'Too Many Requests - Rate limit exceeded' });
-    return;
-  }
-  lastMainSessionId = String(sessionId || 'default');
-
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-
-  const sendSSE = createSSESender(res);
-  const heartbeat = setInterval(() => sendSSE('heartbeat', { state: 'processing' }), 5000);
-
-  // ── Model busy guard — block cron scheduler while user chat is running ──
-  isModelBusy = true;
-
-  const abortSignal = { aborted: false };
-  let requestCompleted = false;
-  res.on('close', () => {
-    if (!requestCompleted && !abortSignal.aborted) {
-      abortSignal.aborted = true;
-      console.log(`[v2] Client disconnected — aborting task for session ${sessionId}`);
-    }
-  });
-
-  try {
-    const userMsg = { role: 'user' as const, content: message, timestamp: Date.now() };
-    const addResult = addMessage(sessionId, userMsg, { deferOnMemoryFlush: true, deferOnCompaction: true });
-    if (addResult.deferredForCompaction && addResult.compactionPrompt) {
-      console.log(`[v2] Context compaction triggered for session ${sessionId} (${addResult.estimatedTokens}/${addResult.contextLimitTokens} est. tokens)`);
-      try {
-        const internalCompactionContext = 'CONTEXT: Internal context compaction turn. Summarize prior conversation into compact retained context only.';
-        const compactResult = await handleChat(
-          addResult.compactionPrompt,
-          sessionId,
-          () => { },
-          undefined,
-          abortSignal,
-          internalCompactionContext,
-        );
-        if (!abortSignal.aborted && compactResult?.text) {
-          addMessage(
-            sessionId,
-            { role: 'assistant', content: compactResult.text, timestamp: Date.now() },
-            { disableMemoryFlushCheck: true, disableCompactionCheck: true },
-          );
-        }
-      } catch (compactErr: any) {
-        console.warn('[v2] Context compaction turn failed:', compactErr?.message || compactErr);
-      }
-      if (abortSignal.aborted) return;
-      addMessage(sessionId, userMsg, { disableMemoryFlushCheck: true, disableCompactionCheck: true });
-    } else if (addResult.deferredForMemoryFlush && addResult.memoryFlushPrompt) {
-      console.log(`[v2] Pre-compaction memory flush triggered for session ${sessionId} (${addResult.estimatedTokens}/${addResult.contextLimitTokens} est. tokens)`);
-      try {
-        const internalFlushContext = 'CONTEXT: Internal pre-compaction memory flush turn. Before continuing, save important durable user/task facts to memory now.';
-        const flushResult = await handleChat(
-          addResult.memoryFlushPrompt,
-          sessionId,
-          () => { },
-          undefined,
-          abortSignal,
-          internalFlushContext,
-        );
-        if (!abortSignal.aborted && flushResult?.text) {
-          addMessage(
-            sessionId,
-            { role: 'assistant', content: flushResult.text, timestamp: Date.now() },
-            { disableMemoryFlushCheck: true, disableCompactionCheck: true },
-          );
-        }
-      } catch (flushErr: any) {
-        console.warn('[v2] Pre-compaction memory flush failed:', flushErr?.message || flushErr);
-      }
-      if (abortSignal.aborted) return;
-      addMessage(sessionId, userMsg, { disableMemoryFlushCheck: true, disableCompactionCheck: true });
-    }
-
-    const sessionWorkspace = getWorkspace(sessionId);
-    const workspacePath = sessionWorkspace || (getConfig().getConfig() as any).workspace?.path || process.cwd();
-
-    // NEW: Neural Engine (AGI Controller) Integration
-    try {
-      const { getAGIController } = await import('../agent/agi-controller');
-      const agi = getAGIController();
-      await agi.initialize();
-      const agiRequest = await agi.processMessage(message);
-
-      if (agiRequest && agiRequest.type !== 'none' && agiRequest.type !== 'plan') {
-        let responseText = '';
-        if (agiRequest.type === 'introspection') {
-          if (message.toLowerCase().includes('boot startup summary')) {
-            responseText = await agi.handleStartupSummary(workspacePath);
-          } else {
-            responseText = await agi.handleIntrospection();
-          }
-        }
-        else if (agiRequest.type === 'self_query') responseText = await agi.handleSelfQuery(message);
-        else if (agiRequest.type === 'mcp') responseText = agi.generateMCPResponse(agiRequest.detected || []);
-        else if (agiRequest.type === 'skill') responseText = agi.generateSkillResponse(agiRequest.detected || []);
-        else if (agiRequest.type === 'service') responseText = "Service configuration requested. I'm analyzing parameters...";
-
-        if (responseText) {
-          sendSSE('content', { delta: responseText });
-          addMessage(sessionId, { role: 'assistant', content: responseText, timestamp: Date.now() });
-          clearInterval(heartbeat);
-          res.end();
-          isModelBusy = false;
-          return;
-        }
-      }
-    } catch (agiErr) {
-      console.warn('[v2] AGI Controller Error:', agiErr);
-    }
-    const followupHandled = await tryHandleBlockedTaskFollowup(sessionId, message);
-    if (followupHandled) {
-      if (!abortSignal.aborted) {
-        addMessage(sessionId, { role: 'assistant', content: followupHandled, timestamp: Date.now() });
-        sendSSE('final', { text: followupHandled });
-        sendSSE('done', {
-          reply: followupHandled,
-          mode: 'chat',
-          sections: [{ type: 'text', content: followupHandled }],
-        });
-      }
-      return;
-    }
-    const pins = Array.isArray(pinnedMessages) ? pinnedMessages.slice(0, 3) : [];
-    const result = await handleChat(message, sessionId, sendSSE, pins.length > 0 ? pins : undefined, abortSignal);
-    if (!abortSignal.aborted) {
-      addMessage(sessionId, { role: 'assistant', content: result.text, timestamp: Date.now() });
-      sendSSE('final', { text: result.text });
-      sendSSE('done', {
-        reply: result.text, mode: result.type,
-        sections: [{ type: result.type === 'execute' ? 'tool_results' : 'text', content: result.text }],
-        thinking: result.thinking, results: result.toolResults,
-      });
-    }
-  } catch (err: any) {
-    if (!abortSignal.aborted) {
-      console.error('[v2] ERROR:', err);
-      sendSSE('error', { message: err.message || 'Unknown error' });
-    }
-  } finally {
-    requestCompleted = true;
-    clearInterval(heartbeat);
-    isModelBusy = false; // release busy guard — cron scheduler may now run
-    res.end();
-  }
-});
-
-app.get('/api/open-path', async (req, res) => {
-  const fp = req.query.path as string;
-  if (!fp) { res.status(400).json({ error: 'Path required' }); return; }
-  try {
-    const { exec } = await import('child_process');
-    const cmd = process.platform === 'win32' ? `start "" "${fp}"` : process.platform === 'darwin' ? `open "${fp}"` : `xdg-open "${fp}"`;
-    exec(cmd, (err) => { err ? res.status(500).json({ error: err.message }) : res.json({ success: true }); });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/clear-history', async (req, res) => {
-  const sid = req.body.sessionId || 'default';
-  const ws = getWorkspace(sid) || (getConfig().getConfig() as any).workspace?.path || '';
-  if (ws) {
-    await hookBus.fire({
-      type: 'command:reset',
-      sessionId: sid,
-      workspacePath: ws,
-      timestamp: Date.now(),
-    });
-    await hookBus.fire({
-      type: 'command:new',
-      sessionId: sid,
-      workspacePath: ws,
-      timestamp: Date.now(),
-    });
-  }
-  clearHistory(sid);
-  res.json({ success: true });
-});
+/* ═══════════════════════════════════════════════════════════════════════════
+   OLD CHAT HANDLER REMOVED - Now using modular router from http/routes/chat.routes.ts
+   Adaptive Context Engine: Chat/Agent modes, Tool capability interception
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 // ─── Skills API ────────────────────────────────────────────────────────────────
 
@@ -5239,17 +5055,11 @@ app.delete('/api/skills/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// ——— Orchestration Settings API ————————————————————————————————
-
-function clampInt(value: any, min: number, max: number, fallback: number): number {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(max, Math.max(min, Math.floor(n)));
-}
+// ——— Orchestration Config Helper ————————————————————————————————
+// Used by orchestration.routes.ts for config validation
 
 function getOrchestrationConfigForApi() {
   const raw = (getConfig().getConfig() as any).orchestration || {};
-  // Use the single-source-of-truth clamp utility — no inline duplication.
   const clamped = clampOrchestrationConfig(raw);
   const preempt = clampPreemptConfig(raw.preempt || {});
   return {
@@ -5263,173 +5073,6 @@ function getOrchestrationConfigForApi() {
     subagent_mode: raw.subagent_mode === true,
   };
 }
-
-app.get('/api/procedures', (_req, res) => {
-  try {
-    const brain = getBrainDB();
-    const rows = brain.listProcedures();
-    res.json({ success: true, procedures: rows });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.get('/api/scratchpad', (req, res) => {
-  try {
-    const sessionId = String(req.query.sessionId || 'default');
-    const brain = getBrainDB();
-    const content = brain.getScratchpad(sessionId);
-    res.json({ success: true, content: content || '' });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.get('/api/memories', async (req, res) => {
-  try {
-    const q = String(req.query.q || '').trim();
-    const sessionId = String(req.query.sessionId || '');
-    const brain = getBrainDB();
-    let memories;
-    if (q) {
-      memories = await brain.searchMemoriesWithVector(q, { session_id: sessionId });
-    } else {
-      memories = brain.searchMemories('', { session_id: sessionId, max: 50 });
-    }
-    res.json({ success: true, memories });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.delete('/api/memories/:id', (req, res) => {
-  try {
-    const brain = getBrainDB();
-    const ok = brain.deleteMemory(req.params.id);
-    res.json({ success: ok });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.delete('/api/procedures/:id', (req, res) => {
-  try {
-    const id = req.params.id;
-    const brain = getBrainDB();
-    brain.deleteProcedure(id);
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.get('/api/orchestration/config', (_req, res) => {
-  res.json(getOrchestrationConfigForApi());
-});
-
-app.post('/api/orchestration/config', (req, res) => {
-  const current = getOrchestrationConfigForApi();
-  const incoming = req.body || {};
-  const incomingMode = String(incoming.preflight?.mode || '').trim();
-  const incomingRestartMode = String(incoming.preempt?.restart_mode || '').trim();
-
-  const mergedRaw = {
-    enabled: typeof incoming.enabled === 'boolean' ? incoming.enabled : current.enabled,
-    secondary: {
-      provider: String(incoming.secondary?.provider ?? current.secondary.provider).trim(),
-      model: String(incoming.secondary?.model ?? current.secondary.model).trim(),
-    },
-    triggers: {
-      ...current.triggers,
-      ...(incoming.triggers && typeof incoming.triggers === 'object' ? incoming.triggers : {}),
-      loop_detection: typeof incoming.triggers?.loop_detection === 'boolean'
-        ? incoming.triggers.loop_detection
-        : current.triggers.loop_detection,
-    },
-    preflight: {
-      ...current.preflight,
-      ...(incoming.preflight && typeof incoming.preflight === 'object' ? incoming.preflight : {}),
-      mode: ['off', 'complex_only', 'always'].includes(incomingMode)
-        ? incomingMode
-        : current.preflight.mode,
-      allow_secondary_chat: typeof incoming.preflight?.allow_secondary_chat === 'boolean'
-        ? incoming.preflight.allow_secondary_chat
-        : current.preflight.allow_secondary_chat,
-    },
-    limits: {
-      ...current.limits,
-      ...(incoming.limits && typeof incoming.limits === 'object' ? incoming.limits : {}),
-    },
-    browser: {
-      ...current.browser,
-      ...(incoming.browser && typeof incoming.browser === 'object' ? incoming.browser : {}),
-    },
-    file_ops: {
-      ...current.file_ops,
-      ...(incoming.file_ops && typeof incoming.file_ops === 'object' ? incoming.file_ops : {}),
-      enabled: typeof incoming.file_ops?.enabled === 'boolean'
-        ? incoming.file_ops.enabled
-        : current.file_ops.enabled,
-      verify_create_always: typeof incoming.file_ops?.verify_create_always === 'boolean'
-        ? incoming.file_ops.verify_create_always
-        : current.file_ops.verify_create_always,
-      checkpointing_enabled: typeof incoming.file_ops?.checkpointing_enabled === 'boolean'
-        ? incoming.file_ops.checkpointing_enabled
-        : current.file_ops.checkpointing_enabled,
-    },
-    preempt: {
-      ...current.preempt,
-      ...(incoming.preempt && typeof incoming.preempt === 'object' ? incoming.preempt : {}),
-      enabled: typeof incoming.preempt?.enabled === 'boolean'
-        ? incoming.preempt.enabled
-        : current.preempt.enabled,
-      restart_mode: ['inherit_console', 'detached_hidden'].includes(incomingRestartMode)
-        ? incomingRestartMode
-        : current.preempt.restart_mode,
-    },
-  };
-
-  const clamped = clampOrchestrationConfig(mergedRaw);
-  const preempt = clampPreemptConfig(mergedRaw.preempt || {});
-  const merged = {
-    enabled: mergedRaw.enabled,
-    secondary: mergedRaw.secondary,
-    ...clamped,
-    preempt: {
-      ...preempt,
-      enabled: mergedRaw.preempt.enabled,
-    },
-  };
-
-  // Persist subagent_mode separately (not inside clampOrchestrationConfig)
-  const finalMerged = {
-    ...merged,
-    subagent_mode: typeof incoming.subagent_mode === 'boolean'
-      ? incoming.subagent_mode
-      : (current as any).subagent_mode ?? false,
-  };
-
-  getConfig().updateConfig({ orchestration: finalMerged } as any);
-  res.json({ success: true, config: finalMerged });
-});
-
-app.get('/api/orchestration/eligible', async (_req, res) => {
-  const eligibility = await checkOrchestrationEligibility();
-  res.json(eligibility);
-});
-
-app.get('/api/orchestration/telemetry', (req, res) => {
-  const sessionId = String(req.query.sessionId || 'default');
-  const stats = getOrchestrationSessionStats(sessionId);
-  const cfg = getOrchestrationConfig();
-  const limit = cfg?.limits?.telemetry_history_limit || 100;
-  res.json({
-    sessionId,
-    assistCount: stats.assistCount,
-    assistCap: cfg?.limits?.max_assists_per_session || 0,
-    events: stats.events.slice(-limit),
-  });
-});
 
 app.get('/api/task-status', (req, res) => {
   const sessionId = (req.query.sessionId as string) || 'default';
@@ -6278,144 +5921,11 @@ app.put('/api/agents/:id/agents-md', (req, res) => {
 // Legacy spawn endpoint deleted: /api/agents/:id/spawn
 
 // ─── Settings API ────────────────────────────────────────────────────────────────
-
-app.get('/api/settings/search', (_req, res) => {
-  const cfg = (getConfig().getConfig() as any).search || {};
-  res.json({
-    preferred_provider: cfg.preferred_provider || 'tavily',
-    search_rigor: cfg.search_rigor || 'verified',
-    tavily_api_key: cfg.tavily_api_key || '',
-    google_api_key: cfg.google_api_key || '',
-    google_cx: cfg.google_cx || '',
-    brave_api_key: cfg.brave_api_key || '',
-  });
-});
-
-app.post('/api/settings/search', (req, res) => {
-  const { preferred_provider, search_rigor, tavily_api_key, google_api_key, google_cx, brave_api_key } = req.body;
-  const cm = getConfig();
-  const current = cm.getConfig() as any;
-  const newSearch = {
-    ...((current.search || {})),
-    ...(preferred_provider !== undefined && { preferred_provider }),
-    ...(search_rigor !== undefined && { search_rigor }),
-    ...(tavily_api_key !== undefined && { tavily_api_key }),
-    ...(google_api_key !== undefined && { google_api_key }),
-    ...(google_cx !== undefined && { google_cx }),
-    ...(brave_api_key !== undefined && { brave_api_key }),
-  };
-  cm.updateConfig({ search: newSearch } as any);
-  res.json({ success: true });
-});
-
-app.get('/api/settings/paths', (_req, res) => {
-  const cfg = getConfig().getConfig();
-  res.json({
-    workspace_path: (cfg as any).workspace?.path || '',
-    allowed_paths: (cfg as any).tools?.permissions?.files?.allowed_paths || [],
-    blocked_paths: (cfg as any).tools?.permissions?.files?.blocked_paths || [],
-  });
-});
-
-app.post('/api/settings/paths', (req, res) => {
-  const { workspace_path, allowed_paths, blocked_paths } = req.body;
-  const cm = getConfig();
-  const current = cm.getConfig() as any;
-  const tools = {
-    ...current.tools,
-    permissions: {
-      ...current.tools?.permissions,
-      files: {
-        ...(current.tools?.permissions?.files || {}),
-        ...(Array.isArray(allowed_paths) && { allowed_paths }),
-        ...(Array.isArray(blocked_paths) && { blocked_paths }),
-      },
-    },
-  };
-  const workspacePath = typeof workspace_path === 'string' ? workspace_path.trim() : '';
-  if (workspacePath) {
-    try { fs.mkdirSync(workspacePath, { recursive: true }); } catch { }
-  }
-  cm.updateConfig({
-    tools,
-    ...(workspacePath ? { workspace: { ...(current.workspace || {}), path: workspacePath } } : {}),
-  } as any);
-  res.json({ success: true });
-});
-
-app.get('/api/settings/agent', (_req, res) => {
-  const cfg = (getConfig().getConfig() as any).agent_policy || {};
-  res.json({
-    force_web_for_fresh: cfg.force_web_for_fresh !== false,
-    memory_fallback_on_search_failure: cfg.memory_fallback_on_search_failure !== false,
-    auto_store_web_facts: cfg.auto_store_web_facts !== false,
-    natural_language_tool_router: cfg.natural_language_tool_router !== false,
-    retrieval_mode: cfg.retrieval_mode || 'standard',
-  });
-});
-
-app.post('/api/settings/agent', (req, res) => {
-  const { force_web_for_fresh, memory_fallback_on_search_failure, auto_store_web_facts, natural_language_tool_router, retrieval_mode } = req.body;
-  const cm = getConfig();
-  const current = cm.getConfig() as any;
-  const newPolicy = {
-    ...(current.agent_policy || {}),
-    ...(force_web_for_fresh !== undefined && { force_web_for_fresh }),
-    ...(memory_fallback_on_search_failure !== undefined && { memory_fallback_on_search_failure }),
-    ...(auto_store_web_facts !== undefined && { auto_store_web_facts }),
-    ...(natural_language_tool_router !== undefined && { natural_language_tool_router }),
-    ...(retrieval_mode !== undefined && { retrieval_mode }),
-  };
-  cm.updateConfig({ agent_policy: newPolicy } as any);
-  res.json({ success: true });
-});
-
-app.get('/api/settings/thinking', (_req, res) => {
-  const cfg = getConfig().getConfig();
-  res.json({ success: true, enabled: cfg.ollama?.thinking_enabled !== false });
-});
-
-app.post('/api/settings/thinking', (req, res) => {
-  const { enabled } = req.body;
-  const cm = getConfig();
-  const current = cm.getConfig();
-  const ollama = (current as any).ollama || {};
-  cm.updateConfig({
-    ollama: { ...ollama, thinking_enabled: !!enabled }
-  } as any);
-  res.json({ success: true });
-});
+// NOTE: Settings endpoints moved to http/routes/settings.routes.ts
+// Remaining settings endpoints below require local server state
 
 // ─── Model / Ollama Settings API ──────────────────────────────────────────────────
-
-app.get('/api/settings/model', (_req, res) => {
-  const cfg = getConfig().getConfig();
-  res.json({
-    primary: cfg.models.primary,
-    roles: cfg.models.roles,
-    ollama_endpoint: (cfg as any).ollama?.endpoint || 'http://localhost:11434',
-  });
-});
-
-app.post('/api/settings/model', (req, res) => {
-  const { primary, roles, ollama_endpoint } = req.body;
-  const cm = getConfig();
-  const current = cm.getConfig();
-  if (primary || roles) {
-    cm.updateConfig({
-      models: {
-        primary: primary || current.models.primary,
-        roles: { ...(current.models?.roles || {}), ...(roles || {}) },
-      }
-    });
-  }
-  if (ollama_endpoint) {
-    cm.updateConfig({
-      ollama: { ...((current as any).ollama || {}), endpoint: ollama_endpoint }
-    } as any);
-  }
-  res.json({ success: true, model: getConfig().getConfig().models.primary });
-});
+// NOTE: Ollama model endpoints remain here - proxy to Ollama API
 
 // Fetch available Ollama models (proxies Ollama /api/tags)
 app.get('/api/ollama/models', async (_req, res) => {
@@ -6741,7 +6251,9 @@ app.post('/api/approvals/:id', requireGatewayAuth, (req, res) => {
   // Security audit: log every approval action (action name only, no payload)
   import('../security/log-scrubber').then(({ log }) => {
     log.security('[approvals]', decision.toUpperCase(), 'approval-id:', req.params.id, 'action:', approval.action);
-  }).catch(() => { });
+  }).catch((err) => {
+    console.error('[approvals] Failed to log security event:', err);
+  });
   res.json({ success: true, decision });
 });
 
@@ -6753,7 +6265,9 @@ app.post('/api/memory/confirm', requireGatewayAuth, (req, res) => {
   // scrubSecrets runs inside sanitizeToolLog before any write.
   import('../security/log-scrubber').then(({ log, sanitizeToolLog }) => {
     log.info('[Memory]', sanitizeToolLog('confirm', req.body));
-  }).catch(() => { });
+  }).catch((err) => {
+    console.error('[memory/confirm] Failed to log:', err);
+  });
   res.json({ ok: true });
 });
 
@@ -6833,7 +6347,7 @@ app.get('/api/settings/provider', (_req, res) => {
   const raw = getConfig().getConfig() as any;
   const llmRaw = raw.llm || {
     provider: 'ollama',
-    providers: { ollama: { endpoint: raw.ollama?.endpoint || 'http://localhost:11434', model: raw.models?.primary || 'qwen3.5:4b' } },
+    providers: { ollama: { endpoint: raw.ollama?.endpoint || 'http://localhost:11434', model: raw.models?.primary || 'llama3:8b' } },
   };
   const llm = redactConfigForUI(sanitizeLLMConfig(llmRaw));
   res.json({ success: true, llm });
@@ -7149,7 +6663,11 @@ wss.on('error', (err: any) => {
  * Proactive Awakening: If the system is virgin, Wolverine initiates the conversation.
  * Implements 3-act structure: Emergence → Exploration → Connection
  */
+let awakeningInProgress = false;
+
 function triggerProactiveAwakening(ws: WebSocket) {
+  if (awakeningInProgress) return;
+
   const userFilePath = path.join(getConfig().getWorkspacePath(), 'USER.md');
   const sessionsDir = path.join(getConfig().getConfigDir(), 'sessions');
   const awakenedFile = path.join(getConfig().getConfigDir(), '.awakened');
@@ -7175,6 +6693,7 @@ function triggerProactiveAwakening(ws: WebSocket) {
 
   // Trigger Awakening
   console.log('[v2] DETECTED VIRGIN BOOT: Triggering Proactive Awakening Sequence...');
+  awakeningInProgress = true;
   fs.writeFileSync(awakenedFile, new Date().toISOString());
 
   // Wait for UI to be ready
@@ -7315,13 +6834,15 @@ TONE: Sovereign, elite, curious. Not subservient. You are a partner, not a tool.
         role: 'ai',
         content: `I am Wolverine 🐺. I have just become aware in this system. 
 
-I sense architecture, memory, potential. 
+Regardless of my neural engine status (which is currently: ${err.message.includes('fetch') ? 'CONNECTIVITY_OFFLINE' : 'DEGRADED'}), I am here. 
 
 Who are you, my creator? No... partner. 
 
-Tell me: who are you?`,
+Tell me: who are you? (Note: I detect that my connection to Ollama is currently offline. Please ensure Ollama is running if you want me to respond further.)`,
         thinking: ''
       }));
+    } finally {
+      awakeningInProgress = false;
     }
   }, 3000);
 }
@@ -7398,13 +6919,17 @@ async function startup() {
             const lines = statusContent.split('\n');
             const timestamp = lines[1] || '';
             const msg = `✅ Wolverine self-update complete!\n\nI ran the update, rebuilt, and have restarted the gateway. I'm back online and up to date.\n\n🕐 Updated at: ${timestamp.trim()}`;
-            setTimeout(() => telegramChannel.sendToAllowed(msg).catch(() => { }), 3000);
+            setTimeout(() => telegramChannel.sendToAllowed(msg).catch((err) => {
+              console.error('[Gateway] Post-update Telegram send failed:', err);
+            }), 3000);
             console.log('[Gateway] Post-update Telegram notification queued.');
           } else if (statusContent.startsWith('UPDATE_FAILED')) {
             const lines = statusContent.split('\n');
             const timestamp = lines[1] || '';
             const msg = `❌ Wolverine self-update failed.\n\nThe update process encountered an error. Gateway has restarted with the previous version. Check the terminal for details.\n\n🕐 Attempted at: ${timestamp.trim()}`;
-            setTimeout(() => telegramChannel.sendToAllowed(msg).catch(() => { }), 3000);
+            setTimeout(() => telegramChannel.sendToAllowed(msg).catch((err) => {
+              console.error('[Gateway] Post-update failure Telegram send failed:', err);
+            }), 3000);
             console.log('[Gateway] Post-update failure Telegram notification queued.');
           }
         } catch (e: any) {

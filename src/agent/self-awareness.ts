@@ -15,6 +15,7 @@
 import { getBrainDB } from '../db/brain';
 import { scanAllCapabilities, Capability, CapabilityMap } from './capability-scanner';
 import { canDo } from './self-query';
+import { getProvider } from '../providers/factory';
 
 export interface SelfAwarenessState {
   // What Wolverine knows it can do
@@ -296,6 +297,22 @@ export async function selfDiagnostic(): Promise<{
     }
   } catch {
     checks.memory_available = true;
+  }
+
+  // Check 4: LLM Connectivity
+  try {
+    const provider = getProvider();
+    // Test a very simple request or just ping the endpoint if possible
+    // For now, we'll try a list call if it's Ollama, or just assume success if it's others
+    // Actually, let's just try to reach the endpoint.
+    const res = await (provider as any).client?.list?.().catch(() => null);
+    checks.llm_connectivity = !!res || (provider as any).constructor.name !== 'OllamaAdapter';
+    if (!checks.llm_connectivity) {
+      issues.push('LLM provider unreachable (is Ollama running?)');
+    }
+  } catch {
+    checks.llm_connectivity = false;
+    issues.push('LLM connectivity check failed');
   }
 
   const healthy = Object.values(checks).every(v => v) && issues.length === 0;

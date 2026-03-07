@@ -3,6 +3,7 @@ import path from 'path';
 import { createHash } from 'crypto';
 
 import { getConfig } from '../config/config';
+import { clampInt } from '../shared/utils';
 
 export type FileOpType = 'FILE_ANALYSIS' | 'FILE_CREATE' | 'FILE_EDIT' | 'BROWSER_OP' | 'DESKTOP_OP' | 'CHAT';
 export type FileOpOwner = 'primary' | 'secondary';
@@ -144,12 +145,6 @@ export interface OrchestrationLikeConfig {
 const CREATE_TOOLS = new Set(['create_file']);
 const EDIT_TOOLS = new Set(['replace_lines', 'insert_after', 'delete_lines', 'find_replace', 'delete_file']);
 const MUTATION_TOOLS = new Set([...Array.from(CREATE_TOOLS), ...Array.from(EDIT_TOOLS)]);
-
-function clampInt(value: any, min: number, max: number, fallback: number): number {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(max, Math.max(min, Math.floor(n)));
-}
 
 function countLines(text: string): number {
   const raw = String(text || '');

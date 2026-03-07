@@ -25,23 +25,8 @@ function migrateLegacyDir(legacyDir: string, targetDir: string): void {
 
 function migrateLegacyData(): void {
   // Disabled: Templates now live stay in src/config/skel/ permanently.
-  return;
-
-  const projectLegacy = path.join(__dirname, '..', '..', '.Wolverine');
-  const homeTarget = PATHS.dataHome();
-
-  if (process.env.WOLVERINE_HOME || process.env.Wolverine_HOME) return;
-
-  // Codebase-to-User migration: If legacy data exists in the repository root, 
-  // move it to the user's home directory to ensure the codebase remains "virgin".
-  if (fs.existsSync(projectLegacy) && !fs.existsSync(homeTarget)) {
-    console.log(`[Config] Codebase migration: Moving project-local ${projectLegacy} -> ${homeTarget}`);
-    migrateLegacyDir(projectLegacy, homeTarget);
-    // After moving, delete the repo-local version to maintain virginity
-    try {
-      fs.rmSync(projectLegacy, { recursive: true, force: true });
-    } catch { /* best-effort cleanup */ }
-  }
+  // Keeping this function stub for future migration capabilities if needed.
+  // Uncomment the code below when legacy migration is needed again.
 }
 
 migrateLegacyData();

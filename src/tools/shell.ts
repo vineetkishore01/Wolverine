@@ -24,14 +24,19 @@ function isPathInsideDir(base: string, target: string): boolean {
 // Catches commands that contain absolute paths outside the workspace even when
 // cwd is inside it — e.g. `type C:\Windows\System32\config\SAM`
 function containsOutOfScopeAbsPath(command: string, workspacePath: string): boolean {
-  // Match Windows and POSIX absolute paths embedded in command strings
+  // Match Windows and POSIX absolute paths embedded in command strings.
+  // For POSIX, we look for paths starting with / and having at least one internal separator 
+  // to avoid matching flags like /help or short API paths like /api.
   const absPathRe = process.platform === 'win32'
     ? /[A-Za-z]:[/\\][^\s"']+/g
-    : /\/[^\s"']{3,}/g;
+    : /\/(?:[\w.-]+\/)+[\w.-]*/g;
 
   const matches = command.match(absPathRe) || [];
   for (const match of matches) {
     try {
+      // Ignore common Linux system paths that aren't likely to be user files
+      if (match.startsWith('/dev/') || match.startsWith('/proc/') || match.startsWith('/sys/')) continue;
+
       if (!isPathInsideDir(workspacePath, match)) return true;
     } catch {
       // If we can't resolve it, treat as suspicious

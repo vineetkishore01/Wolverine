@@ -13,6 +13,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import crypto from 'crypto';
 import { resolveDataPath } from '../config/paths.js';
+import { clampInt } from '../shared/utils';
 
 const execFileAsync = promisify(execFile);
 
@@ -41,12 +42,6 @@ interface DesktopSessionState {
 }
 
 const sessions = new Map<string, DesktopSessionState>();
-
-function clampInt(value: any, min: number, max: number, fallback: number): number {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(max, Math.max(min, Math.floor(n)));
-}
 
 const OCR_CHILD_SCRIPT = `
 (async () => {

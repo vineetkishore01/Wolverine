@@ -2,6 +2,7 @@ import { getBrainDB } from '../db/brain';
 import { estimateTokens } from '../db/brain';
 import { detectServices, isConfigurationRequest, generateConfigRequest, formatKnownServices } from '../agent/service-autoconfig';
 import { formatCapabilitiesForLLM, scanAllCapabilities } from '../agent/capability-scanner';
+import { IntelligenceTier } from '../agent/tier-detector';
 
 export interface ContextPackage {
     relevantMemories: string;
@@ -26,6 +27,7 @@ export interface ContextPackage {
 export async function buildContextForMessage(
     userMessage: string,
     sessionId: string,
+    tier: IntelligenceTier = 'low',
     opts?: {
         maxMemoryTokens?: number;   // default 300 (≈75 tokens worth of chars)
         maxProcedureTokens?: number; // default 400
@@ -81,31 +83,17 @@ export async function buildContextForMessage(
     const totalChars = (relevantMemories?.length || 0) + (matchedProcedure?.length || 0) + (activeScratchpad?.length || 0);
     const tokenEstimate = estimateTokens(relevantMemories) + estimateTokens(matchedProcedure || '') + estimateTokens(activeScratchpad || '');
 
-    // 6. Phase 1: Add agent enhancement prompts for small models
-    const agentEnhancements = `
+    // 6. Agent enhancement prompts only for models that can handle the extra instruction pressure
+    let agentEnhancements = '';
+    if (tier !== 'low') {
+        agentEnhancements = `
 # Agent Capabilities
-
-You have access to ENHANCED AGENT CAPABILITIES designed for efficient operation:
-
-## Agentic Search Strategy
-Use search tools in order from cheapest to most expensive:
-1. GLOB (50 tokens) - Fast pattern matching for file paths
-2. GREP (200 tokens) - Content search in files  
-3. READ (500 tokens) - Full file content (use sparingly)
-
-Start with glob to find files, use grep to narrow down, read only specific sections.
-
-## Procedural Memory
-The system learns from successful tool sequences. When a procedure is triggered:
-- Follow the steps exactly
-- Adapt arguments to current task
-- Report success/failure when complete
-
-## Memory Layers
-- SCRATCHPAD: Use for task decomposition and tracking progress
-- MEMORY SEARCH: Search for relevant facts before acting
-- Always check scratchpad at the start of complex tasks
+You have access to ENHANCED AGENT CAPABILITIES:
+- SEARCH: GLOB (paths), GREP (content), READ (view).
+- MEMORY: Always check SCRATCHPAD before acting.
+- PROCEDURES: Follow triggered workflows exactly.
 `.trim();
+    }
 
     // AGI Phase 3: Service Auto-Config detection
     let serviceRequests: ContextPackage['serviceRequests'] = undefined;

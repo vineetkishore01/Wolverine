@@ -118,6 +118,9 @@ export class WolverineAGIController {
     // Run self-diagnostic
     const diag = await selfDiagnostic();
     console.log('[AGI Controller] Neural Health:', diag.healthy ? 'STABLE' : 'DEGRADED');
+    if (!diag.healthy && diag.issues.length > 0) {
+      console.log('[AGI Controller] Issues found:', diag.issues.join(', '));
+    }
 
     this.initialized = true;
   }

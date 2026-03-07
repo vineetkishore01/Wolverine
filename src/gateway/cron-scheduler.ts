@@ -7,7 +7,7 @@
  *  - Minimal cron parsing — handles the 90% patterns without external deps
  *  - HEARTBEAT_OK response is silently suppressed
  *  - Any real content → creates an automated chat session broadcast over WS
- *  - Telegram stub: deliverTelegram() is a no-op with a clear TODO marker
+ *  - Telegram: deliverTelegram is injected as a dependency (see server.ts)
  */
 
 import fs from 'fs';
@@ -133,18 +133,9 @@ export function getNextRun(cronExpr: string | null, from: Date, tz?: string): Da
   }
 }
 
-// ─── Telegram Stub ─────────────────────────────────────────────────────────────
-// TODO: Replace this stub with actual telegram delivery when implementing Telegram channel.
-// The interface is already defined — just fill in the body of deliverTelegram().
-
-async function deliverTelegram(_jobName: string, _content: string): Promise<void> {
-  // STUB — Telegram not yet configured.
-  // When implementing:
-  //   1. Read config.channels.telegram.botToken and allowedUserIds
-  //   2. POST to https://api.telegram.org/bot{token}/sendMessage
-  //   3. Split content if > 4096 chars
-  console.log('[CronScheduler] Telegram delivery stub called — not yet implemented');
-}
+// ─── Telegram Delivery ─────────────────────────────────────────────────────────────
+// Telegram delivery is handled via the deliverTelegram dependency injected in CronScheduler.
+// See server.ts for the implementation: deliverTelegram: (text) => telegramChannel.sendToAllowed(text)
 
 // ─── CronScheduler Class ───────────────────────────────────────────────────────
 

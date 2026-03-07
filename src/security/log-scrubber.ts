@@ -28,6 +28,10 @@ const LOG_DIR_ENV   = process.env.WOLVERINE_LOG_DIR;
 const LOG_LEVEL_ENV = (process.env.WOLVERINE_LOG_LEVEL ?? 'info').toLowerCase();
 
 const LEVELS = { debug: 0, info: 1, warn: 2, error: 3, security: 4 } as const;
+const isDev = process.env.NODE_ENV === 'development';
+
+// Set minimum log level based on environment
+const MIN_LEVEL = isDev ? LEVELS.debug : LEVELS.info;
 type LogLevel = keyof typeof LEVELS;
 
 const activeLevel: number = LEVELS[LOG_LEVEL_ENV as LogLevel] ?? LEVELS.info;

@@ -8,7 +8,17 @@ set -e
 
 echo "🐺 Starting Wolverine..."
 
-# 1. Dependency Check
+# 1. Port Cleanup
+echo "🧹 Cleaning up previous instances on port 18789..."
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    lsof -ti:18789 | xargs kill -9 2>/dev/null || true
+else
+    # Linux
+    fuser -k 18789/tcp 2>/dev/null || true
+fi
+
+# 2. Dependency Check
 if [ ! -d "node_modules" ]; then
     echo "📦 node_modules not found. Installing dependencies..."
     npm install

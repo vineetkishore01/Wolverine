@@ -10,7 +10,7 @@
     "build": "tsc",
     "dev": "tsx src/cli/index.ts",
     "start": "node dist/cli/index.js",
-    "gateway": "tsx src/gateway/server-v2.ts",
+    "gateway": "tsx src/gateway/server.ts",
     "test": "tsx tests/golden-routing.ts",
     "test:desktop": "tsx tests/desktop-tools.ts"
   },
@@ -31,10 +31,13 @@
     "croner": "^10.0.1",
     "dotenv": "^16.4.0",
     "express": "^4.18.0",
+    "keyv": "^5.6.0",
+    "@keyv/sqlite": "^4.0.8",
     "node-pty": "^1.1.0",
     "ollama": "^0.5.0",
     "pdf-parse": "^1.1.1",
     "pinchtab": "^0.7.6",
+    "reflect-metadata": "^0.2.1",
     "tesseract.js": "^5.1.1",
     "ws": "^8.16.0",
     "zod": "^3.22.0"

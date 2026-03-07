@@ -25,9 +25,11 @@ export class OllamaAdapter implements LLMProvider {
   readonly id = 'ollama' as const;
   private client: Ollama;
   private endpoint: string;
+  private timeout: number;
 
-  constructor(endpoint: string) {
+  constructor(endpoint: string, timeout?: number) {
     this.endpoint = endpoint;
+    this.timeout = timeout || (process.env.OLLAMA_TIMEOUT ? parseInt(process.env.OLLAMA_TIMEOUT) : 300000); // 5 minutes default for remote
     this.client = new Ollama({ host: endpoint });
   }
 
@@ -56,8 +58,8 @@ export class OllamaAdapter implements LLMProvider {
           options: {
             temperature: options?.temperature ?? 0.25,
             top_p: 0.9,
-            num_ctx: options?.num_ctx ?? 4096,
-            num_predict: options?.max_tokens ?? 512,
+            num_ctx: options?.num_ctx ?? 8192,  // Increased from 4096
+            num_predict: options?.max_tokens ?? 4096,  // Increased from 512 to allow full responses
           },
           stream: false,
         };
@@ -83,6 +85,15 @@ export class OllamaAdapter implements LLMProvider {
         const msg = String(error?.message || error || '');
         const idx = thinkCandidates.indexOf(think);
         const isLastCandidate = idx === thinkCandidates.length - 1;
+
+        // Log full error details for remote Ollama debugging
+        console.error(`[OllamaAdapter] Chat error at ${this.endpoint} (timeout: ${this.timeout}ms):`, {
+          message: msg,
+          name: error?.name,
+          code: error?.code,
+          cause: error?.cause,
+          stack: error?.stack?.slice(0, 500)
+        });
 
         if (!isLastCandidate) {
           console.warn(`[OllamaAdapter] Chat failed (think=${think}), trying next candidate. Error: ${msg.slice(0, 120)}`);
@@ -116,8 +127,8 @@ export class OllamaAdapter implements LLMProvider {
       options: {
         temperature: options?.temperature ?? 0.25,
         top_p: 0.9,
-        num_ctx: options?.num_ctx ?? 4096,
-        num_predict: options?.max_tokens ?? 1024,
+        num_ctx: options?.num_ctx ?? 8192,  // Increased from 4096
+        num_predict: options?.max_tokens ?? 4096,  // Increased from 1024 to allow full responses
       },
       stream: true,
       think: isThinkingEnabled ? think : false,
