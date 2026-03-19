@@ -1,0 +1,12 @@
+node_modules/
+.venv/
+*.pyc
+__pycache__/
+.env
+*.log
+*.db
+ChetnaData/
+WolverineWorkspace/
+wolverine.pid
+web-ui/node_modules/
+chetna/

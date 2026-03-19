@@ -1,0 +1,20 @@
+{
+  "gateway": {
+    "port": 18789,
+    "host": "0.0.0.0"
+  },
+  "llm": {
+    "defaultProvider": "ollama",
+    "ollama": {
+      "url": "http://192.168.0.62:11434",
+      "model": "qwen3.5:4b"
+    }
+  },
+  "telegram": {
+    "botToken": "",
+    "allowedUserIds": []
+  },
+  "brain": {
+    "chetnaUrl": "http://127.0.0.1:1987"
+  }
+}
