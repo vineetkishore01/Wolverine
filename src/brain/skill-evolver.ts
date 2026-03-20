@@ -30,15 +30,29 @@ export class SkillEvolver {
         .filter(l => l.trim() !== "")
         .map(l => JSON.parse(l));
 
+      const normalizeError = (err: string) => {
+        return err
+          .substring(0, 100)
+          .replace(/\d+/g, "#") // Replace numbers with placeholders
+          .replace(/\/.*?\//g, "/.../") // Replace file paths
+          .trim();
+      };
+
       const errorCounts: Record<string, number> = {};
       lessons.filter(l => l.error).forEach(l => {
-        errorCounts[l.goal] = (errorCounts[l.goal] || 0) + 1;
+        const errorKey = `${l.goal}::${normalizeError(l.error || "")}`;
+        errorCounts[errorKey] = (errorCounts[errorKey] || 0) + 1;
       });
 
       let synthesized = 0;
-      for (const [goal, count] of Object.entries(errorCounts)) {
+      for (const [errorKey, count] of Object.entries(errorCounts)) {
         if (count >= 2) {
-          await this.synthesizeNewSkill(goal, lessons.filter(l => l.goal === goal));
+          const [goal, errorPattern] = errorKey.split("::");
+          const relevantLessons = lessons.filter(l => 
+            l.goal === goal && 
+            normalizeError(l.error || "") === errorPattern
+          );
+          await this.synthesizeNewSkill(goal, relevantLessons);
           synthesized++;
         }
       }

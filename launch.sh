@@ -1,27 +1,30 @@
 #!/bin/bash
 
-echo "🐺 WOLVERINE | CLEAN IGNITION SEQUENCE"
+echo "🐺 WOLVERINE | CLEAN BODY IGNITION"
 echo "------------------------------------"
 
-# 1. Surgical Cleanup
-echo "[1/4] Freeing ports (18789, 1987, 8001)..."
-lsof -ti:18789,1987,8001 | xargs kill -9 2>/dev/null || true
-ps aux | grep -E "bun run|target/release/chetna|python3 src/mind|uvicorn src/orchestration" | grep -v grep | awk '{print $2}' | xargs kill -9 2>/dev/null || true
+# 1. Surgical Cleanup with error reporting
+echo "[1/3] Freeing ports (18789, 8001)..."
 
-# 2. Start Chetna (Soul)
-echo "[2/4] Igniting Rust Memory Soul (Chetna)..."
-cd chetna
-if [ -f "./target/release/chetna" ]; then
-    ./target/release/chetna > ../chetna.log 2>&1 &
-else
-    cargo run --release > ../chetna.log 2>&1 &
+PORT1_PIDS=$(lsof -ti:18789 2>/dev/null || echo "")
+PORT2_PIDS=$(lsof -ti:8001 2>/dev/null || echo "")
+
+if [ -n "$PORT1_PIDS" ]; then
+  echo "  Killing processes on port 18789: $PORT1_PIDS"
+  echo "$PORT1_PIDS" | xargs kill -9 2>&1 || echo "  Note: Process may have already exited"
 fi
-cd ..
 
-# 3. Wait for port binding
-echo "[3/4] Wiring connections (waiting 8s)..."
-sleep 8
+if [ -n "$PORT2_PIDS" ]; then
+  echo "  Killing processes on port 8001: $PORT2_PIDS"
+  echo "$PORT2_PIDS" | xargs kill -9 2>&1 || echo "  Note: Process may have already exited"
+fi
 
-# 4. Start Gateway & Mind
-echo "[4/4] Activating Nervous System & Mind..."
+if [ -z "$PORT1_PIDS" ] && [ -z "$PORT2_PIDS" ]; then
+  echo "  Ports already free."
+fi
+
+# 2. Start Gateway & Mind
+echo "[2/3] Activating Nervous System & Mind..."
+echo "Note: Ensure Chetna (The Memory Layer) is running separately on the URL in settings.json"
+
 ~/.bun/bin/bun run src/index.ts

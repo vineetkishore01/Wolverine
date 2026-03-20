@@ -2,18 +2,7 @@ import { appendFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import path from "path";
 import { PATHS } from "../types/paths.js";
 import type { Settings } from "../types/settings.js";
-import type { ChetnaClient } from "./chetna-client.js";
-
-let chetnaInstance: ChetnaClient | null = null;
-
-function getChetna(): ChetnaClient {
-  if (!chetnaInstance) {
-    const { ChetnaClient } = require("./chetna-client.js");
-    const settings = { brain: { chetnaUrl: "http://127.0.0.1:1987" } };
-    chetnaInstance = new ChetnaClient(settings);
-  }
-  return chetnaInstance;
-}
+import { ChetnaClient } from "./chetna-client.js";
 
 export interface Lesson {
   timestamp: string;
@@ -26,14 +15,23 @@ export interface Lesson {
 
 export class SelfEvolutionEngine {
   private settings: Settings;
+  private chetna: ChetnaClient;
 
   constructor(settings: Settings) {
     this.settings = settings;
+    this.chetna = new ChetnaClient(settings);
   }
 
   async captureLesson(lesson: Lesson) {
-    const skipPatterns = ["Cannot destructure", "undefined", "null", "parameter"];
-    if (lesson.error && skipPatterns.some(p => lesson.error?.includes(p))) {
+    const skipPatterns = [
+      "Cannot destructure property",
+      "Cannot read properties of undefined",
+      "Cannot read property",
+      "undefined is not a function",
+    ];
+    const errorIncludesSkip = (err: string) => skipPatterns.some(p => err.includes(p));
+
+    if (lesson.error && errorIncludesSkip(lesson.error)) {
       return;
     }
 
@@ -44,8 +42,7 @@ export class SelfEvolutionEngine {
       appendFileSync(lessonPath, JSON.stringify(lesson) + "\n");
 
       if (lesson.error) {
-        const chetna = getChetna();
-        await chetna.call("memory_create", {
+        await this.chetna.call("memory_create", {
           content: `LEARNED: ${lesson.goal} - ${lesson.action}. Error: ${lesson.error}.`,
           importance: 0.5,
           category: "lesson",
@@ -58,9 +55,11 @@ export class SelfEvolutionEngine {
   }
 
   async evolveSkill(name: string, description: string, logic: string) {
-    console.log(`[Evolution] Evolving new skill: ${name}`);
+    if (!name || !logic || logic.length < 10) {
+      throw new Error("[Evolution] Skill evolution failed: Invalid name or logic content.");
+    }
 
-    const sanitizedName = name.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-");
+    const sanitizedName = name.toLowerCase().replace(/[^a-z0-9_-]/g, "-");
     const skillDir = path.join(PATHS.skills, sanitizedName);
 
     if (!existsSync(skillDir)) {
@@ -77,11 +76,13 @@ export class SelfEvolutionEngine {
     };
 
     try {
-      writeFileSync(path.join(skillDir, "manifest.json"), JSON.stringify(manifest, null, 2));
+      // Basic JSON validation before write
+      const manifestStr = JSON.stringify(manifest, null, 2);
+
+      writeFileSync(path.join(skillDir, "manifest.json"), manifestStr);
       writeFileSync(path.join(skillDir, "logic.txt"), logic);
 
-      const chetna = getChetna();
-      await chetna.call("memory_create", {
+      await this.chetna.call("memory_create", {
         content: `LEARNED SKILL: ${name}. ${description}. Logic: ${logic}`,
         importance: 0.9,
         category: "skill_learned",

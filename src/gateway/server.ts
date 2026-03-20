@@ -5,22 +5,31 @@ import { CognitiveCore } from "../brain/cognitive-core.js";
 import { toolHandler } from "../core/tool-handler.js";
 import { SelfEvolutionEngine } from "../brain/evolution.js";
 import { VisionEngine } from "./vision-engine.js";
-import { skillEvolver } from "../brain/skill-evolver.js";
 import { telemetry } from "./telemetry.js";
 import { skillRegistry } from "../tools/registry.js";
 import { contextEngineer } from "../brain/context-engineer.js";
-import { SkillEvolver } from "../brain/skill-evolver.js";
 import { randomUUID } from "crypto";
 import fs from "fs";
 import path from "path";
 
+/**
+ * GatewayServer is the central communication hub of the Wolverine system.
+ * It provides a WebSocket and HTTP interface for nodes, channels, and the Web UI.
+ * It manages the cognitive loop, tool execution, and telemetry broadcasting.
+ */
 export class GatewayServer {
   private settings: Settings;
   private brain: CognitiveCore;
   private evolution: SelfEvolutionEngine;
   private vision: VisionEngine;
   private llmProvider: any;
+  private telegramChannel: any | null = null;
 
+  /**
+   * Initializes the GatewayServer with provided settings and bootstraps 
+   * core engines (Brain, Evolution, Vision) and the LLM provider.
+   * @param settings - The global configuration settings.
+   */
   constructor(settings: Settings) {
     this.settings = settings;
     this.brain = new CognitiveCore(settings);
@@ -29,6 +38,18 @@ export class GatewayServer {
     this.llmProvider = ProviderFactory.create(this.settings);
   }
 
+  /**
+   * Attaches a Telegram channel instance to the gateway.
+   * @param channel - The TelegramChannel instance.
+   */
+  setTelegramChannel(channel: any) {
+    this.telegramChannel = channel;
+  }
+
+  /**
+   * Starts the Bun server, handling both HTTP API requests and WebSocket connections.
+   * Endpoints include configuration management, memory searching, and evolution triggers.
+   */
   start() {
     const port = this.settings.gateway.port;
     const host = this.settings.gateway.host;
@@ -42,15 +63,17 @@ export class GatewayServer {
       port,
       hostname: host,
       
-      fetch(req, server) {
+      /**
+       * Main fetch handler for the Bun server.
+       * Routes HTTP requests and upgrades WebSocket connections.
+       * @param req - The incoming Request object.
+       * @param server - The Bun Server instance.
+       * @returns A Response object or undefined (if upgraded to WS).
+       */
+      async fetch(req, server) {
         const url = new URL(req.url);
         
-        const success = server.upgrade(req, {
-          data: { id: crypto.randomUUID() } as any,
-        });
-        
-        if (success) return undefined;
-
+        // Handle HTTP endpoints first (avoid WebSocket upgrade issues)
         if (url.pathname === "/health") {
           return new Response(JSON.stringify({ status: "ok", uptime: process.uptime() }));
         }
@@ -63,19 +86,66 @@ export class GatewayServer {
 
         if (url.pathname === "/api/config" && req.method === "POST") {
           return req.json().then(newConfig => {
+            // Validate Gateway config
+            if (newConfig.gateway?.port) {
+              const port = parseInt(newConfig.gateway.port);
+              if (isNaN(port) || port < 1024 || port > 65535) {
+                return new Response(JSON.stringify({ 
+                  ok: false, 
+                  error: "Port must be between 1024 and 65535" 
+                }), { status: 400 });
+              }
+            }
+            
+            // Preserve critical in-memory state
+            const oldBrain = self.brain;
+            
+            // Apply new config
             Object.assign(self.settings, newConfig);
             fs.writeFileSync("settings.json", JSON.stringify(self.settings, null, 2));
-            self.llmProvider = ProviderFactory.create(self.settings);
-            self.brain = new CognitiveCore(self.settings);
-            return new Response(JSON.stringify({ ok: true, message: "Config updated and hot-reloaded" }));
+            
+            // Hot-reload engines
+            try {
+              self.llmProvider = ProviderFactory.create(self.settings);
+              self.brain = new CognitiveCore(self.settings);
+              self.evolution = new SelfEvolutionEngine(self.settings);
+              self.vision = new VisionEngine(self.settings);
+              toolHandler.setSettings(self.settings);
+            } catch (err: any) {
+              self.brain = oldBrain;
+              return new Response(JSON.stringify({ 
+                ok: false, 
+                error: `Engine reload failed: ${err.message}` 
+              }), { status: 500 });
+            }
+
+            // Hot-reload Telegram channel if present
+            if (self.telegramChannel) {
+              const { TelegramChannel } = require("./channels/telegram.js");
+              self.telegramChannel.stop().then(() => {
+                const newTelegram = new TelegramChannel(self.settings);
+                self.telegramChannel = newTelegram;
+                newTelegram.start();
+                console.log("[Gateway] Telegram channel hot-reloaded.");
+              }).catch((err: any) => {
+                console.error("[Gateway] Failed to reload Telegram channel:", err);
+              });
+            }
+            
+            console.log(`[Gateway] Config hot-reloaded. Warning: In-memory conversation context was reset.`);
+            return new Response(JSON.stringify({ 
+              ok: true, 
+              message: "Config updated. Note: Active conversations lost context." 
+            }));
           });
         }
 
         if (url.pathname === "/api/memory/clear" && req.method === "DELETE") {
           return contextEngineer.clearMemories().then(() => {
             return new Response(JSON.stringify({ ok: true, message: "Memory cleared" }));
-          }).catch(() => {
-            return new Response(JSON.stringify({ ok: false }));
+          }).catch((err) => {
+            console.error("[Gateway] Memory clear failed:", err);
+            return new Response(JSON.stringify({ ok: false, error: err.message }), { status: 500 });
           });
         }
 
@@ -91,21 +161,52 @@ export class GatewayServer {
         }
 
         if (url.pathname === "/api/evolve" && req.method === "POST") {
+          const { SkillEvolver } = require("../brain/skill-evolver.js");
           const evolver = new SkillEvolver(self.settings);
-          evolver.runEvolutionCycle();
+          evolver.runEvolutionCycle().catch(err => console.error("[Evolution] Error:", err));
           return new Response(JSON.stringify({ ok: true, message: "Evolution cycle started" }));
         }
 
-        if (url.pathname === "/api/onboarding") {
-          return req.json().then(data => {
+        if (url.pathname === "/api/onboarding" && req.method === "POST") {
+          try {
+            const data = await req.json();
             Object.assign(self.settings, data);
             fs.writeFileSync("settings.json", JSON.stringify(self.settings, null, 2));
+            
+            // Initial engine load
             self.llmProvider = ProviderFactory.create(self.settings);
             self.brain = new CognitiveCore(self.settings);
+            self.evolution = new SelfEvolutionEngine(self.settings);
+            self.vision = new VisionEngine(self.settings);
+            toolHandler.setSettings(self.settings);
+
+            // Hot-reload Telegram channel if present
+            if (self.telegramChannel) {
+              const { TelegramChannel } = require("./channels/telegram.js");
+              self.telegramChannel.stop().then(() => {
+                const newTelegram = new TelegramChannel(self.settings);
+                self.telegramChannel = newTelegram;
+                newTelegram.start();
+                console.log("[Gateway] Telegram channel hot-reloaded after onboarding.");
+              }).catch((err: any) => {
+                console.error("[Gateway] Failed to reload Telegram channel during onboarding:", err);
+              });
+            }
+
             return new Response(JSON.stringify({ ok: true, message: "Onboarding complete! Wolverine is ready." }));
-          });
+          } catch (err) {
+            return new Response(JSON.stringify({ ok: false, error: "Invalid onboarding data" }), { status: 400 });
+          }
         }
 
+        // Attempt WebSocket upgrade for everything else
+        const success = server.upgrade(req, {
+          data: { id: crypto.randomUUID() },
+        });
+        
+        if (success) return undefined;
+
+        // Static file serving for web UI
         if (url.pathname === "/" || url.pathname === "/index.html") {
           const indexPath = path.resolve("./web-ui/dist/index.html");
           if (fs.existsSync(indexPath)) {
@@ -114,9 +215,12 @@ export class GatewayServer {
           return new Response("Wolverine Web UI not built. Run 'npm run build' in web-ui folder.", { status: 500 });
         }
 
-        // Static file serving for React assets
-        const staticPath = path.resolve("./web-ui/dist", "." + url.pathname);
-        if (fs.existsSync(staticPath) && fs.statSync(staticPath).isFile()) {
+        // Static file serving with path traversal protection
+        const distRoot = path.resolve("./web-ui/dist");
+        const requestedPath = "." + url.pathname;
+        const staticPath = path.resolve(distRoot, requestedPath);
+        
+        if (staticPath.startsWith(distRoot) && fs.existsSync(staticPath) && fs.statSync(staticPath).isFile()) {
           return new Response(Bun.file(staticPath));
         }
 
@@ -124,11 +228,22 @@ export class GatewayServer {
       },
       
       websocket: {
+        /**
+         * Triggered when a new WebSocket connection is established.
+         * Subscribes the connection to the 'telemetry' topic.
+         * @param ws - The WebSocket connection instance.
+         */
         open(ws: any) {
           console.log(`[WS] Connection opened: ${ws.data.id}`);
           ws.subscribe("telemetry");
         },
         
+        /**
+         * Main message handler for WebSocket connections.
+         * Handles node registration ('connect') and chat requests ('agent.chat').
+         * @param ws - The WebSocket connection instance.
+         * @param message - The raw message data.
+         */
         message(ws: any, message: any) {
           const connId = ws.data.id;
           try {
@@ -152,11 +267,31 @@ export class GatewayServer {
               return;
             }
 
+            // Unknown message type - send error response
+            ws.send(JSON.stringify({
+              type: "res",
+              id: data.id || "unknown",
+              ok: false,
+              error: "Unknown message type"
+            }));
+
           } catch (err) {
             console.error(`[Gateway] [${connId}] Error processing message:`, err);
+            // Send error back to client
+            ws.send(JSON.stringify({
+              type: "res",
+              id: "unknown",
+              ok: false,
+              error: "Failed to process message"
+            }));
           }
         },
         
+        /**
+         * Triggered when a WebSocket connection is closed.
+         * Unregisters the node from the registry.
+         * @param ws - The WebSocket connection instance.
+         */
         close(ws: any) {
           const connId = ws.data.id;
           nodeRegistry.unregister(connId);
@@ -168,55 +303,81 @@ export class GatewayServer {
     console.log(`[Gateway] Wolverine is online and listening. Dashboard: http://${host}:${port}`);
   }
 
+  /**
+   * Handles incoming chat requests from users or channels.
+   * Manages the "Think-Tool-Act" loop (up to 5 iterations).
+   * Records telemetry and enriches context using CognitiveCore.
+   * @param ws - The WebSocket connection that sent the request.
+   * @param data - The parsed request message containing parameters and metadata.
+   * @private
+   */
   private async handleAgentChat(ws: any, data: any) {
+    if (ws.readyState !== 1) {
+      console.warn("[Gateway] WebSocket not open, skipping message");
+      return;
+    }
+    
     const { messages, metadata } = data.params;
     
     if (!messages || messages.length === 0) {
-      ws.send(JSON.stringify({
+      this.safeSend(ws, {
         type: "res",
         id: data.id,
         ok: false,
         error: "No messages provided"
-      }));
+      });
       return;
     }
     
     const lastUserMessage = messages[messages.length - 1]?.content || "";
+    const convId = telemetry.startConversation(lastUserMessage);
     
     try {
       telemetry.publish({ type: "chat", source: "User", content: lastUserMessage });
       
+      const contextStart = Date.now();
       let activeMessages = await this.brain.enrichPrompt(lastUserMessage);
+      const contextDuration = Date.now() - contextStart;
       
       let finalResult: any = null;
       let loopCount = 0;
+      let systemPrompt = activeMessages[0]?.content || "";
 
       while (loopCount < 5) {
+        if (loopCount === 0) {
+          telemetry.recordContextAssembly(systemPrompt, activeMessages, contextDuration);
+        }
+        
         telemetry.publish({ 
           type: "llm_in", 
           source: "Brain", 
           content: `Model: ${this.settings.llm.ollama.model} | Sparse Context: ${activeMessages.length} msgs`
         });
         
-        const startTime = Date.now();
+        const llmStart = Date.now();
         const response = await this.llmProvider.generateCompletion({
           messages: activeMessages,
           model: this.settings.llm.ollama.model,
         });
-        const duration = (Date.now() - startTime) / 1000;
+        const llmDuration = Date.now() - llmStart;
 
         const content = response.content;
-        telemetry.publish({ type: "llm_out", source: "Ollama", content: `(In ${duration}s) ${content}` });
-
         const cleanContent = this.stripThoughtAndToolBlocks(content);
-        const toolCallMatch = this.extractFirstToolCall(cleanContent);
+        const toolCallMatch = this.extractFirstToolCall(content);
+        
+        telemetry.recordLLMResponse(content, llmDuration, !!toolCallMatch);
+        telemetry.publish({ type: "llm_out", source: "Ollama", content: `(In ${llmDuration / 1000}s) ${content}` });
 
         if (toolCallMatch) {
           try {
             const call = toolCallMatch;
             telemetry.publish({ type: "action", source: "ToolHandler", content: { tool: call.name, params: call.params } });
 
+            const toolStart = Date.now();
             const result = await toolHandler.execute(call.name, call.params);
+            const toolDuration = Date.now() - toolStart;
+            
+            telemetry.recordToolCall(call.name, call.params, result, toolDuration);
             telemetry.publish({ type: "system", source: "ToolResult", content: result });
 
             if (result.data?.type === "subagent_spawn") {
@@ -245,7 +406,7 @@ export class GatewayServer {
 
         finalResult = response;
         
-        let cleanedContent = this.stripThoughtAndToolBlocks(content).trim();
+        let cleanedContent = cleanContent.trim();
         if (!cleanedContent) {
           cleanedContent = "(Completed task)";
         }
@@ -254,30 +415,52 @@ export class GatewayServer {
         break;
       }
 
-      this.brain.recordMemory(`User: ${lastUserMessage}\nWolverine: ${finalResult.content}`, 0.7);
-      telemetry.publish({ type: "chat", source: "Wolverine", content: finalResult.content });
+      if (!finalResult) {
+        finalResult = { content: "(Max tool iterations reached)" };
+      }
 
-      ws.send(JSON.stringify({ 
+      telemetry.recordToolResult(finalResult);
+      telemetry.endConversation(finalResult.content);
+      
+      this.brain.recordMemory(`User: ${lastUserMessage}\nWolverine: ${finalResult.content}`);
+      
+      this.safeSend(ws, { 
         type: "res", 
         id: data.id, 
         ok: true, 
         payload: finalResult,
-        metadata: metadata 
-      }));
+        metadata: { ...metadata, convId } 
+      });
 
     } catch (err: any) {
-      console.error("[Gateway] Chat Error:", err);
-      ws.send(JSON.stringify({
+      const isTimeout = err.message?.includes("timed out") || err.name === "TimeoutError";
+      const userMessage = isTimeout 
+        ? "I'm taking longer than usual to respond. The AI server might be busy or overloaded. Please try again."
+        : "I encountered an issue processing your request. Please try again.";
+
+      console.error(`[Gateway] Chat Error: ${isTimeout ? "LLM timeout" : err.message}`);
+      
+      telemetry.publish({ type: "error", source: "Gateway", content: { message: err.message, timeout: isTimeout, convId } });
+      telemetry.endConversation(`ERROR: ${userMessage}`);
+      
+      this.safeSend(ws, {
         type: "res",
         id: data.id,
         ok: false,
-        error: { message: err.message }
-      }));
+        payload: { content: userMessage },
+        error: { message: userMessage }
+      });
     }
   }
 
   /**
-   * BACKGROUND HANDSHAKE: Simulates a subagent task and notifies parent
+   * Simulates a subagent task and notifies the parent when it's done.
+   * This is used for "background" tasks that Wolverine delegates to specialized agents.
+   * @param ws - The parent connection to notify.
+   * @param childId - Identifier for the child subagent.
+   * @param task - Description of the task being performed.
+   * @param metadata - Original metadata from the parent request to maintain context.
+   * @private
    */
   private async simulateSubagentTask(ws: any, childId: string, task: string, metadata: any) {
     console.log(`[Subagent] ${childId} starting task: ${task}`);
@@ -292,39 +475,126 @@ Result: Successfully completed sub-task. The required files/information are now 
     telemetry.publish({ type: "system", source: "Subagent", content: { childId, status: "complete" } });
 
     // Inject the result as a "User Message" to the parent, including original metadata
-    ws.send(JSON.stringify({
+    this.safeSend(ws, {
       type: "msg",
       payload: {
         role: "user",
         content: `[Event: Subagent Completion]\n${resultSummary}`,
         ...metadata
       }
-    }));
+    });
   }
 
+  /**
+   * Attempts to extract the first TOOL_CALL from an LLM response.
+   * Supports both direct JSON and JSON wrapped in markers.
+   * @param content - The raw content from the LLM.
+   * @returns The parsed tool call name and params, or null if not found.
+   * @private
+   */
   private extractFirstToolCall(content: string): { name: string; params: any } | null {
-    const match = content.match(/TOOL_CALL:\s*(\{[^}]+\})/);
-    if (!match) return null;
+    // Find TOOL_CALL: and parse the JSON that follows, handling nested braces
+    const toolCallMatch = content.match(/TOOL_CALL:\s*(.+?)(?=\n\n|\n[^]|$)/s);
+    if (!toolCallMatch) return null;
+    
+    const jsonStr = toolCallMatch[1].trim();
     
     try {
-      const parsed = JSON.parse(match[1]);
+      // Try direct parse first
+      const parsed = JSON.parse(jsonStr);
       if (parsed.name && parsed.params) {
         return parsed;
       }
-      return null;
     } catch {
-      return null;
+      // Try extracting just the JSON portion
+      const braceMatch = jsonStr.match(/(\{[\s\S]*\})/);
+      if (braceMatch) {
+        try {
+          const parsed = JSON.parse(braceMatch[1]);
+          if (parsed.name && parsed.params) {
+            return parsed;
+          }
+        } catch {
+          // Try with escaped quotes fixed
+          const fixed = braceMatch[1].replace(/\\"/g, '"');
+          try {
+            const parsed = JSON.parse(fixed);
+            if (parsed.name && parsed.params) {
+              return parsed;
+            }
+          } catch {}
+        }
+      }
     }
+    
+    // Fallback: try to find balanced braces manually
+    const startIdx = jsonStr.indexOf('{');
+    if (startIdx === -1) return null;
+    
+    let depth = 0;
+    let endIdx = -1;
+    for (let i = startIdx; i < jsonStr.length; i++) {
+      if (jsonStr[i] === '{') depth++;
+      if (jsonStr[i] === '}') {
+        depth--;
+        if (depth === 0) {
+          endIdx = i;
+          break;
+        }
+      }
+    }
+    
+    if (endIdx !== -1) {
+      const json = jsonStr.substring(startIdx, endIdx + 1);
+      try {
+        const parsed = JSON.parse(json);
+        if (parsed.name && parsed.params) {
+          return parsed;
+        }
+      } catch {
+        console.warn(`[Gateway] Tool call parse failed for: ${json.substring(0, 100)}`);
+      }
+    }
+    
+    return null;
   }
 
+  /**
+   * Removes thought tags and tool call blocks from an LLM response to get the user-facing content.
+   * @param content - The raw content from the LLM.
+   * @returns The cleaned, user-facing string.
+   * @private
+   */
   private stripThoughtAndToolBlocks(content: string): string {
-    return content
+    let result = content
       .replace(/<THOUGHT>[\s\S]*?<\/THOUGHT>/gi, '')
       .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
       .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
-      .replace(/TOOL_CALL:\s*\{[^}]+\}/g, '')
       .replace(/TOOL_CALL:\s*\{[\s\S]*?\}/g, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
+    
+    // If result is empty or just "}" / "{", the LLM was calling a tool
+    if (result === '}' || result === '{' || result.trim() === '') {
+      return '';
+    }
+    
+    return result;
+  }
+
+  /**
+   * Safely sends a JSON message over a WebSocket if it's currently open.
+   * @param ws - The WebSocket connection.
+   * @param message - The message object to stringify and send.
+   * @private
+   */
+  private safeSend(ws: any, message: any) {
+    if (ws.readyState === 1) { // 1 = OPEN
+      try {
+        ws.send(JSON.stringify(message));
+      } catch (err) {
+        console.error("[Gateway] Failed to send WebSocket message:", err);
+      }
+    }
   }
 }

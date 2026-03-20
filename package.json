@@ -5,11 +5,13 @@
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",
-    "dev": "bun run --watch src/index.ts"
+    "dev": "bun run --watch src/index.ts",
+    "obd": "bun run scripts/obd.ts"
   },
   "dependencies": {
     "grammy": "^1.41.1",
     "playwright": "^1.58.2",
+    "ws": "^8.19.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {

@@ -7,14 +7,19 @@
     "defaultProvider": "ollama",
     "ollama": {
       "url": "http://192.168.0.62:11434",
-      "model": "qwen3.5:4b"
+      "model": "qwen3.5:0.8b",
+      "contextWindow": 50000,
+      "thinkMode": true,
+      "temperature": 0.7
     }
   },
   "telegram": {
     "botToken": "",
-    "allowedUserIds": []
+    "allowedUserIds": [],
+    "allowedChatIds": []
   },
   "brain": {
+    "memoryProvider": "chetna",
     "chetnaUrl": "http://127.0.0.1:1987"
   }
 }

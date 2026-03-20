@@ -15,10 +15,23 @@ export interface McpResponse {
 export class ChetnaClient {
   private url: string;
 
+  /**
+   * Initializes a new instance of the ChetnaClient.
+   * 
+   * @param {Settings | { brain: { chetnaUrl: string } }} settings - The system settings containing the Chetna URL.
+   */
   constructor(settings: Settings | { brain: { chetnaUrl: string } }) {
     this.url = settings.brain.chetnaUrl;
   }
 
+  /**
+   * Executes an MCP (Model Context Protocol) call to the Chetna server.
+   * 
+   * @param {string} method - The MCP method name to invoke.
+   * @param {any} [params] - The parameters to pass to the method.
+   * @returns {Promise<any>} A promise that resolves to the result of the call, or null on failure.
+   * @sideEffects Performs a POST request to the Chetna server and may log warnings to the console on failure.
+   */
   async call(method: string, params?: any): Promise<any> {
     const request: McpRequest = {
       method,
@@ -35,25 +48,55 @@ export class ChetnaClient {
         signal: AbortSignal.timeout(10000)
       });
 
-      if (!response.ok) return null;
+      if (!response.ok) {
+        console.warn(`[Chetna] ${method} failed: HTTP ${response.status}`);
+        return null;
+      }
 
       const data: any = await response.json();
       return data.result;
-    } catch (err) {
-      // Silent failure: Wolverine continues without long-term memory
-      // console.warn(`[Chetna] Connection failed or timed out: ${method}`);
+    } catch (err: any) {
+      // Silent failure with logging: Wolverine continues without long-term memory
+      const isTimeout = err.name === "TimeoutError";
+      console.warn(`[Chetna] ${method} failed: ${isTimeout ? "timeout" : err.message}`);
       return null;
     }
   }
 
+  /**
+   * Creates a new long-term memory in the Chetna system.
+   * 
+   * @param {string} content - The content of the memory to store.
+   * @param {number} [importance=0.5] - The importance score of the memory (0.0 to 1.0).
+   * @param {string} [category="fact"] - The category of the memory (e.g., "fact", "rule", "habit").
+   * @returns {Promise<any>} A promise that resolves to the created memory metadata or result.
+   * @sideEffects Invokes an MCP call to 'memory_create'.
+   */
   async createMemory(content: string, importance: number = 0.5, category: string = "fact") {
     return this.call("memory_create", { content, importance, category });
   }
 
+  /**
+   * Builds a memory-enriched context for a given query.
+   * 
+   * @param {string} query - The query to search for relevant memories.
+   * @param {number} [maxTokens=4000] - The maximum number of tokens for the context.
+   * @returns {Promise<any>} A promise that resolves to the context string.
+   * @sideEffects Invokes an MCP call to 'memory_context'.
+   */
   async buildContext(query: string, maxTokens: number = 4000) {
     return this.call("memory_context", { query, max_tokens: maxTokens });
   }
 
+  /**
+   * Searches for relevant memories using a hybrid approach (semantic + keyword fallback).
+   * 
+   * @param {string} query - The search query.
+   * @param {number} [limit=10] - The maximum number of results to return.
+   * @param {boolean} [semantic=true] - Whether to use semantic search.
+   * @returns {Promise<any[]>} A promise that resolves to an array of memory objects.
+   * @sideEffects Invokes multiple MCP calls to 'memory_search' and logs warnings on failure.
+   */
   async searchMemories(query: string, limit: number = 10, semantic: boolean = true) {
     // HYBRID SEARCH: Extract technical keywords (UUIDs, Paths, etc.)
     const idRegex = /(?:\/[\w.-]+){2,}|[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}|(?:\d{1,3}\.){3}\d{1,3}/g;
@@ -94,6 +137,12 @@ export class ChetnaClient {
 
 import { readFileSync } from "fs";
 
+/**
+ * Creates a default instance of the ChetnaClient using settings from settings.json.
+ * 
+ * @returns {ChetnaClient} A new ChetnaClient instance.
+ * @sideEffects Reads from the filesystem (settings.json) and logs warnings if the file is missing or invalid.
+ */
 function createDefaultChetnaClient(): ChetnaClient {
   try {
     const settingsContent = readFileSync("settings.json", "utf-8");

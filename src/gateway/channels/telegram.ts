@@ -4,12 +4,20 @@ import { PATHS } from "../../types/paths.js";
 import fs from "fs";
 import path from "path";
 
+/**
+ * TelegramChannel provides a bridge between the Telegram Bot API and the Wolverine Gateway.
+ * it handles text and voice messages, authorization, and routing responses back to users.
+ */
 export class TelegramChannel {
   private bot: Bot | null = null;
   private settings: Settings;
   private gatewayUrl: string;
   private ws: WebSocket | null = null;
 
+  /**
+   * Initializes the Telegram bot with provided settings.
+   * @param settings - Global configuration including Telegram tokens and whitelist.
+   */
   constructor(settings: Settings) {
     this.settings = settings;
     this.gatewayUrl = `ws://${settings.gateway.host}:${settings.gateway.port}`;
@@ -19,13 +27,15 @@ export class TelegramChannel {
     }
   }
 
+  /**
+   * Starts the Telegram bot polling and connects to the Wolverine Gateway.
+   * Sets up handlers for text and voice messages.
+   */
   async start() {
     if (!this.bot) {
       console.warn("[Telegram] No bot token provided. Telegram channel disabled until configured.");
       return;
     }
-
-    console.log("[Telegram] Starting bot...");
 
     // Connect to the Wolverine Gateway as a Node
     this.connectToGateway();
@@ -36,8 +46,8 @@ export class TelegramChannel {
       const userId = ctx.from?.id.toString();
       const chatId = ctx.chat.id.toString();
 
-      if (!this.checkAuth(userId)) {
-        await ctx.reply("Sorry, you are not authorized to talk to Wolverine.");
+      if (!this.checkAuth(userId, chatId)) {
+        await ctx.reply(`Access Denied. Your Chat ID is: ${chatId}. Add this to your settings to authorize.`);
         return;
       }
 
@@ -51,8 +61,8 @@ export class TelegramChannel {
       const userId = ctx.from?.id.toString();
       const chatId = ctx.chat.id.toString();
 
-      if (!this.checkAuth(userId)) {
-        await ctx.reply("Sorry, you are not authorized to talk to Wolverine.");
+      if (!this.checkAuth(userId, chatId)) {
+        await ctx.reply(`Access Denied. Your Chat ID is: ${chatId}. Add this to your settings to authorize.`);
         return;
       }
 
@@ -82,16 +92,67 @@ export class TelegramChannel {
       }
     });
 
-    this.bot.start();
+    this.bot.start().catch(err => {
+      console.error("[Telegram] Bot failed to start:", err);
+    });
     console.log("[Telegram] Bot is online and polling.");
   }
 
-  private checkAuth(userId?: string): boolean {
-    if (!userId) return false;
-    if (this.settings.telegram.allowedUserIds.length === 0) return true;
-    return this.settings.telegram.allowedUserIds.includes(userId);
+  /**
+   * Stops the bot and closes the gateway connection.
+   */
+  async stop() {
+    if (this.bot) {
+      console.log("[Telegram] Stopping bot...");
+      await this.bot.stop();
+      this.bot = null;
+    }
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
   }
 
+  /**
+   * Verifies if a user or chat is authorized to interact with the bot.
+   * Checks against allowedChatIds and allowedUserIds whitelists.
+   * @param userId - The unique Telegram user ID.
+   * @param chatId - The unique Telegram chat ID.
+   * @returns True if authorized, false otherwise.
+   * @private
+   */
+  private checkAuth(userId?: string, chatId?: string): boolean {
+    if (!userId || !chatId) {
+      console.warn("[Telegram] Auth check failed: missing userId or chatId");
+      return false;
+    }
+    
+    // If user set allowedChatIds, strictly enforce it
+    if (this.settings.telegram.allowedChatIds.length > 0) {
+      const isAllowed = this.settings.telegram.allowedChatIds.includes(chatId);
+      if (!isAllowed) console.warn(`[Telegram] Unauthorized Chat ID: ${chatId}`);
+      return isAllowed;
+    }
+
+    // Fallback to allowedUserIds if set
+    if (this.settings.telegram.allowedUserIds.length > 0) {
+      const isAllowed = this.settings.telegram.allowedUserIds.includes(userId);
+      if (!isAllowed) console.warn(`[Telegram] Unauthorized User ID: ${userId}`);
+      return isAllowed;
+    }
+
+    // Default: block everyone until explicit whitelist is configured
+    console.warn(`[Telegram] Auth blocked: No allowed users configured. Current Chat ID: ${chatId}`);
+    return false;
+  }
+
+  /**
+   * Forwards a message from Telegram to the Wolverine Gateway WebSocket.
+   * @param text - The content of the user message.
+   * @param chatId - The chat ID to route the response back to.
+   * @param userId - The user who sent the message.
+   * @private
+   */
   private routeToGateway(text: string, chatId: string, userId: string) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
@@ -104,10 +165,15 @@ export class TelegramChannel {
         }
       }));
     } else {
-      this.bot.api.sendMessage(chatId, "Wolverine Gateway is currently offline.");
+      if (this.bot) this.bot.api.sendMessage(chatId, "Wolverine Gateway is currently offline.");
     }
   }
 
+  /**
+   * Establishes a WebSocket connection to the Wolverine Gateway.
+   * Handles automatic reconnection on failure and processes incoming messages from the Gateway.
+   * @private
+   */
   private connectToGateway() {
     this.ws = new WebSocket(this.gatewayUrl);
 
@@ -126,24 +192,62 @@ export class TelegramChannel {
     };
 
     this.ws.onmessage = async (event) => {
+      if (!this.bot) return;
       try {
         const data = JSON.parse(event.data.toString());
+
+        // Handle ASYNC Event Messages (like subagent completions)
+        if (data.type === "msg" && data.payload?.content) {
+          // SECURITY: Broadcast to ALL authorized chat IDs
+          const content = data.payload.content;
+          for (const chatId of this.settings.telegram.allowedChatIds) {
+            try {
+              await this.bot.api.sendMessage(chatId, content);
+            } catch (err) {
+              console.warn(`[Telegram] Failed to send to chatId ${chatId}:`, err);
+            }
+          }
+          return;
+        }
         
         // Check for special telegram tool actions passed back from Gateway ToolHandler
         if (data.type === "res" && data.ok && data.payload?.data?.type === "telegram_action") {
           const actionData = data.payload.data;
-          const targetChatId = actionData.chatId;
+          const targetChatId = data.metadata?.chatId || this.settings.telegram.allowedChatIds[0];
+          
+          // Validate target chat is authorized
+          if (!this.settings.telegram.allowedChatIds.includes(targetChatId)) {
+            console.warn(`[Telegram] Unauthorized telegram_action to chatId: ${targetChatId}`);
+            return;
+          }
           
           if (actionData.action === "send_audio" && actionData.filePath) {
             console.log(`[Telegram] Sending audio file back to user: ${actionData.filePath}`);
             await this.bot.api.sendVoice(targetChatId, new InputFile(actionData.filePath));
             return;
           }
+          
+          // Broadcast to all authorized chats
+          for (const chatId of this.settings.telegram.allowedChatIds) {
+            try {
+              await this.bot.api.sendMessage(chatId, actionData.message || "Action completed");
+            } catch (err) {
+              console.warn(`[Telegram] Failed to send action to chatId ${chatId}:`, err);
+            }
+          }
+          return;
         }
 
         // Standard text response
         if (data.type === "res" && data.metadata?.chatId) {
+          // SECURITY: Validate chatId is authorized
           const chatId = data.metadata.chatId;
+          const isAuthorized = this.settings.telegram.allowedChatIds.includes(chatId);
+          
+          if (!isAuthorized) {
+            console.warn(`[Telegram] Unauthorized response attempt to chatId: ${chatId}`);
+            return;
+          }
           
           if (data.ok) {
             const content = data.payload.content;

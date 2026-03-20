@@ -2,15 +2,31 @@ import { Database } from "bun:sqlite";
 import { PATHS } from "../types/paths.js";
 import path from "path";
 
+/**
+ * Core database management class for Wolverine Intelligence.
+ * Handles persistence for messages, summaries, and the Context DAG (Directed Acyclic Graph).
+ */
 export class WolverineDB {
   private db: Database;
 
+  /**
+   * Initializes the database connection and triggers schema setup.
+   */
   constructor() {
     const dbPath = path.join(PATHS.data, "wolverine.db");
     this.db = new Database(dbPath);
     this.init();
   }
 
+  /**
+   * Initializes the database schema, creating necessary tables if they do not exist.
+   * Tables include:
+   * - messages: Stores individual chat messages.
+   * - summaries: Stores distilled context summaries.
+   * - dag_edges: Manages relationships between messages and summaries.
+   * 
+   * @private
+   */
   private init() {
     // Core tables for Lossless Context DAG
     this.db.run(`
@@ -45,12 +61,26 @@ export class WolverineDB {
     console.log("[DB] Wolverine Intelligence DB initialized.");
   }
 
+  /**
+   * Executes a SQL command that does not return data (e.g., INSERT, UPDATE, DELETE).
+   * 
+   * @param sql - The SQL statement to execute.
+   * @param params - Optional parameters to bind to the SQL statement.
+   * @returns The result of the execution.
+   */
   run(sql: string, params: any[] = []) {
     return this.db.run(sql, params);
   }
 
+  /**
+   * Executes a SQL query and returns all matching rows.
+   * 
+   * @param sql - The SQL query to execute.
+   * @param params - Optional parameters to bind to the SQL statement.
+   * @returns An array of result rows.
+   */
   query(sql: string, params: any[] = []) {
-    return this.db.query(sql, params).all();
+    return this.db.query(sql).all(...params);
   }
 }
 

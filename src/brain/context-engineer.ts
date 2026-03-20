@@ -7,20 +7,33 @@ import type { ChetnaClient } from "./chetna-client.js";
 
 let chetnaClientInstance: ChetnaClient | null = null;
 
+/**
+ * Lazily loads and returns the ChetnaClient instance.
+ * 
+ * @returns {ChetnaClient} The ChetnaClient instance.
+ * @sideEffects Requires the chetna-client.js module on first call.
+ */
 function getChetnaClient(): ChetnaClient {
   if (!chetnaClientInstance) {
     const { chetnaClient } = require("./chetna-client.js");
     chetnaClientInstance = chetnaClient;
   }
-  return chetnaClientInstance;
+  return chetnaClientInstance as ChetnaClient;
 }
 
 export class ContextEngineer {
-  private CONTEXT_LIMIT = 3000;
+  private CONTEXT_LIMIT = 12000;
   private LEAF_CHUNK = 1000;
   private settings: Settings;
   private isCompacting = false;
+  private lastCompactionTime = 0;
+  private readonly COMPACTION_COOLDOWN = 120000; // 2 minutes
 
+  /**
+   * Initializes a new instance of the ContextEngineer.
+   * 
+   * Reads settings from settings.json or uses default settings if the file is missing.
+   */
   constructor() {
     try {
       const { readFileSync } = require("fs");
@@ -36,6 +49,13 @@ export class ContextEngineer {
     }
   }
 
+  /**
+   * Ingests a new message into the context database.
+   * 
+   * @param {Message} message - The message to ingest.
+   * @returns {Promise<void>} A promise that resolves when the message is stored.
+   * @sideEffects Writes to the SQLite database and potentially triggers a background compaction process.
+   */
   async ingest(message: Message) {
     const id = randomUUID();
     const tokens = Math.ceil(message.content.length / 4);
@@ -47,11 +67,30 @@ export class ContextEngineer {
 
     console.log(`[Context] Ingested message: ${tokens} tokens`);
 
-    await this.maybeCompact();
+    // Fire and forget compaction to not block the main reasoning loop
+    this.maybeCompact().catch(() => {
+      // Silently ignore - compaction is non-critical
+    });
   }
 
+  /**
+   * Checks context size and performs compaction (summarization) if it exceeds the limit.
+   * 
+   * Compaction involves:
+   * 1. Selecting the oldest messages.
+   * 2. Preserving critical identifiers (UUIDs, paths, etc.).
+   * 3. Using an LLM to generate a dense summary.
+   * 4. Storing the summary and deleting the old messages.
+   * 
+   * @returns {Promise<void>} A promise that resolves when compaction is complete or skipped.
+   * @private
+   * @sideEffects Reads from and writes to the database, invokes an LLM provider.
+   */
   private async maybeCompact() {
     if (this.isCompacting) return;
+
+    // Cooldown check
+    if (Date.now() - this.lastCompactionTime < this.COMPACTION_COOLDOWN) return;
 
     const res = db.query("SELECT SUM(tokens) as total FROM messages") as any;
     const totalTokens = res[0]?.total || 0;
@@ -59,9 +98,10 @@ export class ContextEngineer {
     if (totalTokens <= this.CONTEXT_LIMIT) return;
 
     this.isCompacting = true;
+    this.lastCompactionTime = Date.now();
     console.log(`[Context] Compacting history (${totalTokens} tokens)...`);
 
-    const oldestMessages = db.query(`SELECT * FROM messages ORDER BY timestamp ASC LIMIT 15`) as any[];
+    const oldestMessages = db.query(`SELECT * FROM messages ORDER BY timestamp ASC LIMIT 20`) as any[];
 
     if (oldestMessages.length < 5) {
       this.isCompacting = false;
@@ -70,18 +110,30 @@ export class ContextEngineer {
 
     const textToSummarize = oldestMessages.map(m => `${m.role}: ${m.content}`).join("\n");
 
+    // IDENTIFIER PRESERVATION: Scan for UUIDs, Paths, IPs, and Hashes
+    const idRegex = /(?:\/[\w.-]+){2,}|[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}|(?:\d{1,3}\.){3}\d{1,3}|[0-9a-fA-F]{32,64}/g;
+    const foundIdentifiers = Array.from(new Set(textToSummarize.match(idRegex) || []));
+    const identifierBlock = foundIdentifiers.length > 0 
+      ? `[STRICT_IDENTIFIERS: ${foundIdentifiers.join(", ")}]\n` 
+      : "";
+
     try {
       const llm = ProviderFactory.create(this.settings);
       const summaryResponse = await llm.generateCompletion({
         model: this.settings.llm.ollama.model,
         messages: [
-          { role: "system", content: "You are a context compressor. Summarize the following conversation chunk into a concise, fact-dense paragraph. Preserve all technical details, URLs, and specific user preferences." },
+          { 
+            role: "system", 
+            content: "You are a context compressor. Summarize the following conversation chunk into a concise, fact-dense paragraph. " +
+                     "PRESERVE all technical details, URLs, and user preferences. " +
+                     "CRITICAL: Do not generalize specific identifiers (UUIDs, paths, IDs) mentioned in the input." 
+          },
           { role: "user", content: textToSummarize }
         ]
       });
 
       const summaryId = randomUUID();
-      const summaryContent = summaryResponse.content;
+      const summaryContent = identifierBlock + summaryResponse.content;
 
       db.run(
         "INSERT INTO summaries (id, content, depth, token_count) VALUES (?, ?, ?, ?)",
@@ -94,28 +146,51 @@ export class ContextEngineer {
       }
 
       console.log(`[Context] Compacted ${oldestMessages.length} messages into DAG node ${summaryId}`);
-    } catch (err) {
-      console.error("[Context] Compaction failed:", err);
+    } catch (err: any) {
+      const isTimeout = err?.message?.includes("timed out") || err?.name === "TimeoutError";
+      if (isTimeout) {
+        console.log("[Context] Compaction skipped (LLM busy)");
+      } else {
+        console.error("[Context] Compaction failed:", err.message);
+      }
     } finally {
       this.isCompacting = false;
     }
   }
 
+  /**
+   * Assembles the active conversation context for the LLM.
+   * 
+   * Includes the latest summary and the last 5 raw messages for continuity.
+   * 
+   * @returns {Promise<Message[]>} A promise that resolves to an array of messages for the LLM.
+   * @sideEffects Reads from the database.
+   */
   async assembleActiveContext(): Promise<Message[]> {
     const messages: Message[] = [];
 
-    const summaries = db.query("SELECT content FROM summaries ORDER BY created_at DESC LIMIT 3") as any[];
+    // Only pull the single latest summary for a high-level "where were we"
+    const summaries = db.query("SELECT content FROM summaries ORDER BY created_at DESC LIMIT 1") as any[];
     if (summaries.length > 0) {
-      const summaryText = summaries.map(s => s.content).join("\n\n---\n\n");
-      messages.push({ role: "system", content: `PREVIOUS CONTEXT SUMMARY:\n${summaryText}` });
+      messages.push({ role: "system", content: `CONTEXT SUMMARY: ${summaries[0].content}` });
     }
 
-    const rawMessages = db.query("SELECT role, content FROM messages ORDER BY timestamp ASC") as any[];
-    rawMessages.forEach(m => messages.push({ role: m.role as any, content: m.content }));
+    // Only pull the last 5 raw messages for immediate conversational continuity
+    const rawMessages = db.query("SELECT role, content FROM messages ORDER BY timestamp DESC LIMIT 5") as any[];
+    
+    // Reverse to get them in chronological order
+    rawMessages.reverse().forEach(m => messages.push({ role: m.role as any, content: m.content }));
 
     return messages;
   }
 
+  /**
+   * Searches long-term memory (Chetna) for relevant context.
+   * 
+   * @param {string} query - The search query.
+   * @returns {Promise<any[]>} A promise that resolves to an array of relevant memories.
+   * @sideEffects Invokes an MCP call via ChetnaClient.
+   */
   async searchMemories(query: string): Promise<any[]> {
     try {
       const client = getChetnaClient();
@@ -125,6 +200,12 @@ export class ContextEngineer {
     }
   }
 
+  /**
+   * Clears all long-term memories in Chetna.
+   * 
+   * @returns {Promise<void>} A promise that resolves when memories are cleared.
+   * @sideEffects Invokes an MCP call ('memory_clear') via ChetnaClient.
+   */
   async clearMemories(): Promise<void> {
     try {
       const client = getChetnaClient();

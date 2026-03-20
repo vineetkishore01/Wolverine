@@ -10,6 +10,9 @@ export const SettingsSchema = z.object({
     ollama: z.object({
       url: z.string().default("http://127.0.0.1:11434"),
       model: z.string().default("llama3"),
+      contextWindow: z.number().default(4096),
+      thinkMode: z.boolean().default(true),
+      temperature: z.number().default(0.7),
     }),
     openai: z.object({
       apiKey: z.string().optional(),
@@ -18,9 +21,11 @@ export const SettingsSchema = z.object({
   telegram: z.object({
     botToken: z.string().default(""),
     allowedUserIds: z.array(z.string()).default([]),
+    allowedChatIds: z.array(z.string()).default([]), // SECURITY: Restrict to specific chats
   }),
   brain: z.object({
-    chetnaUrl: z.string().default("http://127.0.0.1:8080"),
+    memoryProvider: z.enum(["chetna", "local_sqlite"]).default("chetna"),
+    chetnaUrl: z.string().default("http://127.0.0.1:1987"),
   }),
 });
 
