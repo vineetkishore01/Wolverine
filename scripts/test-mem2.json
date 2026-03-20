@@ -1,0 +1,7 @@
+{
+  "name": "Memory Test with Wait",
+  "steps": [
+    { "input": "Hello", "wait": 45000 },
+    { "input": "My name is Vineet.", "wait": 45000 }
+  ]
+}

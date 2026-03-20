@@ -1,0 +1,15 @@
+{
+  "name": "God-Tier Architecture Validation",
+  "steps": [
+    { "input": "Hello Wolverine. Remind me who you are and what your core directives are.", "wait": 25000 },
+    { "input": "My name is Vineet and I am a software architect. Remember this.", "wait": 25000 },
+    { "input": "What is my name and profession?", "wait": 25000 },
+    { "input": "I'm working on a project at /Users/vineet/Code/SecretProject. Keep that path in mind.", "wait": 25000 },
+    { "input": "What is the secret project path? Also, do a system check of the current directory.", "wait": 30000 },
+    { "input": "I need you to write a 'hello.py' file that prints the current date and time, then run it.", "wait": 40000 },
+    { "input": "Read the file 'non_existent_file.txt'. If it fails, try reading it again. (Testing Loop Detector)", "wait": 30000 },
+    { "input": "Actually, I am a Chef, not an architect. Update your records.", "wait": 25000 },
+    { "input": "Am I a Chef or an Architect?", "wait": 25000 },
+    { "input": "Spawn a subagent to research the latest version of Bun and report back.", "wait": 40000 }
+  ]
+}

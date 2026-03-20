@@ -1,0 +1,18 @@
+{
+  "name": "Comprehensive Test",
+  "description": "Full pipeline test with long waits",
+  "steps": [
+    {
+      "input": "Who are you?",
+      "wait": 60000
+    },
+    {
+      "input": "My name is Vineet.",
+      "wait": 60000
+    },
+    {
+      "input": "What's my name?",
+      "wait": 60000
+    }
+  ]
+}

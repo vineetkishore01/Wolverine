@@ -1,46 +1,213 @@
-# Wolverine Architecture: The God-Tier Agent
+# Wolverine Architecture
 
-Wolverine is a multi-language, distributed agentic framework designed for hyper-speed and autonomous self-evolution.
+## Overview
 
-## System Map
+Wolverine is a hyper-autonomous AI engineering partner built with a multi-layered architecture designed for resilience, self-evolution, and long-term memory.
+
+## System Architecture
 
 ```mermaid
 graph TD
-    User((User)) -->|Telegram/Web| G[Gateway Hub: Bun/TS]
-    G -->|WebSocket RPC| N[Nodes: Phone/Mac/Pi]
-    G -->|MCP| C[Chetna: Rust Memory]
-    G -->|REST| GP[Governance Plane: Python]
-    G -->|1fps Stream| V[Vision Engine]
-    GP -->|Approval/Soul| G
-    M[MadMax Scheduler: Python] -->|Monitor Idle| G
-    M -->|Trigger REM| C
-    G -->|Lesson Logs| SE[Self-Evolution Engine]
-    SE -->|Synthesis| W[WolverineWorkspace/skills]
+    subgraph External
+        User((User))
+        Telegram[Telegram Bot]
+        WebUI[Web Dashboard]
+    end
+    
+    subgraph Core
+        Gateway[Gateway Server<br/>TypeScript/Bun]
+        CognitiveCore[Cognitive Core<br/>Context + Memory]
+        ToolHandler[Tool Handler<br/>Execution Engine]
+        TelemetryHub[Telemetry Hub<br/>Event System]
+    end
+    
+    subgraph LLM
+        Ollama[Ollama LLM]
+    end
+    
+    subgraph Memory
+        Chetna[Chetna<br/>Long-term Memory]
+        SQLite[SQLite DB<br/>Short-term Context]
+    end
+    
+    subgraph Background
+        SkillEvolver[Skill Evolver<br/>Self-Improvement]
+        Governance[Governance API<br/>Python/FastAPI]
+        MadMax[MadMax Scheduler]
+    end
+    
+    User -->|Chat| Telegram
+    User -->|WebSocket| WebUI
+    Telegram -->|WebSocket| Gateway
+    WebUI -->|WebSocket| Gateway
+    
+    Gateway <-->|Enrich Prompt| CognitiveCore
+    Gateway <-->|Execute| ToolHandler
+    Gateway <-->|Log Events| TelemetryHub
+    
+    CognitiveCore <-->|Context| SQLite
+    CognitiveCore <-->|Memory Search| Chetna
+    CognitiveCore -->|Generate| Ollama
+    
+    ToolHandler -->|Skills| Ollama
+    ToolHandler -->|Results| CognitiveCore
+    
+    Gateway <-->|Evolution| SkillEvolver
+    Gateway <-->|Governance| Governance
+    Gateway <-->|Idle Detection| MadMax
 ```
 
-## The Four Vital Organs
+## Core Components
 
-### 1. The Nervous System (Gateway)
-Written in **TypeScript (Bun)** for sub-millisecond I/O. It handles the WebSocket Control Plane, publishes real-time Telemetry, and runs the Recursive Agentic Loop.
+### 1. Gateway Server (`src/gateway/server.ts`)
+The central hub written in **TypeScript/Bun**:
+- WebSocket server for real-time communication
+- Routes incoming requests to Cognitive Core
+- Publishes telemetry events for monitoring
+- Handles chat sessions with loop detection
 
-### 2. The Soul (Memory)
-A standalone **Rust** sidecar called **Chetna**. It handles semantic embeddings, vector search, and biologically-inspired memory decay. It connects to the Gateway via the Model Context Protocol (MCP).
+### 2. Cognitive Core (`src/brain/cognitive-core.ts`)
+The reasoning engine:
+- **Context Assembly**: Builds sparse context (5 messages + summary)
+- **Memory Integration**: Queries Chetna for relevant memories
+- **Prompt Engineering**: Constructs system prompts with tools
+- **Memory Recording**: Extracts and stores facts in Chetna
 
-### 3. The Mind (Learning)
-A **Python** subsystem consisting of **MadMax** (Idle detection) and the **Skill Evolver**. It analyzes log files to write new TypeScript/Python tools for itself.
+### 3. Tool Handler (`src/core/tool-handler.ts`)
+Execution engine for actions:
+- Loop detection with circuit breaker
+- Past lesson retrieval from Chetna
+- Tool execution (system, browser, memory, telegram, subagent)
 
-### 4. The Hands (Tools)
-A unified registry where **Pinchtab** (Browser Mastery) and **System** (Shell Access) live. Every tool is a plugin with a `manifest.json`.
+### 4. Telemetry Hub (`src/gateway/telemetry.ts`)
+The observability layer:
+- WebSocket broadcast to all connected clients
+- Persistent logging to files
+- Event categorization (chat, llm_in, llm_out, memory, etc.)
 
-## The Perpetual Learning Loop (The Partner Leap)
-Wolverine doesn't just execute; it metabolizes experience via:
-1. **Hindsight Distiller**: Intercepts user corrections and distills them into permanent 'Program Rules' in Chetna.
-2. **Skill Evolver**: During system idle, analyzes failure logs to write new manifests and scripts in the workspace.
-3. **Double-Link Continuity**: Every skill is stored both as code (Body) and as a semantic fact (Soul).
-4. **Tool Hindsight**: Before tool execution, Wolverine queries Chetna for past failures or lessons learned with that specific tool to avoid regression.
+## Memory Architecture
 
-## Cognitive Core: The Identity Handshake
-Before every response, the Cognitive Core performs a **Dual-Search Handshake**:
-- **Search A (Semantic)**: Finds facts related to the user's specific query.
-- **Search B (Identity)**: Specifically searches for *"identity myself personality traits"* to ensure personality continuity.
-- **Synthesis**: Injects both into the system prompt along with recent short-term history from the SQLite DAG.
+### Short-term (SQLite)
+- Stores last N messages in `messages` table
+- Automatic summarization when context exceeds limit
+- DAG structure for tracking message relationships
+
+### Long-term (Chetna)
+- Semantic search via vector embeddings
+- Memory categories: facts, rules, habits
+- Importance scoring for relevance
+
+### Flow
+```
+User Message → Ingest to SQLite → Query Chetna → Build Prompt → LLM → Response
+                                         ↓
+                            Extract Facts → Store in Chetna
+```
+
+## Processing Pipeline
+
+```
+1. USER INPUT
+       │
+       ▼
+2. GATEWAY (handleAgentChat)
+       │
+       ▼
+3. COGNITIVE CORE (enrichPrompt)
+   • Ingest to SQLite
+   • Assemble sparse context
+   • Search Chetna for memories
+   • Build system prompt
+       │
+       ▼
+4. OLLAMA (generateCompletion)
+   • Model: qwen3.5:0.8b (or larger)
+   • Response time: ~5-10s (slow) / ~1-2s (fast GPU)
+       │
+       ▼
+5. RESPONSE CLEANUP
+   • Strip <THOUGHT> blocks
+   • Strip TOOL_CALL markers
+   • Extract tool calls if present
+       │
+       ▼
+6. TOOL EXECUTION (if needed)
+   • Execute via ToolHandler
+   • Return result to LLM
+   • Loop up to 5 times
+       │
+       ▼
+7. MEMORY EXTRACTION
+   • Extract facts via regex
+   • Store in Chetna
+       │
+       ▼
+8. RESPONSE TO USER
+```
+
+## OBD Integration
+
+The OBD (On-Board Diagnostics) system provides complete visibility:
+
+```
+OBD Client ──WebSocket──> Gateway ──> TelemetryHub ──> OBD Client
+                                  │
+                                  └──> Log Files
+```
+
+See [OBD_SYSTEM.md](./OBD_SYSTEM.md) for detailed usage.
+
+## Configuration
+
+Settings are managed via `settings.json`:
+
+```json
+{
+  "gateway": {
+    "port": 18789,
+    "host": "0.0.0.0"
+  },
+  "llm": {
+    "defaultProvider": "ollama",
+    "ollama": {
+      "url": "http://192.168.0.62:11434",
+      "model": "qwen3.5:0.8b",
+      "contextWindow": 10000,
+      "temperature": 0.7
+    }
+  },
+  "brain": {
+    "memoryProvider": "chetna",
+    "chetnaUrl": "http://127.0.0.1:1987"
+  }
+}
+```
+
+## Resilience Features
+
+### Chetna Independence
+If Chetna is offline:
+1. Silent timeout in `ChetnaClient`
+2. Wolverine falls back to SQLite-only context
+3. Memory features disabled but chat still works
+
+### Tool Loop Detection
+- Hashes tool calls (name + params)
+- Detects repetition patterns
+- Force-injects strategy pivot warning
+
+### Context Compaction
+- Triggers at ~1500 tokens
+- LLM summarization with identifier preservation
+- DAG maintains message relationships
+
+## Dependencies
+
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| Gateway | Bun/TypeScript | WebSocket server, routing |
+| LLM | Ollama | Language model |
+| Memory | Chetna (Rust) | Vector search, embeddings |
+| Context | SQLite | Short-term conversation |
+| Evolution | Python | Skill synthesis |
+| Governance | FastAPI | Approval workflows |

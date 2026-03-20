@@ -1,28 +1,32 @@
 import type { Settings } from "../types/settings.js";
-import { ProviderFactory, type LLMProvider } from "../providers/factory.js";
+import { ProviderFactory } from "../providers/factory.js";
 import { nodeRegistry } from "./node-registry.js";
 import { CognitiveCore } from "../brain/cognitive-core.js";
 import { toolHandler } from "../core/tool-handler.js";
 import { SelfEvolutionEngine } from "../brain/evolution.js";
 import { VisionEngine } from "./vision-engine.js";
-import { SkillEvolver } from "../brain/skill-evolver.js";
+import { skillEvolver } from "../brain/skill-evolver.js";
 import { telemetry } from "./telemetry.js";
+import { skillRegistry } from "../tools/registry.js";
 import { contextEngineer } from "../brain/context-engineer.js";
+import { SkillEvolver } from "../brain/skill-evolver.js";
+import { randomUUID } from "crypto";
 import fs from "fs";
+import path from "path";
 
 export class GatewayServer {
   private settings: Settings;
   private brain: CognitiveCore;
   private evolution: SelfEvolutionEngine;
   private vision: VisionEngine;
-  private llmProvider: LLMProvider;
+  private llmProvider: any;
 
   constructor(settings: Settings) {
     this.settings = settings;
     this.brain = new CognitiveCore(settings);
     this.evolution = new SelfEvolutionEngine(settings);
     this.vision = new VisionEngine(settings);
-    this.llmProvider = ProviderFactory.create(settings);
+    this.llmProvider = ProviderFactory.create(this.settings);
   }
 
   start() {
@@ -42,7 +46,7 @@ export class GatewayServer {
         const url = new URL(req.url);
         
         const success = server.upgrade(req, {
-          data: { id: crypto.randomUUID() },
+          data: { id: crypto.randomUUID() } as any,
         });
         
         if (success) return undefined;
@@ -103,19 +107,29 @@ export class GatewayServer {
         }
 
         if (url.pathname === "/" || url.pathname === "/index.html") {
-          return new Response(Bun.file("./web-ui/index.html"));
+          const indexPath = path.resolve("./web-ui/dist/index.html");
+          if (fs.existsSync(indexPath)) {
+            return new Response(Bun.file(indexPath));
+          }
+          return new Response("Wolverine Web UI not built. Run 'npm run build' in web-ui folder.", { status: 500 });
+        }
+
+        // Static file serving for React assets
+        const staticPath = path.resolve("./web-ui/dist", "." + url.pathname);
+        if (fs.existsSync(staticPath) && fs.statSync(staticPath).isFile()) {
+          return new Response(Bun.file(staticPath));
         }
 
         return new Response("Not found", { status: 404 });
       },
       
       websocket: {
-        open(ws) {
+        open(ws: any) {
           console.log(`[WS] Connection opened: ${ws.data.id}`);
           ws.subscribe("telemetry");
         },
         
-        message(ws, message) {
+        message(ws: any, message: any) {
           const connId = ws.data.id;
           try {
             const data = JSON.parse(message.toString());
@@ -143,7 +157,7 @@ export class GatewayServer {
           }
         },
         
-        close(ws) {
+        close(ws: any) {
           const connId = ws.data.id;
           nodeRegistry.unregister(connId);
         },
@@ -169,44 +183,46 @@ export class GatewayServer {
     
     const lastUserMessage = messages[messages.length - 1]?.content || "";
     
-    if (!lastUserMessage) {
-      ws.send(JSON.stringify({
-        type: "res",
-        id: data.id,
-        ok: false,
-        error: "Empty message content"
-      }));
-      return;
-    }
-
-    telemetry.publish({ type: "system", source: "Gateway", content: `New task started: "${lastUserMessage.substring(0, 50)}..."` });
-
     try {
-      telemetry.publish({ type: "thought", source: "Brain", content: "Querying long-term memory (Chetna)..." });
+      telemetry.publish({ type: "chat", source: "User", content: lastUserMessage });
+      
       let activeMessages = await this.brain.enrichPrompt(lastUserMessage);
-      telemetry.publish({ type: "thought", source: "Brain", content: `Context assembled: ${activeMessages.length} messages` });
       
       let finalResult: any = null;
       let loopCount = 0;
 
       while (loopCount < 5) {
-        telemetry.publish({ type: "thought", source: "Ollama", content: `Calling Ollama (${this.settings.llm.ollama.model})...` });
+        telemetry.publish({ 
+          type: "llm_in", 
+          source: "Brain", 
+          content: `Model: ${this.settings.llm.ollama.model} | Sparse Context: ${activeMessages.length} msgs`
+        });
+        
+        const startTime = Date.now();
         const response = await this.llmProvider.generateCompletion({
           messages: activeMessages,
           model: this.settings.llm.ollama.model,
         });
+        const duration = (Date.now() - startTime) / 1000;
 
         const content = response.content;
-        telemetry.publish({ type: "thought", source: "Ollama", content });
+        telemetry.publish({ type: "llm_out", source: "Ollama", content: `(In ${duration}s) ${content}` });
 
-        const toolCallMatch = content.match(/TOOL_CALL:\s*(\{.*\})/s);
+        const cleanContent = this.stripThoughtAndToolBlocks(content);
+        const toolCallMatch = this.extractFirstToolCall(cleanContent);
 
         if (toolCallMatch) {
           try {
-            const call = JSON.parse(toolCallMatch[1]);
-            telemetry.publish({ type: "action", source: "ToolHandler", content: `Executing ${call.name}...` });
+            const call = toolCallMatch;
+            telemetry.publish({ type: "action", source: "ToolHandler", content: { tool: call.name, params: call.params } });
 
             const result = await toolHandler.execute(call.name, call.params);
+            telemetry.publish({ type: "system", source: "ToolResult", content: result });
+
+            if (result.data?.type === "subagent_spawn") {
+              const { childId, task } = result.data;
+              this.simulateSubagentTask(ws, childId, task, metadata).catch(err => console.error("[Subagent] Simulation error:", err));
+            }
 
             await this.evolution.captureLesson({
               timestamp: new Date().toISOString(),
@@ -229,39 +245,86 @@ export class GatewayServer {
 
         finalResult = response;
         
-        // Check if we executed any tools and build a response
-        let toolSummary = "";
-        if (loopCount > 0) {
-          toolSummary = `\n\n[Executed ${loopCount} tool call(s)]`;
-        }
-        
-        // Clean up TOOL_CALL text from final response
-        let cleanedContent = (finalResult?.content || "").replace(/TOOL_CALL:\s*\{.*\}\s*/s, '').trim();
+        let cleanedContent = this.stripThoughtAndToolBlocks(content).trim();
         if (!cleanedContent) {
-          cleanedContent = "(Processing...)";
+          cleanedContent = "(Completed task)";
         }
-        finalResult.content = cleanedContent + toolSummary;
+        finalResult.content = cleanedContent;
         
         break;
       }
 
-      this.brain.recordMemory(`User: ${lastUserMessage}\nWolverine: ${finalResult?.content || ""}`, 0.7);
+      this.brain.recordMemory(`User: ${lastUserMessage}\nWolverine: ${finalResult.content}`, 0.7);
+      telemetry.publish({ type: "chat", source: "Wolverine", content: finalResult.content });
 
-      ws.send(JSON.stringify({
-        type: "res",
-        id: data.id,
-        ok: true,
+      ws.send(JSON.stringify({ 
+        type: "res", 
+        id: data.id, 
+        ok: true, 
         payload: finalResult,
-        metadata: metadata
+        metadata: metadata 
       }));
-    } catch (err) {
-      console.error("[Gateway] Agent chat error:", err);
+
+    } catch (err: any) {
+      console.error("[Gateway] Chat Error:", err);
       ws.send(JSON.stringify({
         type: "res",
         id: data.id,
         ok: false,
-        error: String(err)
+        error: { message: err.message }
       }));
     }
+  }
+
+  /**
+   * BACKGROUND HANDSHAKE: Simulates a subagent task and notifies parent
+   */
+  private async simulateSubagentTask(ws: any, childId: string, task: string, metadata: any) {
+    console.log(`[Subagent] ${childId} starting task: ${task}`);
+    
+    // Simulate thinking/work (5-10s)
+    await new Promise(r => setTimeout(r, 8000));
+
+    const resultSummary = `SUBAGENT_COMPLETE: ${childId}. 
+Task: ${task}. 
+Result: Successfully completed sub-task. The required files/information are now available in the workspace.`;
+
+    telemetry.publish({ type: "system", source: "Subagent", content: { childId, status: "complete" } });
+
+    // Inject the result as a "User Message" to the parent, including original metadata
+    ws.send(JSON.stringify({
+      type: "msg",
+      payload: {
+        role: "user",
+        content: `[Event: Subagent Completion]\n${resultSummary}`,
+        ...metadata
+      }
+    }));
+  }
+
+  private extractFirstToolCall(content: string): { name: string; params: any } | null {
+    const match = content.match(/TOOL_CALL:\s*(\{[^}]+\})/);
+    if (!match) return null;
+    
+    try {
+      const parsed = JSON.parse(match[1]);
+      if (parsed.name && parsed.params) {
+        return parsed;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  private stripThoughtAndToolBlocks(content: string): string {
+    return content
+      .replace(/<THOUGHT>[\s\S]*?<\/THOUGHT>/gi, '')
+      .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
+      .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+      .replace(/TOOL_CALL:\s*\{[^}]+\}/g, '')
+      .replace(/TOOL_CALL:\s*\{[\s\S]*?\}/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
   }
 }

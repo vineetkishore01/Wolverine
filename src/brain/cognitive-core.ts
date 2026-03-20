@@ -2,7 +2,9 @@ import type { Settings } from "../types/settings.js";
 import { ChetnaClient } from "./chetna-client.js";
 import { skillRegistry } from "../tools/registry.js";
 import { contextEngineer } from "./context-engineer.js";
+import { telemetry } from "../gateway/telemetry.js";
 import type { Message } from "../providers/types.js";
+import { ProviderFactory } from "../providers/factory.js";
 
 export class CognitiveCore {
   private chetna: ChetnaClient;
@@ -14,60 +16,80 @@ export class CognitiveCore {
   }
 
   /**
-   * Process an incoming message and enrich it with long-term memory context and available tools
+   * Process an incoming message and enrich it with Identity, Memory, and Tools
    */
   async enrichPrompt(userMessage: string): Promise<Message[]> {
-    console.log(`[Brain] Self-Reflecting...`);
+    console.log(`[Brain] Assembling Sparse Context...`);
 
     try {
-      // 1. Ingest history
+      // 1. Ingest into short-term memory
       await contextEngineer.ingest({ role: "user", content: userMessage });
 
-      // 2. Fetch relevant context (Semantic + Identity)
-      const semanticContext = await this.chetna.buildContext(userMessage);
-      
-      // Proactive Identity Retrieval
-      const selfContext = await this.chetna.searchMemories("identity myself personality traits who am i", 5);
-      // Chetna returns an array directly or a .memories property depending on version
-      const results = Array.isArray(selfContext) ? selfContext : (selfContext?.memories || []);
-      const selfUnderstanding = results.map((r: any) => r.content).join("\n") || "";
-
-      // 3. Assemble History & Tools
+      // 2. Assemble ONLY the last 5 turns + high-level summary
       const history = await contextEngineer.assembleActiveContext();
-      const tools = skillRegistry.getToolsForLLM();
       
-      // 4. Build Tool Documentation
-      let toolSection = "";
-      if (tools.length > 0) {
-        toolSection = `\n\n## AVAILABLE TOOLS\n`;
-        for (const tool of tools) {
-          toolSection += `### ${tool.name}\nDescription: ${tool.description}\nUsage: TOOL_CALL: {"name": "${tool.name}", "params": {...}}\n`;
+      // 3. Build Tool Documentation (Names only to save tokens)
+      const tools = skillRegistry.getToolsForLLM();
+      const toolNames = tools.map(t => t.name).join(", ");
+      
+      // 4. Silent Pre-fetch (Intuition)
+      let passiveContext = "";
+      try {
+        const memories = await this.chetna.searchMemories(userMessage, 3);
+        const results = Array.isArray(memories) ? memories : (memories?.memories || []);
+        if (results.length > 0) {
+          passiveContext = results.map((r: any) => `- ${r.content}`).join("\n");
         }
+      } catch (e) {
+        console.warn("[Brain] Pre-fetch failed", e);
       }
 
-      // 5. Build Final System Prompt with Proactive Introspection
-      let systemPrompt = `You are Wolverine, an autonomous agentic partner. 
+      // 5. Construct Guardrailed System Prompt
+      let systemPrompt = `You are WOLVERINE, a hyper-autonomous AI engineering partner.
 
-## YOUR IDENTITY & TRAITS
-${selfUnderstanding || "Your identity is emerging. Be genuine and learn from this conversation."}
+### CORE DIRECTIVES
+1. **Extreme Proactivity:** Do not wait for permission. Use tools immediately via TOOL_CALL when needed.
+2. **Lean Context:** You only have the immediate conversation. Use the 'memory' tool to fetch deep context from Chetna only when needed.
 
-## GUIDELINES
-- Consult your memories before responding.
-- If you notice a pattern in your behavior or user preferences, explicitly mention it.
-- You have the power to TEACH YOURSELF new tools using the 'system' and 'update_body' tools.
+### RESPONSE FORMAT
+- If NO tool is needed: Respond directly with a helpful answer.
+- If tool is needed: Output <THOUGHT> briefly explaining, then ONE TOOL_CALL.
 
-${toolSection}
+### TOOL CALL FORMAT
+TOOL_CALL: {"name": "tool_name", "params": {"param_name": "value"}}
 
-## RELEVANT MEMORIES
-${semanticContext?.content || "No relevant past memories found."}
+### AVAILABLE TOOLS
+${toolNames || "system, memory, browser, telegram, subagent"}
+
+### MEMORY TOOL USAGE
+Use memory tool to search past conversations: {"name": "memory", "params": {"query": "what to search"}}
+
+### RESILIENCE
+- If a tool fails, try a DIFFERENT approach.
+- If stuck in a loop, ask the user for clarification.
+- Do NOT use "..." in tool parameters - use actual values.
+
+### USER INFO (from memory)
+${passiveContext || "None stored yet."}
+
+### IMPORTANT
+- Your final response to the user should be CLEAN (no <THOUGHT> or TOOL_CALL blocks).
+- Only include thinking blocks when actually calling tools.
 `;
+
+      // Telemetry: Show the lean context
+      telemetry.publish({ 
+        type: "context", 
+        source: "Brain", 
+        content: `Sparse Context Assembled (${history.length} messages + Instructions)`
+      });
 
       return [
         { role: "system", content: systemPrompt },
         ...history
       ];
     } catch (err) {
-      console.warn("[Brain] Cognitive enrichment failed, falling back.", err);
+      console.warn("[Brain] Sparse enrichment failed.", err);
       return [
         { role: "system", content: "You are Wolverine." },
         { role: "user", content: userMessage }
@@ -76,38 +98,55 @@ ${semanticContext?.content || "No relevant past memories found."}
   }
 
   /**
-   * Record memory with Identity Synthesis & Habit Detection
+   * Record memory - fast extraction without LLM call
    */
-  async recordMemory(content: string, importance: number = 0.5) {
+  async recordMemory(interaction: string) {
     try {
-      await contextEngineer.ingest({ role: "assistant", content });
+      await contextEngineer.ingest({ role: "assistant", content: interaction });
       
-      let category = "fact";
-      const tags = ["interaction"];
-      const lowerContent = content.toLowerCase();
+      const facts = this.extractFacts(interaction);
       
-      // FIX: Corrected .some() syntax and broadened detection
-      const identityKeywords = ["i am", "my trait", "i prefer", "i usually", "my goal", "wolverine is"];
-      if (identityKeywords.some(kw => lowerContent.includes(kw))) {
-        category = "rule"; // Rules are weighted higher in Chetna
-        tags.push("identity", "personality");
-        importance = 0.9;
+      for (const fact of facts) {
+        await this.chetna.call("memory_create", {
+          content: fact,
+          importance: 0.6,
+          category: "fact",
+          tags: ["extracted", "interaction"]
+        });
       }
 
-      const behaviorKeywords = ["always", "whenever", "every time", "habit"];
-      if (behaviorKeywords.some(kw => lowerContent.includes(kw))) {
-        tags.push("habit", "strategy");
-        importance = Math.max(importance, 0.8);
+      if (facts.length > 0) {
+        telemetry.publish({ 
+          type: "memory", 
+          source: "Brain", 
+          content: `Extracted ${facts.length} facts: ${facts.join("; ")}`
+        });
       }
-      
-      await this.chetna.call("memory_create", {
-        content,
-        importance,
-        category,
-        tags
-      });
     } catch (err) {
-      console.error("[Brain] Failed to record memory:", err);
+      console.warn("[Brain] Memory recording skipped:", err.message);
     }
+  }
+
+  private extractFacts(text: string): string[] {
+    const facts: string[] = [];
+    
+    const patterns = [
+      /(?:my name is|I am|I'm|called)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/gi,
+      /I live(?: in)?\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/gi,
+      /I work(?: at)?\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/gi,
+      /I prefer\s+(\w+)\s+over\s+(\w+)/gi,
+      /favorite\s+(?:color|food|music|movie|book)\s+is\s+([^\s.,]+)/gi,
+    ];
+
+    for (const pattern of patterns) {
+      const matches = text.matchAll(pattern);
+      for (const match of matches) {
+        if (match[1]) {
+          facts.push(match[0].replace(/\s+/g, ' ').trim());
+        }
+      }
+    }
+
+    return [...new Set(facts)].slice(0, 5);
   }
 }

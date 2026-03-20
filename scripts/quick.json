@@ -1,0 +1,6 @@
+{
+  "name": "Quick Test",
+  "steps": [
+    { "input": "Hi", "wait": 45000 }
+  ]
+}

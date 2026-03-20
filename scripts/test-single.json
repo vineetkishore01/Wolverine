@@ -1,0 +1,6 @@
+{
+  "name": "Single Message Test",
+  "steps": [
+    { "input": "Hello, my name is Vineet and I am a software architect.", "wait": 90000 }
+  ]
+}
