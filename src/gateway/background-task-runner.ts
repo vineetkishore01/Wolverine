@@ -11,7 +11,7 @@ export class BackgroundTaskRunner {
   private governanceProcess: ReturnType<typeof spawn> | null = null;
   private madmaxRestartDelay = 0;
   private governanceRestartDelay = 0;
-  private readonly MAX_RESTART_DELAY = 30000;
+  private readonly MAX_RESTART_DELAY = 60000;
 
   /**
    * Starts the MadMax Idle Scheduler process (Python).
@@ -39,7 +39,7 @@ export class BackgroundTaskRunner {
       this.setupLogging(
         this.madmaxProcess, 
         "\x1b[35m[MadMax]\x1b[0m", 
-        () => this.scheduleMadMaxRestart(),  // onExit - called on crash
+        (code) => this.scheduleMadMaxRestart(code),  // onExit - called on crash
         () => this.onProcessSuccess('madmax')  // onSuccess - called on healthy startup
       );
     } catch (err) {
@@ -48,16 +48,21 @@ export class BackgroundTaskRunner {
   }
 
   /**
-   * Schedules a restart for the MadMax process with exponential backoff.
+   * Schedules a restart for the MadMax process with dynamic backoff.
    * @private
    */
-  private scheduleMadMaxRestart() {
+  private scheduleMadMaxRestart(exitCode: number | null) {
     if (this.madmaxRestartDelay >= this.MAX_RESTART_DELAY) {
       console.error("[System] MadMax failed to restart after max retries");
       return;
     }
-    const delay = Math.min(this.madmaxRestartDelay || 1000, this.MAX_RESTART_DELAY);
-    console.log(`[System] MadMax restart scheduled in ${delay}ms...`);
+    
+    // Dynamic delay: if it crashed immediately (code 1), wait longer. 
+    let baseDelay = this.madmaxRestartDelay || 1000;
+    if (exitCode === 1) baseDelay *= 1.5;
+
+    const delay = Math.min(baseDelay, this.MAX_RESTART_DELAY);
+    console.log(`[System] MadMax restart (code ${exitCode}) scheduled in ${delay}ms...`);
     setTimeout(() => {
       this.madmaxProcess = null;
       this.madmaxRestartDelay = delay * 2;
@@ -91,7 +96,7 @@ export class BackgroundTaskRunner {
       this.setupLogging(
         this.governanceProcess, 
         "\x1b[36m[Governance]\x1b[0m", 
-        () => this.scheduleGovernanceRestart(),  // onExit - called on crash
+        (code) => this.scheduleGovernanceRestart(code),  // onExit - called on crash
         () => this.onProcessSuccess('governance')  // onSuccess - called on healthy startup
       );
     } catch (err) {
@@ -100,16 +105,20 @@ export class BackgroundTaskRunner {
   }
 
   /**
-   * Schedules a restart for the Governance process with exponential backoff.
+   * Schedules a restart for the Governance process with dynamic backoff.
    * @private
    */
-  private scheduleGovernanceRestart() {
+  private scheduleGovernanceRestart(exitCode: number | null) {
     if (this.governanceRestartDelay >= this.MAX_RESTART_DELAY) {
       console.error("[System] Governance failed to restart after max retries");
       return;
     }
-    const delay = Math.min(this.governanceRestartDelay || 1000, this.MAX_RESTART_DELAY);
-    console.log(`[System] Governance restart scheduled in ${delay}ms...`);
+
+    let baseDelay = this.governanceRestartDelay || 1000;
+    if (exitCode === 1) baseDelay *= 1.5;
+
+    const delay = Math.min(baseDelay, this.MAX_RESTART_DELAY);
+    console.log(`[System] Governance restart (code ${exitCode}) scheduled in ${delay}ms...`);
     setTimeout(() => {
       this.governanceProcess = null;
       this.governanceRestartDelay = delay * 2;
@@ -153,19 +162,33 @@ export class BackgroundTaskRunner {
    * @param onSuccess - Optional callback triggered once successful startup is detected.
    * @private
    */
-  private setupLogging(proc: ReturnType<typeof spawn>, prefix: string, onExit?: () => void, onSuccess?: () => void) {
+  private setupLogging(proc: ReturnType<typeof spawn>, prefix: string, onExit?: (code: number | null) => void, onSuccess?: () => void) {
     proc.stdout?.on("data", (data: Buffer) => {
       const msg = data.toString();
       process.stdout.write(`${prefix} ${msg}`);
-      // Check for successful startup indicators
-      if (onSuccess && (msg.includes("Started server process") || msg.includes("Uvicorn running"))) {
+      
+      // INTELLIGENT: Detect successful startup semantically
+      if (onSuccess && (
+        msg.includes("Started server process") || 
+        msg.includes("Uvicorn running") || 
+        msg.toLowerCase().includes("ready") ||
+        msg.toLowerCase().includes("initialized")
+      )) {
         onSuccess();
         onSuccess = undefined; // Only trigger once
       }
     });
     proc.stderr?.on("data", (data: Buffer) => {
       const msg = data.toString();
-      if (msg.toLowerCase().includes("info:") || msg.toLowerCase().includes("warning:") || msg.includes("Started server process")) {
+      const lowerMsg = msg.toLowerCase();
+      
+      // Intelligent filtering: only log errors to stderr if they actually look like errors
+      const isInformational = lowerMsg.includes("info:") || 
+                            lowerMsg.includes("warning:") || 
+                            lowerMsg.includes("started") ||
+                            lowerMsg.includes("uvicorn");
+
+      if (isInformational) {
         process.stdout.write(`${prefix} ${msg}`);
       } else {
         process.stderr.write(`\x1b[31m${prefix} ERROR: ${msg}\x1b[0m`);
@@ -177,7 +200,7 @@ export class BackgroundTaskRunner {
     proc.on("exit", (code) => {
       if (code !== 0 && code !== null) {
         console.log(`${prefix} Process exited with code ${code}`);
-        onExit?.();
+        onExit?.(code);
       }
     });
   }

@@ -7,16 +7,18 @@
     "defaultProvider": "ollama",
     "ollama": {
       "url": "http://192.168.0.62:11434",
-      "model": "qwen3.5:0.8b",
-      "contextWindow": 50000,
+      "model": "sorc/qwen3.5-claude-4.6-opus:2b",
+      "contextWindow": 8096,
       "thinkMode": true,
       "temperature": 0.7
     }
   },
   "telegram": {
-    "botToken": "",
+    "botToken": "8662453098:AAGmDqHqOXtHClAwjV1540npH3lS-vKuFqg",
     "allowedUserIds": [],
-    "allowedChatIds": []
+    "allowedChatIds": [
+      "712957784"
+    ]
   },
   "brain": {
     "memoryProvider": "chetna",

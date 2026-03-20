@@ -80,12 +80,18 @@ export class ChetnaClient {
    * Builds a memory-enriched context for a given query.
    * 
    * @param {string} query - The query to search for relevant memories.
-   * @param {number} [maxTokens=4000] - The maximum number of tokens for the context.
+   * @param {number} [maxTokens] - The maximum number of tokens for the context.
    * @returns {Promise<any>} A promise that resolves to the context string.
    * @sideEffects Invokes an MCP call to 'memory_context'.
    */
-  async buildContext(query: string, maxTokens: number = 4000) {
-    return this.call("memory_context", { query, max_tokens: maxTokens });
+  async buildContext(query: string, maxTokens?: number) {
+    let limit = maxTokens;
+    if (!limit) {
+      // Dynamic fallback: 50% of context window
+      const window = (this as any).settings?.llm?.ollama?.contextWindow || 8192;
+      limit = Math.floor(window * 0.5);
+    }
+    return this.call("memory_context", { query, max_tokens: limit });
   }
 
   /**

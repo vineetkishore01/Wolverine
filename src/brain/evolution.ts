@@ -3,6 +3,8 @@ import path from "path";
 import { PATHS } from "../types/paths.js";
 import type { Settings } from "../types/settings.js";
 import { ChetnaClient } from "./chetna-client.js";
+import { ProviderFactory } from "../providers/factory.js";
+import { IntelligenceUtils } from "./intelligence-utils.js";
 
 export interface Lesson {
   timestamp: string;
@@ -23,16 +25,9 @@ export class SelfEvolutionEngine {
   }
 
   async captureLesson(lesson: Lesson) {
-    const skipPatterns = [
-      "Cannot destructure property",
-      "Cannot read properties of undefined",
-      "Cannot read property",
-      "undefined is not a function",
-    ];
-    const errorIncludesSkip = (err: string) => skipPatterns.some(p => err.includes(p));
-
-    if (lesson.error && errorIncludesSkip(lesson.error)) {
-      return;
+    if (lesson.error) {
+      const isNoise = await IntelligenceUtils.isNoise(lesson.error, lesson.goal, this.settings);
+      if (isNoise) return;
     }
 
     console.log(`[Evolution] Capturing ${lesson.category} lesson: ${lesson.goal}`);
@@ -42,9 +37,12 @@ export class SelfEvolutionEngine {
       appendFileSync(lessonPath, JSON.stringify(lesson) + "\n");
 
       if (lesson.error) {
+        const content = `LEARNED: ${lesson.goal} - ${lesson.action}. Error: ${lesson.error}.`;
+        const importance = await IntelligenceUtils.assessImportance(content, this.settings);
+        
         await this.chetna.call("memory_create", {
-          content: `LEARNED: ${lesson.goal} - ${lesson.action}. Error: ${lesson.error}.`,
-          importance: 0.5,
+          content,
+          importance,
           category: "lesson",
           tags: ["lesson", lesson.category]
         });
@@ -82,9 +80,12 @@ export class SelfEvolutionEngine {
       writeFileSync(path.join(skillDir, "manifest.json"), manifestStr);
       writeFileSync(path.join(skillDir, "logic.txt"), logic);
 
+      const content = `LEARNED SKILL: ${name}. ${description}. Logic: ${logic}`;
+      const importance = await IntelligenceUtils.assessImportance(content, this.settings);
+
       await this.chetna.call("memory_create", {
-        content: `LEARNED SKILL: ${name}. ${description}. Logic: ${logic}`,
-        importance: 0.9,
+        content,
+        importance,
         category: "skill_learned",
         tags: ["evolution", "power"]
       });

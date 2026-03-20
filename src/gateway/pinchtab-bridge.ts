@@ -1,4 +1,7 @@
 import { chromium, type Browser, type Page } from "playwright";
+import { IntelligenceUtils } from "../brain/intelligence-utils.js";
+import { PATHS } from "../types/paths.js";
+import { readFileSync } from "fs";
 
 /**
  * PinchtabBridge provides a high-level interface for browser-based automation and data extraction.
@@ -15,7 +18,7 @@ export class PinchtabBridge {
    * Sets up viewport and user-agent for a consistent agentic browsing experience.
    * @private
    */
-  private async ensureBrowser() {
+  private async ensureBrowser(url?: string, task?: string) {
     if (this.browser) return;
     
     if (this.launchingPromise) {
@@ -25,10 +28,20 @@ export class PinchtabBridge {
     this.launchingPromise = (async () => {
       try {
         console.log("[Pinchtab] Launching hyper-fast Chromium instance...");
+        
+        let settings;
+        try {
+          settings = JSON.parse(readFileSync(PATHS.settings, "utf-8"));
+        } catch (e) {
+          settings = {};
+        }
+
+        const profile = await IntelligenceUtils.getBrowserProfile(url || "about:blank", task || "general browsing", settings);
+        
         this.browser = await chromium.launch({ headless: true });
         const context = await this.browser.newContext({
-          viewport: { width: 1280, height: 720 },
-          userAgent: "Wolverine/1.0 (Agentic Intelligence)"
+          viewport: { width: profile.width, height: profile.height },
+          userAgent: profile.userAgent
         });
         this.page = await context.newPage();
       } catch (err) {
@@ -43,10 +56,11 @@ export class PinchtabBridge {
   /**
    * Navigates the browser to the specified URL.
    * @param url - The web address to visit.
+   * @param task - Optional description of the task for dynamic profile selection.
    * @returns A Markdown snapshot of the page including title and interactive elements.
    */
-  async navigate(url: string) {
-    await this.ensureBrowser();
+  async navigate(url: string, task?: string) {
+    await this.ensureBrowser(url, task);
     console.log(`[Pinchtab] Navigating to: ${url}`);
     await this.page!.goto(url, { waitUntil: "domcontentloaded" });
     return await this.getSnapshot();

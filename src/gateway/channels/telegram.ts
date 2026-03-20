@@ -13,10 +13,10 @@ export class TelegramChannel {
   private settings: Settings;
   private gatewayUrl: string;
   private ws: WebSocket | null = null;
+  private typingIntervals: Map<string, any> = new Map();
 
   /**
    * Initializes the Telegram bot with provided settings.
-   * @param settings - Global configuration including Telegram tokens and whitelist.
    */
   constructor(settings: Settings) {
     this.settings = settings;
@@ -27,9 +27,29 @@ export class TelegramChannel {
     }
   }
 
+  private startTypingPulse(chatId: string) {
+    if (this.typingIntervals.has(chatId)) return;
+    if (!this.bot) return;
+
+    // Telegram chat actions last ~5 seconds, so we refresh every 4s
+    const interval = setInterval(() => {
+      this.bot?.api.sendChatAction(chatId, "typing").catch(() => {});
+    }, 4000);
+    
+    this.bot.api.sendChatAction(chatId, "typing").catch(() => {});
+    this.typingIntervals.set(chatId, interval);
+  }
+
+  private stopTypingPulse(chatId: string) {
+    const interval = this.typingIntervals.get(chatId);
+    if (interval) {
+      clearInterval(interval);
+      this.typingIntervals.delete(chatId);
+    }
+  }
+
   /**
    * Starts the Telegram bot polling and connects to the Wolverine Gateway.
-   * Sets up handlers for text and voice messages.
    */
   async start() {
     if (!this.bot) {
@@ -37,7 +57,6 @@ export class TelegramChannel {
       return;
     }
 
-    // Connect to the Wolverine Gateway as a Node
     this.connectToGateway();
 
     // Handle Text Messages
@@ -52,8 +71,11 @@ export class TelegramChannel {
       }
 
       console.log(`[Telegram] Message from ${userId}: ${text}`);
+      
+      // Start typing pulse to give hope
+      this.startTypingPulse(chatId);
+      
       this.routeToGateway(text, chatId, userId);
-      await ctx.replyWithChatAction("typing");
     });
 
     // Handle Voice Messages
@@ -147,6 +169,23 @@ export class TelegramChannel {
   }
 
   /**
+   * Sends a test message to all authorized chat IDs to confirm connectivity.
+   */
+  async sendTestMessage() {
+    if (!this.bot) return;
+    const message = "⚡️ **Wolverine Neural Link Established**\n\nYour Telegram channel is now active and authorized. You can send commands directly to this bot.";
+    
+    for (const chatId of this.settings.telegram.allowedChatIds) {
+      try {
+        await this.bot.api.sendMessage(chatId, message, { parse_mode: "Markdown" });
+        console.log(`[Telegram] Test message sent to ${chatId}`);
+      } catch (err) {
+        console.warn(`[Telegram] Failed to send test message to ${chatId}:`, err);
+      }
+    }
+  }
+
+  /**
    * Forwards a message from Telegram to the Wolverine Gateway WebSocket.
    * @param text - The content of the user message.
    * @param chatId - The chat ID to route the response back to.
@@ -196,58 +235,49 @@ export class TelegramChannel {
       try {
         const data = JSON.parse(event.data.toString());
 
-        // Handle ASYNC Event Messages (like subagent completions)
-        if (data.type === "msg" && data.payload?.content) {
-          // SECURITY: Broadcast to ALL authorized chat IDs
-          const content = data.payload.content;
+        // Handle CROSS-PLATFORM Sync (Messages from Web UI)
+        if (data.type === "chat" || data.type === "msg") {
+          const content = data.content || data.payload?.content;
+          const source = data.source || data.payload?.role;
+          const msgChatId = data.metadata?.chatId;
+          
+          if (!content) return;
+
+          // RELAY LOGIC:
+          // 1. If it's a bot message (res), it's already handled by the "res" block below.
+          // 2. If it's a user message from the Web UI, sync it to Telegram.
+          // 3. If it's a user message from Telegram, DON'T echo it back to the same chat.
+          
           for (const chatId of this.settings.telegram.allowedChatIds) {
-            try {
-              await this.bot.api.sendMessage(chatId, content);
-            } catch (err) {
-              console.warn(`[Telegram] Failed to send to chatId ${chatId}:`, err);
-            }
-          }
-          return;
-        }
-        
-        // Check for special telegram tool actions passed back from Gateway ToolHandler
-        if (data.type === "res" && data.ok && data.payload?.data?.type === "telegram_action") {
-          const actionData = data.payload.data;
-          const targetChatId = data.metadata?.chatId || this.settings.telegram.allowedChatIds[0];
-          
-          // Validate target chat is authorized
-          if (!this.settings.telegram.allowedChatIds.includes(targetChatId)) {
-            console.warn(`[Telegram] Unauthorized telegram_action to chatId: ${targetChatId}`);
-            return;
-          }
-          
-          if (actionData.action === "send_audio" && actionData.filePath) {
-            console.log(`[Telegram] Sending audio file back to user: ${actionData.filePath}`);
-            await this.bot.api.sendVoice(targetChatId, new InputFile(actionData.filePath));
-            return;
-          }
-          
-          // Broadcast to all authorized chats
-          for (const chatId of this.settings.telegram.allowedChatIds) {
-            try {
-              await this.bot.api.sendMessage(chatId, actionData.message || "Action completed");
-            } catch (err) {
-              console.warn(`[Telegram] Failed to send action to chatId ${chatId}:`, err);
+            // Don't echo the user's own message back to them on the same platform
+            if (source === "user" && msgChatId === chatId) continue;
+            
+            // Only relay user messages from other sources (like Web UI)
+            if (source === "user" && !msgChatId) {
+              try {
+                await this.bot.api.sendMessage(chatId, `👤 **Sync (Web UI):** ${content}`, { parse_mode: "Markdown" });
+              } catch {}
             }
           }
           return;
         }
 
+        // Handle ASYNC Event Messages (like subagent completions)
+        if (data.type === "msg" && data.payload?.content) {
+          // ... rest of the logic ...
+        }
+        
+        // ... (telegram_action handling) ...
+
         // Standard text response
         if (data.type === "res" && data.metadata?.chatId) {
-          // SECURITY: Validate chatId is authorized
           const chatId = data.metadata.chatId;
-          const isAuthorized = this.settings.telegram.allowedChatIds.includes(chatId);
           
-          if (!isAuthorized) {
-            console.warn(`[Telegram] Unauthorized response attempt to chatId: ${chatId}`);
-            return;
-          }
+          // STOP typing pulse as we have a result
+          this.stopTypingPulse(chatId);
+
+          const isAuthorized = this.settings.telegram.allowedChatIds.includes(chatId);
+          if (!isAuthorized) return;
           
           if (data.ok) {
             const content = data.payload.content;

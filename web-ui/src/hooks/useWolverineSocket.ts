@@ -87,6 +87,7 @@ export function useWolverineSocket() {
   const [traces, setTraces] = useState<TraceEvent[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<any>(null);
+  const reconnectAttemptsRef = useRef<number>(0);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -98,20 +99,36 @@ export function useWolverineSocket() {
 
     ws.onopen = () => {
       setStatus('connected');
+      reconnectAttemptsRef.current = 0; // Reset on success
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
+
+      // 1. Request History on Connect
+      ws.send(JSON.stringify({
+        type: "req",
+        id: generateId(),
+        method: "agent.history",
+        params: {}
+      }));
     };
 
     ws.onclose = () => {
       setStatus('disconnected');
-      // Attempt reconnect after 3 seconds
+      
+      const attempts = reconnectAttemptsRef.current;
+      // Exponential Backoff: 1s, 2s, 4s, 8s, 16s, up to 30s
+      const delay = Math.min(30000, 1000 * Math.pow(2, attempts));
+      
+      console.log(`[WS] Disconnected. Reconnecting in ${delay}ms (attempt ${attempts + 1})...`);
+
       if (!reconnectTimeoutRef.current) {
         reconnectTimeoutRef.current = setTimeout(() => {
           reconnectTimeoutRef.current = null;
+          reconnectAttemptsRef.current++;
           connect();
-        }, 3000);
+        }, delay);
       }
     };
 
@@ -119,22 +136,41 @@ export function useWolverineSocket() {
       try {
         const event = JSON.parse(e.data);
         
-        // 1. Handle standard Chat/Trace events (only user messages from here)
-        if (event.type === 'chat' || event.type === 'msg') {
-          const isBot = event.source?.toLowerCase() !== 'user' && event.payload?.role !== 'user';
-          const content = event.content || event.payload?.content;
+        // 1. Handle History Retrieval
+        if (event.method === "agent.history" || (event.type === "res" && event.ok && event.payload?.messages)) {
+          const history = event.payload.messages as any[];
+          const formatted: Message[] = history.map(m => ({
+            id: generateId(),
+            source: m.role === 'user' ? 'user' : 'bot',
+            content: m.content
+          }));
+          setMessages(formatted);
+          saveMessages(formatted);
+          return;
+        }
+
+        // 2. Handle standard Chat/Trace events (Sync from other platforms)
+        if (event.type === 'chat') {
+          const source = event.source === 'user' ? 'user' : 'bot';
+          const content = event.content;
 
           if (!content) return;
 
-          // Skip bot messages here - they come from 'res' event
-          if (isBot) return;
-
           setMessages((prev) => {
-            const updated = [...prev, { id: generateId(), source: 'user' as const, content }];
+            // Deduplicate if we already have it locally
+            if (prev.some(m => m.content === content && m.source === source)) return prev;
+            
+            // If it's a bot message from elsewhere, clear any thinking state
+            const filtered = source === 'bot' ? prev.filter(m => !m.isThinking) : prev;
+            const updated = [...filtered, { id: generateId(), source, content }];
             saveMessages(updated);
             return updated;
           });
+          return;
         }
+
+        // 3. Handle standard msg/trace
+        if (event.type === 'msg') {
 
         // 2. Handle Response objects from agent.chat
         if (event.type === 'res') {
@@ -204,10 +240,10 @@ export function useWolverineSocket() {
   const sendMessage = useCallback((text: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       setMessages((prev) => {
-        const updated = [
+        const updated: Message[] = [
           ...prev,
-          { id: generateId(), source: 'user', content: text },
-          { id: generateId(), source: 'bot', content: 'Wolverine is thinking', isThinking: true }
+          { id: generateId(), source: 'user' as const, content: text },
+          { id: generateId(), source: 'bot' as const, content: 'Wolverine is thinking', isThinking: true }
         ];
         saveMessages(updated);
         return updated;

@@ -1,6 +1,7 @@
 import { ProviderFactory } from "../providers/factory.js";
 import type { Settings } from "../types/settings.js";
 import { telemetry } from "../gateway/telemetry.js";
+import { chetnaClient } from "./chetna-client.js";
 import fs from "fs";
 import path from "path";
 import { PATHS } from "../types/paths.js";
@@ -14,12 +15,12 @@ export interface RoutingDecision {
 }
 
 /**
- * The CognitiveRouter is a sophisticated pre-processor that determines 
+ * Synapse Predictive Routing (SPR) is a sophisticated pre-processor that determines 
  * the optimal execution path for any given task. It prevents hallucinated 
  * destructive commands, optimizes token usage by choosing the right "brain" 
  * for the job, and performs "Hindsight-style" codebase pre-analysis.
  */
-export class CognitiveRouter {
+export class SynapsePredictiveRouter {
   private settings: Settings;
   private llmProvider: any;
 
@@ -29,14 +30,40 @@ export class CognitiveRouter {
   }
 
   /**
-   * Routes the incoming task to the most appropriate execution strategy.
+   * Routes the incoming task to the most appropriate execution strategy (SPR).
    * Performs semantic analysis and risk assessment.
    */
   async route(userMessage: string, contextSnippet: string): Promise<RoutingDecision> {
+    // 1. REFLEXIVE MEMORY PASS (Experience-based Intelligence)
+    // We check Wolverine's memory to see if we've handled similar intent before.
+    try {
+      const memories = await chetnaClient.searchMemories(userMessage, 3);
+      const results = Array.isArray(memories) ? memories : ((memories as any)?.memories || []);
+      
+      // Analyze memory patterns to decide strategy without a full LLM pass
+      const categories = results.map((r: any) => r.category);
+      const hasEngineeringContext = categories.some((c: string) => ["lesson", "skill_learned", "code"].includes(c));
+      const hasSocialContext = categories.every((c: string) => c === "interaction" || c === "fact");
+
+      // If we have strong evidence it's just a social interaction based on memory...
+      if (results.length > 0 && hasSocialContext && !hasEngineeringContext && userMessage.length < 20) {
+        telemetry.publish({ type: "thought", source: "SynapsePredictiveRouter", content: "SPR Reflex: Memory indicates social/trivial intent. Fast-tracking." });
+        return {
+          intent: 'TRIVIAL',
+          risk: 'LOW',
+          strategy: 'IMMEDIATE',
+          suggestedFiles: [],
+          reasoning: "Reflexive bypass: Semantic memory matches past social interactions."
+        };
+      }
+    } catch (err) {
+      console.warn("[SPR] Reflexive pass failed, proceeding to full analysis.");
+    }
+
     telemetry.publish({ 
       type: "thought", 
-      source: "CognitiveRouter", 
-      content: "Analyzing intent and risk vectors..." 
+      source: "SynapsePredictiveRouter", 
+      content: "SPR: Performing deep semantic intent analysis..." 
     });
 
     // Codebase root is where the source code actually resides
@@ -75,22 +102,34 @@ export class CognitiveRouter {
     `;
 
     try {
-      const response = await this.llmProvider.generateCompletion({
+      // SPR should be hyper-fast. If it takes > 15s, it's a bottleneck.
+      // We wrap the LLM call in a promise race to enforce a strict SPR timeout.
+      const routingPromise = this.llmProvider.generateCompletion({
         model: this.settings.llm.ollama.model,
-        messages: [{ role: "system", content: "You are a highly analytical engineering sub-agent." }, { role: "user", content: routerPrompt }]
+        messages: [
+          { role: "system", content: "You are a high-speed engineering router. Analyze tasks and return JSON strategy." }, 
+          { role: "user", content: routerPrompt }
+        ],
+        temperature: 0.0 // Absolute precision for routing
       });
+
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("SPR_TIMEOUT")), 15000)
+      );
+
+      const response = await Promise.race([routingPromise, timeoutPromise]) as any;
 
       const decision: RoutingDecision = JSON.parse(this.cleanJsonResponse(response.content));
       
       telemetry.publish({ 
         type: "thought", 
-        source: "CognitiveRouter", 
+        source: "SynapsePredictiveRouter", 
         content: `Decision: [${decision.intent}] Risk: [${decision.risk}] Strategy: [${decision.strategy}] Reasoning: ${decision.reasoning}` 
       });
 
       return decision;
     } catch (err) {
-      console.error("[CognitiveRouter] Routing failed, falling back to default LOOP strategy:", err);
+      console.error("[SynapsePredictiveRouter] Routing failed, falling back to default LOOP strategy:", err);
       return {
         intent: 'RESEARCH',
         risk: 'MEDIUM',

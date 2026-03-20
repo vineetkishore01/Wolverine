@@ -1,10 +1,11 @@
 import { ChetnaClient } from "./chetna-client.js";
 import { ProviderFactory } from "../providers/factory.js";
 import type { Settings } from "../types/settings.js";
+import { IntelligenceUtils } from "./intelligence-utils.js";
 
 export class HindsightDistiller {
   private chetna: ChetnaClient;
-  private settings: any;
+  private settings: Settings;
 
   constructor(settings: Settings) {
     this.settings = settings;
@@ -16,15 +17,31 @@ export class HindsightDistiller {
    */
   async distillInstruction(userMessage: string, lastAssistantMessage: string) {
     // Logic: If the user is correcting the AI, distill the underlying rule.
-    const feedbackTriggers = ["no,", "actually", "use", "don't", "should", "wrong"];
-    const isCorrection = feedbackTriggers.some(t => userMessage.toLowerCase().startsWith(t));
-
-    if (!isCorrection) return;
-
-    console.log("[Hindsight] 🧠 User correction detected. Distilling into Program Memory...");
-
     try {
       const llm = ProviderFactory.create(this.settings);
+      
+      // Phase 1: Intent Analysis
+      const intentPrompt = `
+        USER MESSAGE: "${userMessage}"
+        ASSISTANT PREVIOUS MESSAGE: "${lastAssistantMessage}"
+        
+        TASK: Determine if the user is providing a correction, a new rule, or feedback on a mistake.
+        Respond with exactly 'CORRECTION' if they are, or 'OTHER' if it is just a general comment, question, or compliment.
+      `;
+
+      const intentResponse = await llm.generateCompletion({
+        model: this.settings.llm.ollama.model,
+        messages: [{ role: "user", content: intentPrompt }],
+        temperature: 0
+      });
+
+      const isCorrection = intentResponse.content.trim().toUpperCase() === "CORRECTION" || 
+                           intentResponse.content.includes("CORRECTION");
+
+      if (!isCorrection) return;
+
+      console.log("[Hindsight] 🧠 User correction detected via LLM analysis. Distilling into Program Memory...");
+
       const distillationPrompt = `
         USER FEEDBACK: "${userMessage}"
         MY PREVIOUS ACTION: "${lastAssistantMessage}"
@@ -38,15 +55,18 @@ export class HindsightDistiller {
 
       const response = await llm.generateCompletion({
         model: this.settings.llm.ollama.model,
-        messages: [{ role: "user", content: distillationPrompt }]
+        messages: [{ role: "user", content: distillationPrompt }],
+        temperature: 0.2
       });
 
       const rule = response.content.trim();
+      const content = `PROGRAM_RULE: ${rule}`;
+      const importance = await IntelligenceUtils.assessImportance(content, this.settings);
 
       // Push to Chetna as a high-importance 'rule'
       await this.chetna.call("memory_create", {
-        content: `PROGRAM_RULE: ${rule}`,
-        importance: 0.8,
+        content,
+        importance,
         category: "rule",
         tags: ["hindsight", "opd"]
       });

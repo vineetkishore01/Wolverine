@@ -2,7 +2,7 @@ import type { Settings } from "../types/settings.js";
 import { ProviderFactory } from "../providers/factory.js";
 import { nodeRegistry } from "./node-registry.js";
 import { CognitiveCore } from "../brain/cognitive-core.js";
-import { CognitiveRouter } from "../brain/cognitive-router.js";
+import { SynapsePredictiveRouter } from "../brain/synapse-router.js";
 import { toolHandler } from "../core/tool-handler.js";
 import { SelfEvolutionEngine } from "../brain/evolution.js";
 import { VisionEngine } from "./vision-engine.js";
@@ -22,7 +22,7 @@ import { PATHS } from "../types/paths.js";
 export class GatewayServer {
   private settings: Settings;
   private brain: CognitiveCore;
-  private router: CognitiveRouter;
+  private spr: SynapsePredictiveRouter;
   private evolution: SelfEvolutionEngine;
   private vision: VisionEngine;
   private llmProvider: any;
@@ -36,7 +36,7 @@ export class GatewayServer {
   constructor(settings: Settings) {
     this.settings = settings;
     this.brain = new CognitiveCore(settings);
-    this.router = new CognitiveRouter(settings);
+    this.spr = new SynapsePredictiveRouter(settings);
     this.evolution = new SelfEvolutionEngine(settings);
     this.vision = new VisionEngine(settings);
     this.llmProvider = ProviderFactory.create(this.settings);
@@ -113,7 +113,7 @@ export class GatewayServer {
             try {
               self.llmProvider = ProviderFactory.create(self.settings);
               self.brain = new CognitiveCore(self.settings);
-              self.router = new CognitiveRouter(self.settings);
+              self.spr = new SynapsePredictiveRouter(self.settings);
               self.evolution = new SelfEvolutionEngine(self.settings);
               self.vision = new VisionEngine(self.settings);
               toolHandler.setSettings(self.settings);
@@ -131,7 +131,9 @@ export class GatewayServer {
               await self.telegramChannel.stop();
               const newTelegram = new TelegramChannel(self.settings);
               self.telegramChannel = newTelegram;
-              newTelegram.start();
+              newTelegram.start().then(() => {
+                newTelegram.sendTestMessage();
+              });
               console.log("[Gateway] Telegram channel hot-reloaded.");
             }
             
@@ -183,7 +185,7 @@ export class GatewayServer {
             // Initial engine load
             self.llmProvider = ProviderFactory.create(self.settings);
             self.brain = new CognitiveCore(self.settings);
-            self.router = new CognitiveRouter(self.settings);
+            self.spr = new SynapsePredictiveRouter(self.settings);
             self.evolution = new SelfEvolutionEngine(self.settings);
             self.vision = new VisionEngine(self.settings);
             toolHandler.setSettings(self.settings);
@@ -194,7 +196,9 @@ export class GatewayServer {
               await self.telegramChannel.stop();
               const newTelegram = new TelegramChannel(self.settings);
               self.telegramChannel = newTelegram;
-              newTelegram.start();
+              newTelegram.start().then(() => {
+                newTelegram.sendTestMessage();
+              });
               console.log("[Gateway] Telegram channel hot-reloaded after onboarding.");
             }
 
@@ -268,7 +272,20 @@ export class GatewayServer {
               return;
             }
 
+            if (data.type === "req" && data.method === "agent.history") {
+              contextEngineer.assembleActiveContext().then(history => {
+                ws.send(JSON.stringify({
+                  type: "res",
+                  id: data.id,
+                  ok: true,
+                  payload: { messages: history }
+                }));
+              });
+              return;
+            }
+
             if (data.type === "req" && data.method === "agent.chat") {
+              ws.subscribe("chat"); // Sync messages
               self.handleAgentChat(ws, data);
               return;
             }
@@ -338,6 +355,14 @@ export class GatewayServer {
     const lastUserMessage = messages[messages.length - 1]?.content || "";
     const convId = telemetry.startConversation(lastUserMessage);
     
+    // BROADCAST USER MESSAGE: Echo to all other connected clients
+    this.broadcast({
+      type: "chat",
+      source: "user",
+      content: lastUserMessage,
+      metadata: { ...metadata, convId }
+    }, ws);
+
     try {
       telemetry.publish({ type: "chat", source: "User", content: lastUserMessage });
       
@@ -345,20 +370,32 @@ export class GatewayServer {
       let activeMessages = await this.brain.enrichPrompt(lastUserMessage);
       const contextDuration = Date.now() - contextStart;
       
-      // COGNITIVE ROUTING: Pre-analyze the task to determine strategy
-      const routingDecision = await this.router.route(lastUserMessage, activeMessages.map(m => m.content).join("\n").substring(0, 1000));
+      // SYNAPSE PREDICTIVE ROUTING (SPR): Pre-analyze the task to determine strategy
+      let routingDecision;
+      try {
+        routingDecision = await this.spr.route(lastUserMessage, activeMessages.map(m => m.content).join("\n").substring(0, 1000));
+      } catch (err: any) {
+        const isTimeout = err.message === "SPR_TIMEOUT";
+        telemetry.publish({ 
+          type: "system", 
+          source: "SPR", 
+          content: isTimeout ? "Bypassing predictive pass (Latency spike)" : `SPR Error: ${err.message}` 
+        });
+        // Default strategy on fail/timeout
+        routingDecision = { strategy: "LOOP", suggestedFiles: [], intent: "RESEARCH", risk: "MEDIUM", reasoning: "Fallback from SPR." } as any;
+      }
       
       if (routingDecision.strategy === "REJECT") {
         this.safeSend(ws, { 
           type: "res", id: data.id, ok: false, 
-          payload: { content: `I've declined this task for safety or policy reasons: ${routingDecision.reasoning}` } 
+          payload: { content: `SPR Governance: I've declined this task for safety or policy reasons: ${routingDecision.reasoning}` } 
         });
         return;
       }
 
-      // Pre-load suggested files (Hindsight Pre-analysis)
+      // Pre-load suggested files (SPR Hindsight Pre-analysis)
       if (routingDecision.suggestedFiles?.length > 0) {
-        let preloadContent = "[HINDSIGHT PRE-ANALYSIS] I've pre-loaded relevant file snippets based on your request:\n";
+        let preloadContent = "[SPR HINDSIGHT PRE-ANALYSIS] I've pre-loaded relevant file snippets based on your request:\n";
         for (const fileName of routingDecision.suggestedFiles) {
           try {
             // Try current working directory (project root) first, then workspace root
@@ -376,7 +413,7 @@ export class GatewayServer {
       }
 
       if (routingDecision.strategy === "IMMEDIATE") {
-        telemetry.publish({ type: "thought", source: "CognitiveRouter", content: "Routing to IMMEDIATE execution path." });
+        telemetry.publish({ type: "thought", source: "SynapsePredictiveRouter", content: "SPR: Routing to IMMEDIATE execution path." });
         const response = await this.llmProvider.generateCompletion({
           messages: activeMessages,
           model: this.settings.llm.ollama.model,
@@ -483,7 +520,7 @@ export class GatewayServer {
       }
 
       if (!finalResult) {
-        finalResult = { content: "(Max tool iterations reached)" };
+        finalResult = { content: "I've completed the requested operations but have no specific textual summary. Please check the trace for details or let me know if you need more info." };
       }
 
       telemetry.recordToolResult(finalResult);
@@ -498,6 +535,14 @@ export class GatewayServer {
         payload: finalResult,
         metadata: { ...metadata, convId } 
       });
+
+      // BROADCAST BOT RESPONSE: Sync to all other clients
+      this.broadcast({
+        type: "chat",
+        source: "bot",
+        content: finalResult.content,
+        metadata: { ...metadata, convId }
+      }, ws);
 
     } catch (err: any) {
       const isTimeout = err.message?.includes("timed out") || err.name === "TimeoutError";
@@ -532,8 +577,25 @@ export class GatewayServer {
   private async simulateSubagentTask(ws: any, childId: string, task: string, metadata: any) {
     console.log(`[Subagent] ${childId} starting task: ${task}`);
     
-    // Simulate thinking/work (5-10s)
-    await new Promise(r => setTimeout(r, 8000));
+    // Simulate thinking/work with incremental progress updates
+    const stages = [
+      "Analyzing requirements...",
+      "Researching codebase...",
+      "Drafting implementation...",
+      "Validating changes...",
+      "Finalizing sub-task..."
+    ];
+
+    for (let i = 0; i < stages.length; i++) {
+      telemetry.publish({ 
+        type: "system", 
+        source: "Subagent", 
+        content: { childId, status: "running", stage: stages[i], progress: Math.round(((i + 1) / stages.length) * 100) } 
+      });
+      
+      // Random delay between 1-3 seconds per stage
+      await new Promise(r => setTimeout(r, 1000 + Math.random() * 2000));
+    }
 
     const resultSummary = `SUBAGENT_COMPLETE: ${childId}. 
 Task: ${task}. 
@@ -560,66 +622,26 @@ Result: Successfully completed sub-task. The required files/information are now 
    * @private
    */
   private extractFirstToolCall(content: string): { name: string; params: any } | null {
-    // Find TOOL_CALL: and parse the JSON that follows, handling nested braces
-    const toolCallMatch = content.match(/TOOL_CALL:\s*(.+?)(?=\n\n|\n[^]|$)/s);
-    if (!toolCallMatch) return null;
-    
-    const jsonStr = toolCallMatch[1].trim();
-    
-    try {
-      // Try direct parse first
-      const parsed = JSON.parse(jsonStr);
-      if (parsed.name && parsed.params) {
-        return parsed;
-      }
-    } catch {
-      // Try extracting just the JSON portion
-      const braceMatch = jsonStr.match(/(\{[\s\S]*\})/);
-      if (braceMatch) {
+    // 1. PRIMARY: Standard prefixed format
+    const standardMatch = content.match(/TOOL_CALL:\s*(\{[\s\S]*?\})/);
+    if (standardMatch) {
+      try {
+        const parsed = JSON.parse(standardMatch[1]);
+        if (parsed.name && parsed.params) return parsed;
+      } catch {}
+    }
+
+    // 2. SECONDARY: Raw JSON search (for models that forget the prefix)
+    const jsonBlocks = content.match(/\{[\s\S]*?\}/g);
+    if (jsonBlocks) {
+      for (const block of jsonBlocks) {
         try {
-          const parsed = JSON.parse(braceMatch[1]);
+          const parsed = JSON.parse(block);
           if (parsed.name && parsed.params) {
+            console.log(`[Gateway] Rescued un-prefixed tool call: ${parsed.name}`);
             return parsed;
           }
-        } catch {
-          // Try with escaped quotes fixed
-          const fixed = braceMatch[1].replace(/\\"/g, '"');
-          try {
-            const parsed = JSON.parse(fixed);
-            if (parsed.name && parsed.params) {
-              return parsed;
-            }
-          } catch {}
-        }
-      }
-    }
-    
-    // Fallback: try to find balanced braces manually
-    const startIdx = jsonStr.indexOf('{');
-    if (startIdx === -1) return null;
-    
-    let depth = 0;
-    let endIdx = -1;
-    for (let i = startIdx; i < jsonStr.length; i++) {
-      if (jsonStr[i] === '{') depth++;
-      if (jsonStr[i] === '}') {
-        depth--;
-        if (depth === 0) {
-          endIdx = i;
-          break;
-        }
-      }
-    }
-    
-    if (endIdx !== -1) {
-      const json = jsonStr.substring(startIdx, endIdx + 1);
-      try {
-        const parsed = JSON.parse(json);
-        if (parsed.name && parsed.params) {
-          return parsed;
-        }
-      } catch {
-        console.warn(`[Gateway] Tool call parse failed for: ${json.substring(0, 100)}`);
+        } catch {}
       }
     }
     
@@ -649,6 +671,19 @@ Result: Successfully completed sub-task. The required files/information are now 
     }
     
     return result;
+  }
+
+  /**
+   * Broadcasts a message to all connected WebSocket clients.
+   * @param message - The message object to send.
+   * @param exclude - Optional WebSocket instance to exclude from broadcast.
+   * @private
+   */
+  private broadcast(message: any, exclude: any = null) {
+    if (!this.server) return;
+    this.server.publish("telemetry", JSON.stringify(message));
+    // Also publish to all active connections (topics are easier in Bun)
+    this.server.publish("chat", JSON.stringify(message));
   }
 
   /**

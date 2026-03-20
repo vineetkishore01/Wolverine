@@ -3,32 +3,32 @@ import { randomUUID } from "crypto";
 import type { Message } from "../providers/types.js";
 import { ProviderFactory } from "../providers/factory.js";
 import type { Settings } from "../types/settings.js";
-import type { ChetnaClient } from "./chetna-client.js";
-
 import { chetnaClient } from "./chetna-client.js";
+import { PATHS } from "../types/paths.js";
+import { readFileSync, existsSync } from "fs";
 
 export class ContextEngineer {
-  private CONTEXT_LIMIT = 12000;
-  private LEAF_CHUNK = 1000;
   private settings: Settings;
   private isCompacting = false;
   private lastCompactionTime = 0;
-  private readonly COMPACTION_COOLDOWN = 120000; // 2 minutes
+  private readonly COMPACTION_COOLDOWN = 60000; // 1 minute
 
   /**
    * Initializes a new instance of the ContextEngineer.
-   * 
-   * Reads settings from settings.json or uses default settings if the file is missing.
+   * Reads settings from the global paths.
    */
   constructor() {
     try {
-      const { readFileSync } = require("fs");
-      const content = readFileSync("settings.json", "utf-8");
-      this.settings = JSON.parse(content);
+      if (existsSync(PATHS.settings)) {
+        const content = readFileSync(PATHS.settings, "utf-8");
+        this.settings = JSON.parse(content);
+      } else {
+        throw new Error("Settings not found");
+      }
     } catch {
       this.settings = {
         gateway: { port: 18789, host: "0.0.0.0" },
-        llm: { defaultProvider: "ollama", ollama: { url: "http://127.0.0.1:11434", model: "llama3", contextWindow: 4096, temperature: 0.7 } },
+        llm: { defaultProvider: "ollama", ollama: { url: "http://127.0.0.1:11434", model: "llama3", contextWindow: 8192, temperature: 0.7, thinkMode: true } },
         telegram: { botToken: "mock", allowedUserIds: [], allowedChatIds: [] },
         brain: { chetnaUrl: "http://127.0.0.1:1987", memoryProvider: "chetna" }
       } as Settings;
@@ -36,15 +36,20 @@ export class ContextEngineer {
   }
 
   /**
+   * Dynamically calculates the context limit based on the model's window.
+   * Reserves 20% for the system prompt and new response.
+   */
+  private getContextLimit(): number {
+    const window = this.settings.llm.ollama?.contextWindow || 8192;
+    return Math.floor(window * 0.8);
+  }
+
+  /**
    * Ingests a new message into the context database.
-   * 
-   * @param {Message} message - The message to ingest.
-   * @returns {Promise<void>} A promise that resolves when the message is stored.
-   * @sideEffects Writes to the SQLite database and potentially triggers a background compaction process.
    */
   async ingest(message: Message) {
     const id = randomUUID();
-    const tokens = Math.ceil(message.content.length / 4);
+    const tokens = IntelligenceUtils.estimateTokens(message.content);
 
     db.run(
       "INSERT INTO messages (id, role, content, tokens) VALUES (?, ?, ?, ?)",
@@ -53,10 +58,8 @@ export class ContextEngineer {
 
     console.log(`[Context] Ingested message: ${tokens} tokens`);
 
-    // Fire and forget compaction to not block the main reasoning loop
-    this.maybeCompact().catch(() => {
-      // Silently ignore - compaction is non-critical
-    });
+    // Fire and forget compaction
+    this.maybeCompact().catch(() => {});
   }
 
   /**
@@ -65,21 +68,33 @@ export class ContextEngineer {
   private async maybeCompact() {
     if (this.isCompacting) return;
 
-    // Cooldown check
     if (Date.now() - this.lastCompactionTime < this.COMPACTION_COOLDOWN) return;
 
     const res = db.query("SELECT SUM(tokens) as total FROM messages") as any;
     const totalTokens = res[0]?.total || 0;
 
-    if (totalTokens <= this.CONTEXT_LIMIT) return;
+    const limit = this.getContextLimit();
+
+    if (totalTokens <= limit) return;
 
     this.isCompacting = true;
     this.lastCompactionTime = Date.now();
-    console.log(`[Context] Compacting history (${totalTokens} tokens)...`);
+    console.log(`[Context] Compacting history (${totalTokens}/${limit} tokens)...`);
 
-    const oldestMessages = db.query(`SELECT * FROM messages ORDER BY timestamp ASC LIMIT 20`) as any[];
+    // DYNAMIC SELECTION: Pull messages until we have enough tokens to clear space
+    const targetToClear = Math.floor(limit * 0.3);
+    const messages = db.query("SELECT * FROM messages ORDER BY timestamp ASC") as any[];
+    
+    let oldestMessages: any[] = [];
+    let cumulativeTokens = 0;
+    
+    for (const msg of messages) {
+      oldestMessages.push(msg);
+      cumulativeTokens += msg.tokens;
+      if (cumulativeTokens >= targetToClear) break;
+    }
 
-    if (oldestMessages.length < 5) {
+    if (oldestMessages.length < 3) {
       this.isCompacting = false;
       return;
     }
@@ -113,7 +128,7 @@ export class ContextEngineer {
 
       db.run(
         "INSERT INTO summaries (id, content, depth, token_count) VALUES (?, ?, ?, ?)",
-        [summaryId, summaryContent, 0, Math.ceil(summaryContent.length / 4)]
+        [summaryId, summaryContent, 0, IntelligenceUtils.estimateTokens(summaryContent)]
       );
 
       for (const msg of oldestMessages) {
