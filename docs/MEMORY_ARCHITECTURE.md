@@ -1,5 +1,7 @@
 # Wolverine Memory Architectures
 
+> **See also:** [Full Intelligence Architecture](./FULL_INTELLIGENCE_ARCHITECTURE.md) for the complete vision of intelligent memory processing including knowledge graphs, memory consolidation, and proactive suggestions.
+
 ## Overview
 
 Wolverine has two approaches for memory retrieval. The chosen approach depends on LLM capability.

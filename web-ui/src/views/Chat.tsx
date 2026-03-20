@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import type { Message } from '../hooks/useWolverineSocket';
+import { Trash2, Send, Wand2 } from 'lucide-react';
 
 /**
  * Properties for the ChatView component.
@@ -15,84 +16,132 @@ interface ChatProps {
 
 /**
  * ChatView component provides the main conversational interface.
- * Features a scrollable message list and a fixed message input area.
- * 
- * @param props - Component properties including messages and event handlers.
- * @returns A JSX element representing the chat view.
+ * Features a scrollable message list and an auto-expanding multiline input.
  */
 export function ChatView({ messages, onSendMessage, onClear }: ChatProps) {
   const [input, setInput] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    endRef.current?.scrollIntoView({ behavior });
+  }, []);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
+
+  // Adjust textarea height based on content
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+    }
+  }, [input]);
 
   const handleSend = () => {
     if (input.trim()) {
       onSendMessage(input.trim());
       setInput('');
+      // Reset height
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
     }
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-bg">
-      {messages.length > 0 && onClear && (
-        <button
-          onClick={onClear}
-          className="absolute top-4 right-4 text-[10px] text-accent-dim hover:text-accent transition-colors z-10"
-        >
-          Clear Chat
-        </button>
-      )}
-      <div className="flex-1 overflow-y-auto px-6 py-8 pb-24 flex flex-col gap-4 max-w-4xl mx-auto w-full">
-        {messages.length === 0 && (
-          <div className="text-center text-accent-dim text-sm mt-20">
-            Start a conversation with Wolverine...
-          </div>
-        )}
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`max-w-[85%] px-5 py-3 rounded-2xl text-[14px] leading-relaxed shadow-sm transition-all duration-300 ${
-              msg.source === 'user'
-                ? 'self-end bg-accent text-bg font-medium rounded-tr-none'
-                : 'self-start bg-panel border border-border text-text rounded-tl-none'
-            }`}
+    <div className="flex-1 flex flex-col h-full bg-bg relative">
+      {/* Header Actions */}
+      <div className="absolute top-4 right-6 z-30 flex gap-2">
+        {messages.length > 0 && onClear && (
+          <button
+            onClick={onClear}
+            title="Clear conversation"
+            className="p-2 rounded-lg bg-panel border border-border text-dim hover:text-red-400 hover:border-red-400/30 transition-all shadow-xl backdrop-blur-md"
           >
-            {msg.isThinking ? (
-              <span className="text-info text-[12px] italic flex items-center gap-2 thinking-dots">
-                {msg.content}
-              </span>
-            ) : (
-              <div className="whitespace-pre-wrap">{msg.content}</div>
-            )}
-          </div>
-        ))}
-        <div ref={endRef} />
+            <Trash2 size={14} />
+          </button>
+        )}
       </div>
 
-      <div className="shrink-0 px-6 py-4 bg-bg/80 backdrop-blur-xl border-t border-border">
-        <div className="max-w-4xl mx-auto">
-          <div className="glass p-1.5 rounded-2xl flex gap-2 shadow-2xl">
-            <input
-              type="text"
-              className="flex-1 bg-transparent border-none text-text px-4 py-3 outline-none text-[14px] placeholder:text-accent-dim"
-              placeholder="Command Wolverine..."
+      <div className="flex-1 overflow-y-auto px-6 py-8 pb-32">
+        <div className="max-w-3xl mx-auto w-full flex flex-col gap-6">
+          {messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center mt-24 text-center space-y-4 animate-[fadeIn_0.5s_ease-out]">
+              <div className="w-16 h-16 rounded-3xl bg-panel border border-border flex items-center justify-center shadow-2xl">
+                <Wand2 className="text-accent opacity-50" size={32} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold tracking-tight">Wolverine Protocol</h3>
+                <p className="text-dim text-sm max-w-[280px]">Autonomous intelligence initialized. Awaiting commands.</p>
+              </div>
+            </div>
+          )}
+
+          {messages.map((msg) => (
+            <div
+              key={msg.id}
+              className={`flex flex-col ${msg.source === 'user' ? 'items-end' : 'items-start'} animate-[fadeIn_0.3s_ease-out]`}
+            >
+              <div
+                className={`max-w-[90%] px-5 py-3.5 rounded-2xl text-[14px] leading-relaxed shadow-sm ${
+                  msg.source === 'user'
+                    ? 'bg-white text-black font-medium rounded-tr-sm'
+                    : 'bg-panel border border-border text-text rounded-tl-sm'
+                }`}
+              >
+                {msg.isThinking ? (
+                  <div className="flex items-center gap-3 py-1">
+                    <div className="flex gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-info animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-info animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-info animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                    <span className="text-info text-xs font-mono uppercase tracking-widest opacity-80">{msg.content}</span>
+                  </div>
+                ) : (
+                  <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                )}
+              </div>
+              <span className="text-[9px] text-accent-dim mt-1.5 px-1 uppercase tracking-tighter opacity-50">
+                {msg.source === 'user' ? 'Operator' : 'Wolverine'}
+              </span>
+            </div>
+          ))}
+          <div ref={endRef} className="h-4" />
+        </div>
+      </div>
+
+      {/* Input Area */}
+      <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-bg via-bg/95 to-transparent pointer-events-none">
+        <div className="max-w-3xl mx-auto w-full pointer-events-auto">
+          <div className="glass p-2 rounded-2xl flex items-end gap-2 shadow-2xl border-white/5 ring-1 ring-white/5">
+            <textarea
+              ref={textareaRef}
+              rows={1}
+              className="flex-1 bg-transparent border-none text-text px-4 py-3 outline-none text-[14px] placeholder:text-accent-dim resize-none min-h-[44px] max-h-[200px]"
+              placeholder="Deploy directive..."
               autoFocus
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleSend();
-              }}
+              onKeyDown={handleKeyDown}
             />
             <button
               onClick={handleSend}
               disabled={!input.trim()}
-              className="bg-accent text-bg border-none px-5 rounded-xl font-bold text-xs uppercase tracking-widest cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+              className="h-11 w-11 flex items-center justify-center bg-white text-black rounded-xl hover:bg-zinc-200 transition-all active:scale-90 disabled:opacity-20 disabled:grayscale disabled:hover:bg-white"
             >
-              Send
+              <Send size={18} />
             </button>
+          </div>
+          <div className="mt-3 text-center text-[9px] text-accent-dim tracking-[0.2em] uppercase opacity-30">
+            Secure Neural Link Established
           </div>
         </div>
       </div>
