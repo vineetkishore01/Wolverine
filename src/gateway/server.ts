@@ -85,7 +85,8 @@ export class GatewayServer {
         }
 
         if (url.pathname === "/api/config" && req.method === "POST") {
-          return req.json().then(newConfig => {
+          try {
+            const newConfig = await req.json();
             // Validate Gateway config
             if (newConfig.gateway?.port) {
               const port = parseInt(newConfig.gateway.port);
@@ -122,14 +123,11 @@ export class GatewayServer {
             // Hot-reload Telegram channel if present
             if (self.telegramChannel) {
               const { TelegramChannel } = require("./channels/telegram.js");
-              self.telegramChannel.stop().then(() => {
-                const newTelegram = new TelegramChannel(self.settings);
-                self.telegramChannel = newTelegram;
-                newTelegram.start();
-                console.log("[Gateway] Telegram channel hot-reloaded.");
-              }).catch((err: any) => {
-                console.error("[Gateway] Failed to reload Telegram channel:", err);
-              });
+              await self.telegramChannel.stop();
+              const newTelegram = new TelegramChannel(self.settings);
+              self.telegramChannel = newTelegram;
+              newTelegram.start();
+              console.log("[Gateway] Telegram channel hot-reloaded.");
             }
             
             console.log(`[Gateway] Config hot-reloaded. Warning: In-memory conversation context was reset.`);
@@ -137,33 +135,37 @@ export class GatewayServer {
               ok: true, 
               message: "Config updated. Note: Active conversations lost context." 
             }));
-          });
+          } catch (err: any) {
+            return new Response(JSON.stringify({ ok: false, error: "Invalid JSON" }), { status: 400 });
+          }
         }
 
         if (url.pathname === "/api/memory/clear" && req.method === "DELETE") {
-          return contextEngineer.clearMemories().then(() => {
+          try {
+            await contextEngineer.clearMemories();
             return new Response(JSON.stringify({ ok: true, message: "Memory cleared" }));
-          }).catch((err) => {
+          } catch (err: any) {
             console.error("[Gateway] Memory clear failed:", err);
             return new Response(JSON.stringify({ ok: false, error: err.message }), { status: 500 });
-          });
+          }
         }
 
         if (url.pathname === "/api/memory" && req.method === "GET") {
           const q = url.searchParams.get("q") || "";
-          return contextEngineer.searchMemories(q).then(memories => {
+          try {
+            const memories = await contextEngineer.searchMemories(q);
             return new Response(JSON.stringify({ memories }), {
               headers: { "Content-Type": "application/json" }
             });
-          }).catch(() => {
+          } catch {
             return new Response(JSON.stringify({ memories: [] }));
-          });
+          }
         }
 
         if (url.pathname === "/api/evolve" && req.method === "POST") {
           const { SkillEvolver } = require("../brain/skill-evolver.js");
           const evolver = new SkillEvolver(self.settings);
-          evolver.runEvolutionCycle().catch(err => console.error("[Evolution] Error:", err));
+          evolver.runEvolutionCycle().catch((err: any) => console.error("[Evolution] Error:", err));
           return new Response(JSON.stringify({ ok: true, message: "Evolution cycle started" }));
         }
 
@@ -183,14 +185,11 @@ export class GatewayServer {
             // Hot-reload Telegram channel if present
             if (self.telegramChannel) {
               const { TelegramChannel } = require("./channels/telegram.js");
-              self.telegramChannel.stop().then(() => {
-                const newTelegram = new TelegramChannel(self.settings);
-                self.telegramChannel = newTelegram;
-                newTelegram.start();
-                console.log("[Gateway] Telegram channel hot-reloaded after onboarding.");
-              }).catch((err: any) => {
-                console.error("[Gateway] Failed to reload Telegram channel during onboarding:", err);
-              });
+              await self.telegramChannel.stop();
+              const newTelegram = new TelegramChannel(self.settings);
+              self.telegramChannel = newTelegram;
+              newTelegram.start();
+              console.log("[Gateway] Telegram channel hot-reloaded after onboarding.");
             }
 
             return new Response(JSON.stringify({ ok: true, message: "Onboarding complete! Wolverine is ready." }));
@@ -202,13 +201,15 @@ export class GatewayServer {
         // Attempt WebSocket upgrade for everything else
         const success = server.upgrade(req, {
           data: { id: crypto.randomUUID() },
-        });
+        } as any);
         
         if (success) return undefined;
 
         // Static file serving for web UI
+        const distRoot = path.resolve("./web-ui/dist");
+        
         if (url.pathname === "/" || url.pathname === "/index.html") {
-          const indexPath = path.resolve("./web-ui/dist/index.html");
+          const indexPath = path.join(distRoot, "index.html");
           if (fs.existsSync(indexPath)) {
             return new Response(Bun.file(indexPath));
           }
@@ -216,9 +217,8 @@ export class GatewayServer {
         }
 
         // Static file serving with path traversal protection
-        const distRoot = path.resolve("./web-ui/dist");
-        const requestedPath = "." + url.pathname;
-        const staticPath = path.resolve(distRoot, requestedPath);
+        const relativePath = url.pathname.startsWith("/") ? url.pathname.substring(1) : url.pathname;
+        const staticPath = path.join(distRoot, relativePath);
         
         if (staticPath.startsWith(distRoot) && fs.existsSync(staticPath) && fs.statSync(staticPath).isFile()) {
           return new Response(Bun.file(staticPath));
@@ -397,6 +397,12 @@ export class GatewayServer {
             activeMessages.push({ role: "assistant", content });
             activeMessages.push({ role: "system", content: `TOOL_RESULT: ${JSON.stringify(result)}` });
 
+            // CONTEXT MONITORING: If context grows too large (e.g. over 10000 tokens), log a warning.
+            const estimatedTokens = activeMessages.reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
+            if (estimatedTokens > 10000) {
+              console.warn(`[Gateway] Context is extremely large (${estimatedTokens} tokens). Next iteration might be slow.`);
+            }
+
             loopCount++;
             continue;
           } catch (err) {
@@ -570,12 +576,14 @@ Result: Successfully completed sub-task. The required files/information are now 
       .replace(/<THOUGHT>[\s\S]*?<\/THOUGHT>/gi, '')
       .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
       .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+      // Better regex for TOOL_CALL that handles balanced braces and potential multiple calls
       .replace(/TOOL_CALL:\s*\{[\s\S]*?\}/g, '')
+      .replace(/```json\n\{\s*"name":[\s\S]*?\n\}\n```/g, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
     
     // If result is empty or just "}" / "{", the LLM was calling a tool
-    if (result === '}' || result === '{' || result.trim() === '') {
+    if (/^[{}]$/.test(result) || result.trim() === '') {
       return '';
     }
     

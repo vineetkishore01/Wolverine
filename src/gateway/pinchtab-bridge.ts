@@ -99,7 +99,7 @@ export class PinchtabBridge {
     const currentUrl = this.page!.url();
     
     // Create a promise that resolves on navigation OR timeout
-    const navigationPromise = this.page!.waitForURL(url => url !== currentUrl, { timeout: 5000 }).catch(() => null);
+    const navigationPromise = this.page!.waitForURL(url => url.toString() !== currentUrl, { timeout: 5000 }).catch(() => null);
     
     await this.page!.evaluate((id: number) => {
       const elements = Array.from((window as any).document.querySelectorAll('button, a, input, [role="button"]'));

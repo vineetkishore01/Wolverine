@@ -80,7 +80,7 @@ STOP. Do not retry this. Analyze the failure, check your intuition, and try a DI
     // 2. HINDSIGHT LOOKUP: Retrieve past experiences with this tool IN PARALLEL
     const pastLessonsPromise = this.getChetna().searchMemories(`tried to use tool ${name} failed mistake lesson`, 3)
       .then(lessons => {
-        const results = Array.isArray(lessons) ? lessons : (lessons?.memories || []);
+        const results = Array.isArray(lessons) ? lessons : ((lessons as any)?.memories || []);
         return results.map((r: any) => r.content).join("\n");
       })
       .catch(err => {
@@ -109,7 +109,7 @@ STOP. Do not retry this. Analyze the failure, check your intuition, and try a DI
       else if (name === "memory") {
         const { query, limit = 5 } = params;
         const memories = await this.getChetna().searchMemories(query, limit);
-        const results = Array.isArray(memories) ? memories : (memories?.memories || []);
+        const results = Array.isArray(memories) ? memories : ((memories as any)?.memories || []);
         const contextText = results.map((r: any) => `[Fact] ${r.content}`).join("\n") || "No memories found.";
         result = { success: true, output: `SOUL RECALL:\n${contextText}` };
       }
@@ -130,8 +130,15 @@ STOP. Do not retry this. Analyze the failure, check your intuition, and try a DI
         const fullPath = path.join(skill.path, entryPoint);
         if (entryPoint.endsWith(".py")) result = await this.runScript(`python3 "${fullPath}"`, params);
         else {
-          const bunPath = process.env.HOME ? `${process.env.HOME}/.bun/bin/bun` : "~/.bun/bin/bun";
-          result = await this.runScript(`${bunPath} run "${fullPath}"`, params);
+          // Robust Bun path discovery
+          let bunPath = "bun"; // Default to path-based discovery
+          if (process.env.BUN_INSTALL) {
+            bunPath = path.join(process.env.BUN_INSTALL, "bin", "bun");
+          } else if (process.env.HOME) {
+            const homeBun = path.join(process.env.HOME, ".bun", "bin", "bun");
+            if (existsSync(homeBun)) bunPath = homeBun;
+          }
+          result = await this.runScript(`"${bunPath}" run "${fullPath}"`, params);
         }
       }
 

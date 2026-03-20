@@ -53,6 +53,7 @@ export class SkillRegistry {
         description: "Headless Chromium browser. Use for navigation, scraping, and visual research.",
         version: "1.0.0",
         entryPoint: "builtin",
+        capabilities: [],
         parameters: { action: "navigate|click|snapshot", url: "string", elementId: "number" }
       },
       {
@@ -60,6 +61,7 @@ export class SkillRegistry {
         description: "Bash shell access. Use for file manipulation, running code, and installs.",
         version: "1.0.0",
         entryPoint: "builtin",
+        capabilities: [],
         parameters: { command: "string" }
       },
       {
@@ -67,6 +69,7 @@ export class SkillRegistry {
         description: "Outbound messaging. Use for sending voice memos or files to the user.",
         version: "1.0.0",
         entryPoint: "builtin",
+        capabilities: [],
         parameters: { action: "send_audio|send_message", text: "string", filePath: "string" }
       },
       {
@@ -74,6 +77,7 @@ export class SkillRegistry {
         description: "Memory Recall. Use to search your long-term memory layer (Chetna) for older facts, rules, or habits.",
         version: "1.0.0",
         entryPoint: "builtin",
+        capabilities: [],
         parameters: { query: "string", limit: "number" }
       },
       {
@@ -81,6 +85,7 @@ export class SkillRegistry {
         description: "Delegation. Spawn a child agent to handle a sub-task. Use 'run' for independent tasks.",
         version: "1.0.0",
         entryPoint: "builtin",
+        capabilities: [],
         parameters: { task: "string", mode: "run|session" }
       }
     ];

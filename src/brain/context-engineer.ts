@@ -5,21 +5,7 @@ import { ProviderFactory } from "../providers/factory.js";
 import type { Settings } from "../types/settings.js";
 import type { ChetnaClient } from "./chetna-client.js";
 
-let chetnaClientInstance: ChetnaClient | null = null;
-
-/**
- * Lazily loads and returns the ChetnaClient instance.
- * 
- * @returns {ChetnaClient} The ChetnaClient instance.
- * @sideEffects Requires the chetna-client.js module on first call.
- */
-function getChetnaClient(): ChetnaClient {
-  if (!chetnaClientInstance) {
-    const { chetnaClient } = require("./chetna-client.js");
-    chetnaClientInstance = chetnaClient;
-  }
-  return chetnaClientInstance as ChetnaClient;
-}
+import { chetnaClient } from "./chetna-client.js";
 
 export class ContextEngineer {
   private CONTEXT_LIMIT = 12000;
@@ -42,9 +28,9 @@ export class ContextEngineer {
     } catch {
       this.settings = {
         gateway: { port: 18789, host: "0.0.0.0" },
-        llm: { defaultProvider: "ollama", ollama: { url: "http://127.0.0.1:11434", model: "llama3" } },
-        telegram: { botToken: "", allowedUserIds: [] },
-        brain: { chetnaUrl: "http://127.0.0.1:1987" }
+        llm: { defaultProvider: "ollama", ollama: { url: "http://127.0.0.1:11434", model: "llama3", contextWindow: 4096, temperature: 0.7 } },
+        telegram: { botToken: "mock", allowedUserIds: [], allowedChatIds: [] },
+        brain: { chetnaUrl: "http://127.0.0.1:1987", memoryProvider: "chetna" }
       } as Settings;
     }
   }
@@ -75,16 +61,6 @@ export class ContextEngineer {
 
   /**
    * Checks context size and performs compaction (summarization) if it exceeds the limit.
-   * 
-   * Compaction involves:
-   * 1. Selecting the oldest messages.
-   * 2. Preserving critical identifiers (UUIDs, paths, etc.).
-   * 3. Using an LLM to generate a dense summary.
-   * 4. Storing the summary and deleting the old messages.
-   * 
-   * @returns {Promise<void>} A promise that resolves when compaction is complete or skipped.
-   * @private
-   * @sideEffects Reads from and writes to the database, invokes an LLM provider.
    */
   private async maybeCompact() {
     if (this.isCompacting) return;
@@ -160,11 +136,6 @@ export class ContextEngineer {
 
   /**
    * Assembles the active conversation context for the LLM.
-   * 
-   * Includes the latest summary and the last 5 raw messages for continuity.
-   * 
-   * @returns {Promise<Message[]>} A promise that resolves to an array of messages for the LLM.
-   * @sideEffects Reads from the database.
    */
   async assembleActiveContext(): Promise<Message[]> {
     const messages: Message[] = [];
@@ -186,15 +157,10 @@ export class ContextEngineer {
 
   /**
    * Searches long-term memory (Chetna) for relevant context.
-   * 
-   * @param {string} query - The search query.
-   * @returns {Promise<any[]>} A promise that resolves to an array of relevant memories.
-   * @sideEffects Invokes an MCP call via ChetnaClient.
    */
   async searchMemories(query: string): Promise<any[]> {
     try {
-      const client = getChetnaClient();
-      return await client.searchMemories(query, 20);
+      return await chetnaClient.searchMemories(query, 20);
     } catch {
       return [];
     }
@@ -202,14 +168,10 @@ export class ContextEngineer {
 
   /**
    * Clears all long-term memories in Chetna.
-   * 
-   * @returns {Promise<void>} A promise that resolves when memories are cleared.
-   * @sideEffects Invokes an MCP call ('memory_clear') via ChetnaClient.
    */
   async clearMemories(): Promise<void> {
     try {
-      const client = getChetnaClient();
-      return await client.call("memory_clear", {});
+      return await chetnaClient.call("memory_clear", {});
     } catch {
       return;
     }

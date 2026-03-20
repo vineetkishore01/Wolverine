@@ -94,14 +94,18 @@ export class OllamaProvider implements LLMProvider {
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
+    let buffer = "";
 
     try {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+
+        // The last element might be an incomplete line, so keep it in the buffer
+        buffer = lines.pop() || "";
 
         for (const line of lines) {
           if (!line.trim()) continue;
@@ -110,8 +114,8 @@ export class OllamaProvider implements LLMProvider {
             if (json.message?.content) {
               yield json.message.content;
             }
-          } catch {
-            // Incomplete JSON chunk, skip
+          } catch (e) {
+            console.error("[Ollama] Stream parse error:", e, "Line:", line);
           }
         }
       }

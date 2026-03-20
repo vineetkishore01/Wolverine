@@ -60,6 +60,17 @@ function saveMessages(messages: Message[]) {
 }
 
 /**
+ * Generates a unique identifier.
+ * Fallback for environments where crypto.randomUUID() is unavailable.
+ */
+function generateId(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return Math.random().toString(36).substring(2, 11);
+}
+
+/**
  * Custom hook to manage the WebSocket connection to the Wolverine Gateway.
  * Handles real-time messaging, connection status, and trace event accumulation.
  * 
@@ -75,7 +86,7 @@ export function useWolverineSocket() {
   const [messages, setMessages] = useState<Message[]>(loadMessages);
   const [traces, setTraces] = useState<TraceEvent[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<number | null>(null);
+  const reconnectTimeoutRef = useRef<any>(null);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -97,7 +108,7 @@ export function useWolverineSocket() {
       setStatus('disconnected');
       // Attempt reconnect after 3 seconds
       if (!reconnectTimeoutRef.current) {
-        reconnectTimeoutRef.current = window.setTimeout(() => {
+        reconnectTimeoutRef.current = setTimeout(() => {
           reconnectTimeoutRef.current = null;
           connect();
         }, 3000);
@@ -119,10 +130,7 @@ export function useWolverineSocket() {
           if (isBot) return;
 
           setMessages((prev) => {
-            if (prev.some(m => m.source === 'user' && m.content === content)) {
-              return prev;
-            }
-            const updated = [...prev, { id: crypto.randomUUID(), source: 'user' as const, content }];
+            const updated = [...prev, { id: generateId(), source: 'user' as const, content }];
             saveMessages(updated);
             return updated;
           });
@@ -136,7 +144,7 @@ export function useWolverineSocket() {
               const updated = [
                 ...filtered,
                 {
-                  id: crypto.randomUUID(),
+                  id: generateId(),
                   source: 'bot' as const,
                   content: event.payload.content,
                 }
@@ -149,7 +157,7 @@ export function useWolverineSocket() {
               const updated = [
                 ...filtered,
                 {
-                  id: crypto.randomUUID(),
+                  id: generateId(),
                   source: 'bot' as const,
                   content: `⚠️ ${errorMsg}`,
                 }
@@ -164,7 +172,7 @@ export function useWolverineSocket() {
           setTraces((prev) => {
             return [
               {
-                id: crypto.randomUUID(),
+                id: generateId(),
                 type: event.type,
                 source: event.source,
                 timestamp: event.timestamp,
@@ -198,8 +206,8 @@ export function useWolverineSocket() {
       setMessages((prev) => {
         const updated = [
           ...prev,
-          { id: crypto.randomUUID(), source: 'user', content: text },
-          { id: crypto.randomUUID(), source: 'bot', content: 'Wolverine is thinking', isThinking: true }
+          { id: generateId(), source: 'user', content: text },
+          { id: generateId(), source: 'bot', content: 'Wolverine is thinking', isThinking: true }
         ];
         saveMessages(updated);
         return updated;
@@ -208,7 +216,7 @@ export function useWolverineSocket() {
       wsRef.current.send(
         JSON.stringify({
           type: "req",
-          id: crypto.randomUUID(),
+          id: generateId(),
           method: "agent.chat",
           params: { 
             messages: [{ role: "user", content: text }], 

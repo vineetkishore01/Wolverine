@@ -107,7 +107,7 @@ export class ChetnaClient {
     // 1. Semantic Search
     try {
       const semanticResults = await this.call("memory_search", { query, limit, semantic });
-      results = Array.isArray(semanticResults) ? semanticResults : (semanticResults?.memories || []);
+      results = Array.isArray(semanticResults) ? semanticResults : ((semanticResults as any)?.memories || []);
     } catch (e) {
       console.warn("[Chetna] Semantic search failed.");
     }
@@ -117,14 +117,16 @@ export class ChetnaClient {
       try {
         const keywordResults = await this.call("memory_search", { 
           query: keywords.join(" "), 
-          limit: 5, 
+          limit: Math.max(5, limit), 
           semantic: false 
         });
-        const kwMemories = Array.isArray(keywordResults) ? keywordResults : (keywordResults?.memories || []);
+        const kwMemories = Array.isArray(keywordResults) ? keywordResults : ((keywordResults as any)?.memories || []);
         
         // Merge & Deduplicate (Prioritize exact keyword matches at the top)
         const existingIds = new Set(results.map(r => r.id));
         const uniqueKeywords = kwMemories.filter((r: any) => !existingIds.has(r.id));
+        
+        // Combine results, prioritizing keywords, and re-slice to limit
         results = [...uniqueKeywords, ...results].slice(0, limit);
       } catch (e) {
         console.warn("[Chetna] Keyword search failed.");
@@ -136,6 +138,7 @@ export class ChetnaClient {
 }
 
 import { readFileSync } from "fs";
+import { PATHS } from "../types/paths.js";
 
 /**
  * Creates a default instance of the ChetnaClient using settings from settings.json.
@@ -145,12 +148,14 @@ import { readFileSync } from "fs";
  */
 function createDefaultChetnaClient(): ChetnaClient {
   try {
-    const settingsContent = readFileSync("settings.json", "utf-8");
+    const settingsPath = PATHS.settings;
+    const settingsContent = readFileSync(settingsPath, "utf-8");
     const settings = JSON.parse(settingsContent);
     return new ChetnaClient(settings);
   } catch (err) {
-    console.warn("[ChetnaClient] Failed to load settings.json, using defaults:", err);
-    return new ChetnaClient({ brain: { chetnaUrl: "http://127.0.0.1:1987" } });
+    console.warn("[ChetnaClient] Failed to load settings.json, using environment or default port:");
+    const url = process.env.CHETNA_URL || "http://127.0.0.1:1987";
+    return new ChetnaClient({ brain: { chetnaUrl: url } });
   }
 }
 

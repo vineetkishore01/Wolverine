@@ -36,7 +36,7 @@ export class CognitiveCore {
     let memoryContext = "";
     try {
       const memories = await this.chetna.searchMemories(userMessage, 5);
-      const results = Array.isArray(memories) ? memories : (memories?.memories || []);
+      const results = Array.isArray(memories) ? memories : ((memories as any)?.memories || []);
       if (results.length > 0) {
         const validResults = results.filter((r: any) => r && typeof r.content === "string");
         if (validResults.length > 0) {
@@ -91,47 +91,51 @@ ${memoryContext || "None stored yet."}
   /**
    * Extracts and records facts from an interaction into the long-term memory (Chetna).
    * 
-   * This method performs the following:
-   * 1. Extracts the user's part of the interaction.
-   * 2. Identifies facts using regex patterns.
-   * 3. Validates and deduplicates facts against existing memories.
-   * 4. Stores new facts in Chetna.
-   * 5. Publishes telemetry about the memory operation.
+   * Uses INTELLIGENT LLM-based extraction with fallback to regex.
+   * The LLM understands context, nuance, and varied phrasings.
    * 
-   * @param {string} interaction - The full interaction string (e.g., "User: ... \nWolverine: ...").
-   * @returns {Promise<void>} A promise that resolves when the recording process is complete.
-   * @sideEffects Invokes multiple MCP calls to Chetna and publishes telemetry events.
+   * Flow:
+   * 1. Extract user's messages from interaction
+   * 2. Send to LLM for fact extraction (intelligent)
+   * 3. Deduplicate against existing memories
+   * 4. Store new facts in Chetna
+   * 
+   * @param {string} interaction - The full interaction string.
+   * @returns {Promise<void>}
    */
   async recordMemory(interaction: string) {
     try {
+      // Extract ALL user messages from the interaction
+      const userMessages = interaction.matchAll(/^User:\s*(.+?)(?=\nUser:|\nWolverine:|$)/gism);
+      let userText = "";
+      for (const match of userMessages) {
+        userText += match[1] + " ";
+      }
       
-      // Extract ONLY from user messages to avoid Wolverine response fragments
-      // The interaction format is "User: <msg>\nWolverine: <response>"
-      // We only want facts from what the USER said
-      const userMessageMatch = interaction.match(/^User:\s*(.+?)(?:\n|$)/is);
-      const userText = userMessageMatch ? userMessageMatch[1] : interaction;
+      if (!userText.trim()) {
+        userText = interaction;
+      }
+
+      // INTELLIGENT: Use LLM to extract facts
+      const facts = await this.extractFactsWithLLM(userText);
       
-      const facts = this.extractFacts(userText);
-      const validFacts = facts.filter(f => f && f.trim().length > 2);
-      
-      if (validFacts.length === 0) return;
+      if (facts.length === 0) return;
       
       // Check for duplicates before storing
-      const existingFacts = await this.chetna.searchMemories(validFacts.join(" "), 10);
-      const existingSet = new Set(
+      const existingFacts = await this.chetna.searchMemories(facts.join(" "), 10);
+      const existingSet = new Set<string>(
         Array.isArray(existingFacts) 
           ? existingFacts.map((r: any) => r.content?.toLowerCase())
-          : (existingFacts?.memories || []).map((r: any) => r.content?.toLowerCase())
+          : ((existingFacts as any)?.memories || []).map((r: any) => r.content?.toLowerCase())
       );
       
       let storedCount = 0;
-      for (const fact of validFacts) {
+      for (const fact of facts) {
         const normalized = fact.trim().toLowerCase();
         
         // Skip if too similar to existing facts
         if (existingSet.has(normalized)) continue;
         
-        // Check for substring matches (partial duplicates)
         const isDuplicate = Array.from(existingSet).some(existing => 
           existing.includes(normalized) || normalized.includes(existing)
         );
@@ -141,7 +145,7 @@ ${memoryContext || "None stored yet."}
           content: fact.trim(),
           importance: 0.6,
           category: "fact",
-          tags: ["extracted", "interaction"]
+          tags: ["extracted", "llm"]
         });
         
         existingSet.add(normalized);
@@ -152,204 +156,184 @@ ${memoryContext || "None stored yet."}
         telemetry.publish({ 
           type: "memory", 
           source: "Brain", 
-          content: `Extracted ${validFacts.length} facts, stored ${storedCount} new (${validFacts.length - storedCount} duplicates skipped)`
+          content: `LLM extracted ${facts.length} facts, stored ${storedCount} new`
         });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn("[Brain] Memory recording skipped:", err.message);
     }
   }
 
   /**
-   * Extracts facts from a given text using predefined regex patterns.
+   * INTELLIGENT: Extracts facts using the LLM.
    * 
-   * @param {string} text - The text to extract facts from.
-   * @returns {string[]} An array of extracted fact strings.
-   * @private
+   * This approach:
+   * - Understands context and nuance
+   * - Handles varied phrasings ("I've been living in SF", "My dog's name is...")
+   * - Extracts meaningful facts, not just pattern matches
+   * - No hardcoded regex patterns
+   * 
+   * @param {string} text - User's message text
+   * @returns {Promise<string[]>} Array of extracted facts
    */
-  private extractFacts(text: string): string[] {
+  private async extractFactsWithLLM(text: string): Promise<string[]> {
+    const provider = ProviderFactory.create(this.settings);
+    
+    const extractionPrompt = `You are a fact extraction assistant. Your job is to identify SELF-REFERENTIAL FACTS from user messages.
+
+SELF-REFERENTIAL FACTS are statements where the user tells you about THEMSELVES. Examples:
+- "My name is Vineet" ✓
+- "I'm a software engineer at Apple" ✓
+- "I live in San Francisco" ✓
+- "I have two cats named Luna and Mochi" ✓
+- "My favorite language is Rust" ✓
+- "I love hiking on weekends" ✓
+- "I'm learning Go programming" ✓
+- "My birthday is March 15th" ✓
+- "I work on backend systems" ✓
+
+NOT self-referential facts (these are NOT about the user):
+- "Thanks for your help" ✗
+- "Can you help me debug this?" ✗
+- "What is Rust?" ✗
+- "How do I install Python?" ✗
+
+RULES:
+1. Only extract facts where the user is describing THEMSELVES (use "I", "my", "I've", etc.)
+2. Extract COMPLETE facts as full sentences or phrases
+3. Do NOT extract fragments - if a fact is incomplete, skip it
+4. Return UP TO 5 facts maximum
+5. Return as a JSON array of strings
+
+Output format:
+["Fact 1 as a complete phrase", "Fact 2", "Fact 3"]
+
+User message:
+${text}
+
+JSON array of facts (only self-referential facts, max 5):`;
+
+    try {
+      const response = await provider.complete(extractionPrompt, {
+        maxTokens: 500,
+        temperature: 0.1,
+        stop: undefined
+      });
+
+      const content = response.content?.trim() || "";
+      
+      // Parse JSON array from response
+      // Try to find JSON array in response
+      let facts: string[] = [];
+      
+      // Method 1: Direct JSON parse
+      if (content.startsWith("[")) {
+        try {
+          facts = JSON.parse(content);
+        } catch {
+          // Method 2: Extract from markdown code block
+          const jsonMatch = content.match(/\[[\s\S]*?\]/);
+          if (jsonMatch) {
+            try {
+              facts = JSON.parse(jsonMatch[0]);
+            } catch {
+              // Method 3: Parse line by line
+              facts = content
+                .replace(/[\[\]"]/g, "")
+                .split("\n")
+                .map(s => s.trim().replace(/^[-*\d.]\s*/, ""))
+                .filter(s => s.length > 5);
+            }
+          }
+        }
+      } else {
+        // Try to extract quoted strings
+        const quoted = content.match(/"([^"]+)"/g);
+        if (quoted) {
+          facts = quoted.map(q => q.replace(/"/g, "").trim());
+        }
+      }
+
+      // Validate facts
+      const validFacts = facts
+        .filter(f => typeof f === "string" && f.length > 5)
+        .map(f => f.trim())
+        .filter(f => /^(I|My|I've|I am|I'm)\b/i.test(f))
+        .slice(0, 5);
+
+      if (validFacts.length > 0) {
+        console.log(`[Brain] LLM extracted ${validFacts.length} facts:`, validFacts);
+      }
+
+      return validFacts;
+
+    } catch (err) {
+      console.warn("[Brain] LLM fact extraction failed, using fallback:", err);
+      // FALLBACK: Use regex if LLM fails
+      return this.extractFactsWithRegex(text);
+    }
+  }
+
+  /**
+   * FALLBACK: Extracts facts using regex patterns (legacy approach).
+   * 
+   * This is a fallback when LLM extraction fails.
+   * Less intelligent but works without LLM.
+   * 
+   * @param {string} text - User's message text
+   * @returns {string[]} Array of extracted facts
+   */
+  private extractFactsWithRegex(text: string): string[] {
     const facts: string[] = [];
     
-    // ============================================
-    // VALIDATION: Facts must be complete self-statements
-    // ============================================
     const isValidFact = (fact: string): boolean => {
       const trimmed = fact.trim();
-      // Must be at least 8 chars
       if (trimmed.length < 8) return false;
-      // Must have at least 2 words
       if (trimmed.split(/\s+/).length < 2) return false;
-      // Must start with I/my (user self-statement)
       if (!/^(I|My)\b/i.test(trimmed)) return false;
-      // Skip Wolverine response fragments
-      const skipPhrases = [
-        "ready to", "glad to", "happy to", "here to", "how can i",
-        "what would you", "let me", "i'll be", "let me know",
-        "feel free", "don't hesitate", "got it", "sure thing",
-        "absolutely", "i'm ready", "memory"
-      ];
+      const skipPhrases = ["ready to", "glad to", "happy to", "here to", "how can i", "let me", "i'll be", "let me know", "feel free", "don't hesitate", "got it", "sure thing", "absolutely", "i'm ready", "memory"];
       if (skipPhrases.some(p => trimmed.toLowerCase().startsWith(p))) return false;
       return true;
     };
     
-    // ============================================
-    // PATTERN 1: "My name is X" - Only match actual names
-    // ============================================
-    // Only match if followed by what looks like a person name (capitalized words, not verbs)
-    const nameMatch = text.match(/(?:my name is|i am)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i);
-    if (nameMatch && nameMatch[1]) {
-      facts.push(`My name is ${nameMatch[1].trim()}`);
-    }
+    const patterns: [RegExp, (m: RegExpMatchArray) => string | null][] = [
+      [/my name is ([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i, m => `My name is ${m[1]}`],
+      [/I am ([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i, m => `I am ${m[1]}`],
+      [/I work at ([A-Za-z][^.,!?\n]{1,50})/i, m => `I work at ${m[1].trim()}`],
+      [/I work in ([A-Za-z][^.,!?\n]{1,50})/i, m => `I work in ${m[1].trim()}`],
+      [/I work as (?:a |an )?([A-Za-z][^.,!?\n]{1,50})/i, m => `I work as ${m[1].trim()}`],
+      [/(?:I am|I'm) (?:a |an )?([A-Za-z][^.,!?\n]{1,50})/i, m => `I am ${m[1].trim()}`],
+      [/I live (?:in|at|with) ([A-Za-z][^.,!?\n]{1,50})/i, m => `I live in ${m[1].trim()}`],
+      [/I have ([A-Za-z][^.,!?\n]{1,50})/i, m => `I have ${m[1].trim()}`],
+      [/I love ([A-Za-z][^.,!?\n]{1,50})/i, m => `I love ${m[1].trim()}`],
+      [/I like ([A-Za-z][^.,!?\n]{1,50})/i, m => `I like ${m[1].trim()}`],
+      [/I prefer ([A-Za-z][^.,!?\n]{1,50})/i, m => `I prefer ${m[1].trim()}`],
+      [/I enjoy ([A-Za-z][^.,!?\n]{1,50})/i, m => `I enjoy ${m[1].trim()}`],
+      [/my favorite ([A-Za-z][A-Za-z\s]*?) is ([A-Za-z][^.,!?\n]{1,50})/i, m => `My favorite ${m[1].trim()} is ${m[2].trim()}`],
+      [/(?:I am|I'm) from ([A-Za-z][^.,!?\n]{1,50})/i, m => `I am from ${m[1].trim()}`],
+      [/I (?:am )?learning ([A-Za-z][^.,!?\n]{1,50})/i, m => `I am learning ${m[1].trim()}`],
+    ];
     
-    // ============================================
-    // PATTERN 1b: "I'm X" - Only match single capitalized names
-    // ============================================
-    const imNameMatch = text.match(/I'm\s+([A-Z][a-z]+)(?:\s|$|\.)/i);
-    if (imNameMatch && imNameMatch[1] && !["am", "is", "was", "going", "learning", "working", "living", "having", "doing", "going"].includes(imNameMatch[1].toLowerCase())) {
-      facts.push(`My name is ${imNameMatch[1].trim()}`);
-    }
-    
-    // ============================================
-    // PATTERN 2: "I work at X"
-    // ============================================
-    const workAtMatch = text.match(/I\s+work\s+at\s+([A-Za-z][^.,!?\n]*)/i);
-    if (workAtMatch && workAtMatch[1]) {
-      facts.push(`I work at ${workAtMatch[1].trim()}`);
-    }
-    
-    // ============================================
-    // PATTERN 3: "I work in X"
-    // ============================================
-    const workInMatch = text.match(/I\s+work\s+in\s+([A-Za-z][^.,!?\n]*)/i);
-    if (workInMatch && workInMatch[1]) {
-      facts.push(`I work in ${workInMatch[1].trim()}`);
-    }
-    
-    // ============================================
-    // PATTERN 4: "I work as a/an X"
-    // ============================================
-    const workAsMatch = text.match(/I\s+work\s+as\s+(?:a\s+|an\s+)?([A-Za-z][^.,!?\n]*)/i);
-    if (workAsMatch && workAsMatch[1]) {
-      facts.push(`I work as ${workAsMatch[1].trim()}`);
-    }
-    
-    // ============================================
-    // PATTERN 5: "I am a/an X" / "I'm a/an X"
-    // ============================================
-    const amMatch = text.match(/(?:I am|I'm)\s+(?:a\s+|an\s+)?([A-Za-z][^.,!?\n]*?)(?:\.|,|$)/i);
-    if (amMatch && amMatch[1]) {
-      const role = amMatch[1].trim();
-      if (role.length > 2 && !["ready", "happy", "glad", "here", "going", "doing", "not", "in", "from", "learning"].includes(role.toLowerCase().split(/\s+/)[0])) {
-        facts.push(`I am ${role}`);
+    for (const [pattern, formatter] of patterns) {
+      const match = text.match(pattern);
+      if (match) {
+        const fact = formatter(match);
+        if (fact && isValidFact(fact)) {
+          facts.push(fact);
+        }
       }
     }
     
-    // ============================================
-    // PATTERN 6: "I live in X"
-    // ============================================
-    const liveMatch = text.match(/I\s+live\s+(?:in|at|with)\s+([A-Za-z][^.,!?\n]*)/i);
-    if (liveMatch && liveMatch[1]) {
-      facts.push(`I live in ${liveMatch[1].trim()}`);
-    }
-    
-    // ============================================
-    // PATTERN 7: "I have X"
-    // ============================================
-    const haveMatch = text.match(/I\s+have\s+([A-Za-z][^.,!?\n]*)/i);
-    if (haveMatch && haveMatch[1]) {
-      facts.push(`I have ${haveMatch[1].trim()}`);
-    }
-    
-    // ============================================
-    // PATTERN 8: "I love X"
-    // ============================================
-    const loveMatch = text.match(/I\s+love\s+([A-Za-z][^.,!?\n]*)/i);
-    if (loveMatch && loveMatch[1]) {
-      facts.push(`I love ${loveMatch[1].trim()}`);
-    }
-    
-    // ============================================
-    // PATTERN 9: "I like X"
-    // ============================================
-    const likeMatch = text.match(/I\s+like\s+([A-Za-z][^.,!?\n]*)/i);
-    if (likeMatch && likeMatch[1] && !text.toLowerCase().includes("i love")) {
-      facts.push(`I like ${likeMatch[1].trim()}`);
-    }
-    
-    // ============================================
-    // PATTERN 10: "I hate X"
-    // ============================================
-    const hateMatch = text.match(/I\s+hate\s+([A-Za-z][^.,!?\n]*)/i);
-    if (hateMatch && hateMatch[1]) {
-      facts.push(`I hate ${hateMatch[1].trim()}`);
-    }
-    
-    // ============================================
-    // PATTERN 11: "I prefer X"
-    // ============================================
-    const preferMatch = text.match(/I\s+prefer\s+([A-Za-z][^.,!?\n]*)/i);
-    if (preferMatch && preferMatch[1]) {
-      facts.push(`I prefer ${preferMatch[1].trim()}`);
-    }
-    
-    // ============================================
-    // PATTERN 12: "I enjoy X" / "I love X" / "I hate X"
-    // ============================================
-    const enjoyMatch = text.match(/I\s+enjoy\s+([A-Za-z][^.,!?\n]*)/i);
-    if (enjoyMatch && enjoyMatch[1]) {
-      facts.push(`I enjoy ${enjoyMatch[1].trim()}`);
-    }
-    
-    // ============================================
-    // PATTERN 13: "My favorite X is Y"
-    // ============================================
-    const favMatch = text.match(/my\s+favorite\s+([A-Za-z][A-Za-z\s]*?)\s+is\s+([A-Za-z][^.,!?\n]*)/i);
-    if (favMatch && favMatch[1] && favMatch[2]) {
-      facts.push(`My favorite ${favMatch[1].trim()} is ${favMatch[2].trim()}`);
-    }
-    
-    // ============================================
-    // PATTERN 14: "I am from X" / "I'm from X"
-    // ============================================
-    const fromMatch = text.match(/(?:I am|I'm)\s+from\s+([A-Za-z][^.,!?\n]*)/i);
-    if (fromMatch && fromMatch[1]) {
-      facts.push(`I am from ${fromMatch[1].trim()}`);
-    }
-    
-    // ============================================
-    // PATTERN 15: "I am learning X"
-    // ============================================
-    const learningMatch = text.match(/I\s+(?:am\s+)?learning\s+([A-Za-z][^.,!?\n]*)/i);
-    if (learningMatch && learningMatch[1]) {
-      facts.push(`I am learning ${learningMatch[1].trim()}`);
-    }
-    
-    // ============================================
-    // PATTERN 16: Catch-all for any "I X" or "My X" statements
-    // ============================================
-    const catchAll = text.match(/(?:^|\.\s*)(I\s+[A-Za-z]+\s+[A-Za-z][^.,!?\n]{5,})/i);
-    if (catchAll && catchAll[1]) {
-      const phrase = catchAll[1].trim();
-      if (isValidFact(phrase) && phrase.length > 10) {
-        facts.push(phrase);
-      }
-    }
-    
-    // ============================================
-    // DEDUPLICATION & VALIDATION
-    // ============================================
     const seen = new Set<string>();
-    const uniqueFacts: string[] = [];
-    
-    for (const fact of facts) {
-      const normalized = fact.trim();
-      if (!seen.has(normalized.toLowerCase()) && isValidFact(normalized)) {
-        seen.add(normalized.toLowerCase());
-        uniqueFacts.push(normalized);
-      }
-    }
+    const uniqueFacts = facts.filter(f => {
+      const lower = f.toLowerCase();
+      if (seen.has(lower)) return false;
+      seen.add(lower);
+      return true;
+    });
     
     return uniqueFacts.slice(0, 5);
   }
+
 }
 
