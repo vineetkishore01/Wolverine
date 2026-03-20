@@ -2,6 +2,7 @@ import type { Settings } from "../types/settings.js";
 import { ProviderFactory } from "../providers/factory.js";
 import { nodeRegistry } from "./node-registry.js";
 import { CognitiveCore } from "../brain/cognitive-core.js";
+import { CognitiveRouter } from "../brain/cognitive-router.js";
 import { toolHandler } from "../core/tool-handler.js";
 import { SelfEvolutionEngine } from "../brain/evolution.js";
 import { VisionEngine } from "./vision-engine.js";
@@ -11,6 +12,7 @@ import { contextEngineer } from "../brain/context-engineer.js";
 import { randomUUID } from "crypto";
 import fs from "fs";
 import path from "path";
+import { PATHS } from "../types/paths.js";
 
 /**
  * GatewayServer is the central communication hub of the Wolverine system.
@@ -20,6 +22,7 @@ import path from "path";
 export class GatewayServer {
   private settings: Settings;
   private brain: CognitiveCore;
+  private router: CognitiveRouter;
   private evolution: SelfEvolutionEngine;
   private vision: VisionEngine;
   private llmProvider: any;
@@ -33,6 +36,7 @@ export class GatewayServer {
   constructor(settings: Settings) {
     this.settings = settings;
     this.brain = new CognitiveCore(settings);
+    this.router = new CognitiveRouter(settings);
     this.evolution = new SelfEvolutionEngine(settings);
     this.vision = new VisionEngine(settings);
     this.llmProvider = ProviderFactory.create(this.settings);
@@ -109,6 +113,7 @@ export class GatewayServer {
             try {
               self.llmProvider = ProviderFactory.create(self.settings);
               self.brain = new CognitiveCore(self.settings);
+              self.router = new CognitiveRouter(self.settings);
               self.evolution = new SelfEvolutionEngine(self.settings);
               self.vision = new VisionEngine(self.settings);
               toolHandler.setSettings(self.settings);
@@ -178,6 +183,7 @@ export class GatewayServer {
             // Initial engine load
             self.llmProvider = ProviderFactory.create(self.settings);
             self.brain = new CognitiveCore(self.settings);
+            self.router = new CognitiveRouter(self.settings);
             self.evolution = new SelfEvolutionEngine(self.settings);
             self.vision = new VisionEngine(self.settings);
             toolHandler.setSettings(self.settings);
@@ -339,6 +345,46 @@ export class GatewayServer {
       let activeMessages = await this.brain.enrichPrompt(lastUserMessage);
       const contextDuration = Date.now() - contextStart;
       
+      // COGNITIVE ROUTING: Pre-analyze the task to determine strategy
+      const routingDecision = await this.router.route(lastUserMessage, activeMessages.map(m => m.content).join("\n").substring(0, 1000));
+      
+      if (routingDecision.strategy === "REJECT") {
+        this.safeSend(ws, { 
+          type: "res", id: data.id, ok: false, 
+          payload: { content: `I've declined this task for safety or policy reasons: ${routingDecision.reasoning}` } 
+        });
+        return;
+      }
+
+      // Pre-load suggested files (Hindsight Pre-analysis)
+      if (routingDecision.suggestedFiles?.length > 0) {
+        let preloadContent = "[HINDSIGHT PRE-ANALYSIS] I've pre-loaded relevant file snippets based on your request:\n";
+        for (const fileName of routingDecision.suggestedFiles) {
+          try {
+            // Try current working directory (project root) first, then workspace root
+            const projectPath = path.resolve(process.cwd(), fileName);
+            const workspacePath = path.resolve(PATHS.root, fileName);
+            const fullPath = fs.existsSync(projectPath) ? projectPath : workspacePath;
+
+            if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+              const content = fs.readFileSync(fullPath, "utf-8").substring(0, 3000);
+              preloadContent += `\n--- FILE: ${fileName} ---\n${content}\n`;
+            }
+          } catch {}
+        }
+        activeMessages.push({ role: "system", content: preloadContent });
+      }
+
+      if (routingDecision.strategy === "IMMEDIATE") {
+        telemetry.publish({ type: "thought", source: "CognitiveRouter", content: "Routing to IMMEDIATE execution path." });
+        const response = await this.llmProvider.generateCompletion({
+          messages: activeMessages,
+          model: this.settings.llm.ollama.model,
+        });
+        this.safeSend(ws, { type: "res", id: data.id, ok: true, payload: response, metadata: { ...metadata, convId } });
+        return;
+      }
+
       let finalResult: any = null;
       let loopCount = 0;
       let systemPrompt = activeMessages[0]?.content || "";

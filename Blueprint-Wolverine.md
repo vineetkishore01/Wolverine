@@ -6,6 +6,20 @@
 
 ---
 
+## 📚 Documentation Guide
+
+| Document | Purpose |
+|----------|---------|
+| [Blueprint-Wolverine.md](./Blueprint-Wolverine.md) | Master plan overview |
+| [Intelligence Implementation Guide](./docs/blueprint/INTELLIGENCE_IMPLEMENTATION_GUIDE.md) | **Step-by-step implementation** |
+| [Memory Architecture](./docs/MEMORY_ARCHITECTURE.md) | Memory approaches |
+| [Intelligence Roadmap](./docs/INTELLIGENCE_ROADMAP.md) | Near-term priorities |
+| [Full Intelligence Architecture](./docs/FULL_INTELLIGENCE_ARCHITECTURE.md) | Complete vision |
+
+**Start Here:** [Intelligence Implementation Guide](./docs/blueprint/INTELLIGENCE_IMPLEMENTATION_GUIDE.md)
+
+---
+
 ## 🏁 Phase 1-7: The Construction & Hardening (COMPLETE)
 
 - [x] **Phase 1: The Foundation** - Headless Bun/TS Gateway + Tailscale + Multi-Node WebSocket Registry.
