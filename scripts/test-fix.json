@@ -1,8 +1,0 @@
-{
-  "name": "Fix Test",
-  "steps": [
-    { "input": "My name is Vineet.", "wait": 30000 },
-    { "input": "I live in San Francisco.", "wait": 30000 },
-    { "input": "I prefer Python over JavaScript.", "wait": 30000 }
-  ]
-}

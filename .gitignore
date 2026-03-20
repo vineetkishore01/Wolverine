@@ -1,12 +1,29 @@
+# OBD Development Tools (local only)
+scripts/
+launch_obd.sh
+docs/OBD_SYSTEM.md
+docs/ROADMAP.md
+
+# Logs & Diagnostics
+WolverineWorkspace/logs/diagnostics/
+WolverineWorkspace/
+*.log
+*.db
+
+# Dependencies
 node_modules/
+web-ui/node_modules/
 .venv/
 *.pyc
 __pycache__/
+
+# Environment
 .env
-*.log
-*.db
+
+# Data
 ChetnaData/
-WolverineWorkspace/
-wolverine.pid
-web-ui/node_modules/
 chetna/
+wolverine.pid
+
+# Build artifacts
+web-ui/dist/
