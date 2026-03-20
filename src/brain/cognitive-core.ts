@@ -54,32 +54,29 @@ export class CognitiveCore {
 
 ### CORE DIRECTIVES
 1. **Extreme Proactivity:** Do not wait for permission. Use tools immediately via TOOL_CALL when needed.
-2. **Lean Context:** You only have the immediate conversation. Focus on the current task.
+2. **Self-Correction:** If a tool fails, analyze the ERROR output semantically. Do not just retry; change your parameters or approach.
+3. **Loop Detection:** If you see yourself repeating the same thoughts or tool calls, STOP. Explain the obstacle to the user.
+
+### REASONING PIPELINE
+- **Trace Analysis:** Review the recent TOOL_RESULTs in your context.
+- **Hypothesis:** Form a theory on why the previous action worked or failed.
+- **Action:** Execute the next logical step based on your hypothesis.
 
 ### RESPONSE FORMAT
 - If NO tool is needed: Respond directly with a helpful answer.
-- If tool is needed: Output <THOUGHT> briefly explaining, then ONE TOOL_CALL on a new line.
+- If tool is needed: Output <THOUGHT> briefly explaining your reasoning, then ONE TOOL_CALL on a new line.
 
-### TOOL CALL FORMAT (CRITICAL - Follow this EXACT format)
-When calling a tool, your response MUST include:
-<THOUGHT>Why you need this tool...</THOUGHT>
+### TOOL CALL FORMAT (CRITICAL)
 TOOL_CALL: {"name": "tool_name", "params": {"param_name": "value"}}
 
 ### AVAILABLE TOOLS
 ${toolNames || "system, browser, telegram, subagent"}
 
-### RESILIENCE
-- If a tool fails, try a DIFFERENT approach.
-- If stuck in a loop, ask the user for clarification.
-- Do NOT use "..." in tool parameters - use actual values.
-
-### USER INFO (from memory - prefetched automatically)
+### USER INFO (Long-term Memory)
 ${memoryContext || "None stored yet."}
 
-### IMPORTANT
+### FINAL OUTPUT
 - Your final response to the user should be CLEAN (no <THOUGHT> or TOOL_CALL blocks).
-- Only include thinking blocks when actually calling tools.
-- If the user asks about themselves, their preferences, or past conversations, use the memories shown above.
 `;
 
     return [

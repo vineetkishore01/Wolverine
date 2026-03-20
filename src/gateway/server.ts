@@ -344,6 +344,21 @@ export class GatewayServer {
       let systemPrompt = activeMessages[0]?.content || "";
 
       while (loopCount < 5) {
+        // 1. REFLECTIVE ANALYSIS: Before calling LLM, check for semantic loops
+        const recentActions = activeMessages.filter(m => m.role === "assistant" && m.content.includes("TOOL_CALL"));
+        if (recentActions.length >= 3) {
+          const lastAction = recentActions[recentActions.length - 1].content;
+          const secondLastAction = recentActions[recentActions.length - 2].content;
+          
+          if (lastAction === secondLastAction) {
+            telemetry.publish({ type: "thought", source: "Reflector", content: "Semantic loop detected. Injecting course correction." });
+            activeMessages.push({ 
+              role: "system", 
+              content: "[CRITICAL REFLECTION] You have attempted the exact same action twice. It did not produce the desired result. DO NOT repeat it. Analyze why it failed and try a COMPLETELY different tool or strategy." 
+            });
+          }
+        }
+
         if (loopCount === 0) {
           telemetry.recordContextAssembly(systemPrompt, activeMessages, contextDuration);
         }
@@ -351,7 +366,7 @@ export class GatewayServer {
         telemetry.publish({ 
           type: "llm_in", 
           source: "Brain", 
-          content: `Model: ${this.settings.llm.ollama.model} | Sparse Context: ${activeMessages.length} msgs`
+          content: `Model: ${this.settings.llm.ollama.model} | Loop: ${loopCount + 1}/5`
         });
         
         const llmStart = Date.now();
@@ -395,13 +410,13 @@ export class GatewayServer {
             });
 
             activeMessages.push({ role: "assistant", content });
-            activeMessages.push({ role: "system", content: `TOOL_RESULT: ${JSON.stringify(result)}` });
-
-            // CONTEXT MONITORING: If context grows too large (e.g. over 10000 tokens), log a warning.
-            const estimatedTokens = activeMessages.reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
-            if (estimatedTokens > 10000) {
-              console.warn(`[Gateway] Context is extremely large (${estimatedTokens} tokens). Next iteration might be slow.`);
-            }
+            
+            // INTELLECTUAL FEEDBACK: Provide structured feedback so the LLM understands the result semantically
+            const resultFeedback = result.success 
+              ? `TOOL_RESULT (${call.name}): SUCCESS. Output: ${result.output}`
+              : `TOOL_RESULT (${call.name}): FAILED. Error: ${result.output}. Analyze this error and solve it.`;
+            
+            activeMessages.push({ role: "system", content: resultFeedback });
 
             loopCount++;
             continue;

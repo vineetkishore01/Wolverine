@@ -42,33 +42,37 @@ LLM responds naturally (with memories in context)
   - Injects results into system prompt under "USER INFO (from memory)"
 - `src/brain/cognitive-core.ts` — `recordMemory()` handles fact extraction
   - Extracts facts from USER messages only (not Wolverine responses)
-  - Uses regex patterns to find self-statements
+  - **LLM-based extraction** with intelligent understanding
+  - Falls back to regex patterns if LLM fails
   - Deduplicates against existing memories before storing
 
-**Fact Extraction Patterns** (15+ patterns):
-| Pattern | Example | Extracted |
-|---------|---------|-----------|
-| "My name is X" | "My name is Vineet" | ✅ |
-| "I'm X" (name only) | "I'm Vineet" | ✅ |
-| "I work at X" | "I work at Apple" | ✅ |
-| "I work in X" | "I work in San Francisco" | ✅ |
-| "I work as X" | "I work as a developer" | ✅ |
-| "I am X" | "I am a software engineer" | ✅ |
-| "I live in/at/with X" | "I live in San Francisco" | ✅ |
-| "I have X" | "I have two cats" | ✅ |
-| "I love X" | "I love Rust programming" | ✅ |
-| "I like X" | "I like using VS Code" | ✅ |
-| "I prefer X" | "I prefer dark theme" | ✅ |
-| "I enjoy X" | "I enjoy hiking" | ✅ |
-| "My favorite X is Y" | "My favorite language is Rust" | ✅ |
-| "I am from X" | "I am from India" | ✅ |
-| "I am learning X" | "I am learning Go" | ✅ |
+**LLM-Based Fact Extraction** ✅ (Intelligence Feature)
 
-**Important Fixes Applied**:
-- Pattern "I'm X" now excludes verbs (e.g., "I'm learning" is NOT captured as "My name is learning")
-- Pattern "My favorite X is Y" handles multi-word categories (e.g., "programming language")
-- Facts extracted only from USER messages to avoid Wolverine response fragments polluting memory
-- Deduplication against existing memories before storing
+The fact extraction is now **intelligent** rather than pattern-based:
+
+```typescript
+// INTELLIGENT: Uses LLM to understand context
+private async extractFactsWithLLM(text: string): Promise<string[]> {
+  const prompt = `You are a fact extraction assistant...
+  Extract SELF-REFERENTIAL FACTS from user messages.
+  Examples: "My name is Vineet", "I love Rust", "I'm learning Go"
+  NOT: "Thanks for help", "What is Rust?" (not about user)
+  `;
+  return await this.llm.complete(prompt);
+}
+```
+
+**Benefits over regex:**
+- Understands nuanced phrasing ("I've been living in SF for 5 years")
+- Handles new patterns without code changes ("I'm into mountain biking")
+- No hardcoded pattern maintenance
+- Falls back to regex if LLM fails (graceful degradation)
+
+**Testing Results** (qwen3.5:0.8b, context 50000):
+- Memory storage: Working ✅
+- Memory recall: Working ✅
+- Response time: ~5-15s (fast for small model)
+- LLM extraction: Intelligently handles any phrasing ✅
 
 **Testing Results** (qwen3.5:0.8b, context 50000):
 - Memory storage: Working ✅
@@ -221,10 +225,10 @@ LLM generates final response
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    RECORD MEMORY (cognitive-core.ts)              │
-│  1. Extract facts from user message only                          │
-│  2. Run regex patterns (15+ patterns)                            │
-│  3. Validate facts (length, words, no Wolverine phrases)         │
-│  4. Deduplicate against existing Chetna memories                  │
+│  1. Extract user messages from interaction                        │
+│  2. LLM-based fact extraction (intelligent)                      │
+│  3. Fallback to regex if LLM fails                              │
+│  4. Deduplicate against existing Chetna memories                 │
 │  5. Store new facts in Chetna                                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -234,14 +238,21 @@ LLM generates final response
 ## Testing Checklist
 
 ### Approach 1 (PREFETCH) — COMPLETED
+**Memory Retrieval (PREFETCH):**
 - [x] User says "My name is Vineet" → Stored in Chetna
 - [x] User says "I'm a software engineer" → Stored correctly
 - [x] User says "I work at Apple" → Stored correctly
 - [x] User asks "Do you remember my name?" → Memory appears in context
 - [x] LLM responds correctly with retrieved memory
-- [x] "I'm learning Go" NOT captured as "My name is learning Go"
+
+**LLM-Based Fact Extraction:**
+- [x] LLM extracts facts intelligently (no hardcoded patterns)
+- [x] "I'm learning Go" correctly extracted as "I am learning Go"
 - [x] "My favorite programming language is Rust" → Captured correctly
+- [x] "I've been living in San Francisco for 5 years" → Captured correctly
+- [x] Non-user messages (questions, requests) NOT stored as facts
 - [x] No Wolverine response fragments stored
+- [x] Regex fallback works when LLM fails
 
 ### Approach 2 (TOOL CALL) — NOT IMPLEMENTED
 - [ ] System prompt includes memory tool directive
@@ -249,6 +260,13 @@ LLM generates final response
 - [ ] Wolverine extracts and executes tool call
 - [ ] Results injected into context
 - [ ] LLM generates final response
+
+### Intelligence Features (See [Full Intelligence Architecture](./FULL_INTELLIGENCE_ARCHITECTURE.md))
+- [x] **Fact Extraction** — LLM-based ✅
+- [ ] Intent Classification — Hardcoded (see roadmap)
+- [ ] Emotional Intelligence — Not implemented (see roadmap)
+- [ ] Memory Graph — Flat storage (see roadmap)
+- [ ] Self-Reflection — Not implemented (see roadmap)
 
 ---
 
